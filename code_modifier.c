@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <ctype.h>
 
 /* Locate function body start (same logic as code_reader) */
 static const char *find_func_start(const char *buf, int len, const char *func_name) {
@@ -119,4 +120,78 @@ int asm_rollback(char *buf, int len, const char *backup, int backup_len) {
     int restore = (backup_len < len) ? backup_len : len;
     memcpy(buf, backup, restore);
     return restore;
+}
+
+/* Check if a line is a ret instruction (ret, retq, retl) */
+static int is_ret_insn(const char *line, int len) {
+    int i = 0;
+    while (i < len && (line[i] == ' ' || line[i] == '\t')) i++;
+    int j = i;
+    while (j < len && isalpha((unsigned char)line[j])) j++;
+    int wlen = j - i;
+    if (wlen == 3 && strncmp(line + i, "ret", 3) == 0) return 1;
+    if (wlen == 4 && strncmp(line + i, "retq", 4) == 0) return 1;
+    if (wlen == 4 && strncmp(line + i, "retl", 4) == 0) return 1;
+    return 0;
+}
+
+/* Check if a line is an actual instruction (tab-indented, not directive/label/blank) */
+static int is_insn_line(const char *line, int len) {
+    if (len == 0) return 0;
+    if (line[0] != '\t') return 0;
+    /* skip the leading tab */
+    int i = 1;
+    while (i < len && (line[i] == ' ' || line[i] == '\t')) i++;
+    if (i >= len) return 0;
+    if (line[i] == '.' || line[i] == '#') return 0;
+    return isalpha((unsigned char)line[i]);
+}
+
+int asm_delete_dead_insns(char *buf, int len, const char *func_name, int *new_len) {
+    const char *p = find_func_start(buf, len, func_name);
+    if (!p) { if (new_len) *new_len = len; return -1; }
+    const char *end = buf + len;
+    int found_ret = 0;
+    int deleted = 0;
+    int bytes_removed = 0;
+
+    while (p < end) {
+        const char *ls;
+        int ll;
+        const char *next = next_line(p, end, &ls, &ll);
+
+        /* stop at next non-local label (function boundary) */
+        if (is_label_line(ls, ll)) {
+            if (!(ll > 1 && ls[0] == '.' && ls[1] == 'L'))
+                break;
+            p = next;
+            continue;
+        }
+
+        /* skip directives and blanks */
+        if (!found_ret && is_ret_insn(ls, ll)) {
+            found_ret = 1;
+            p = next;
+            continue;
+        }
+
+        if (found_ret && is_insn_line(ls, ll)) {
+            int line_total = (int)(next - ls);
+            int pos = (int)(ls - buf);
+            memmove(buf + pos, buf + pos + line_total, len - pos - line_total);
+            len -= line_total;
+            bytes_removed += line_total;
+            end = buf + len;
+            deleted++;
+            continue;
+        }
+
+        p = next;
+    }
+
+    /* null-terminate the shortened buffer */
+    buf[len] = '\0';
+
+    if (new_len) *new_len = len;
+    return deleted;
 }

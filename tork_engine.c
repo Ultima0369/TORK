@@ -70,13 +70,11 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    /* write self_pid once */
+    /* write self_pid and ppid once */
     {
         uint32_t pid_val = (uint32_t)core_pid;
         soul_write_buf(&soul, S_SELF_PID, &pid_val, 4);
     }
-
-    /* write ppid once */
     {
         uint32_t val;
         if (parse_proc_status_int(core_pid, "PPid:\t", &val) == 0) {
@@ -86,10 +84,10 @@ int main(int argc, char **argv) {
     }
 
     printf("TORK engine started. core PID=%d\n", core_pid);
-    printf("polling 500ms | instinct 10 | env 50 | code 200 | modify 300\n\n");
+    printf("polling 500ms | instinct 10 | code 200 | modify 300 | optimize 600\n\n");
 
-    /* code modification tracking */
     int mod_attempted = 0;
+    int opt_attempted = 0;
 
     for (int i = 0; i < rounds; i++) {
         int rc = soul_read(&soul);
@@ -107,6 +105,7 @@ int main(int argc, char **argv) {
             .code_insns = soul_code_insns(&soul),
             .code_ctrl  = soul_code_ctrl(&soul),
             .code_mod_success = soul_code_mod_success(&soul),
+            .code_opt_saved   = soul_code_opt_saved(&soul),
         };
 
         tork_instinct_t inst = instinct_evaluate(&inp);
@@ -124,88 +123,109 @@ int main(int argc, char **argv) {
                 int insns = asm_count_insns_in_func(asm_buf, alen, "memcpy_tork");
 
                 char opcodes[32][8];
-                int opc_count = asm_extract_opcodes(asm_buf, alen, "memcpy_tork", opcodes, 32);
+                asm_extract_opcodes(asm_buf, alen, "memcpy_tork", opcodes, 32);
 
                 int cm = 0, ca = 0, cc = 0, co = 0;
                 asm_classify_insns(asm_buf, alen, "memcpy_tork", &cm, &ca, &cc, &co);
 
                 printf("[%4d] tick=%-6u reading memcpy_tork: %d insns\n", i, inp.tick, insns);
                 printf("       opcodes:");
-                int show = opc_count > 10 ? 10 : opc_count;
+                int show = (insns > 10) ? 10 : insns;
                 for (int k = 0; k < show; k++) printf(" %s", opcodes[k]);
                 printf("\n");
                 printf("       class: mov=%d arith=%d control=%d other=%d\n", cm, ca, cc, co);
 
-                /* write code stats to soul */
-                {
-                    uint8_t stats[10];
-                    memset(stats, 0, sizeof(stats));
-                    *(uint16_t*)(stats + 0) = (uint16_t)insns;
-                    *(uint16_t*)(stats + 2) = (uint16_t)cm;
-                    *(uint16_t*)(stats + 4) = (uint16_t)ca;
-                    *(uint16_t*)(stats + 6) = (uint16_t)cc;
-                    *(uint16_t*)(stats + 8) = (uint16_t)co;
-                    soul_write_buf(&soul, S_CODE_INSNS, stats, 10);
-                }
+                uint8_t stats[10];
+                memset(stats, 0, sizeof(stats));
+                *(uint16_t*)(stats + 0) = (uint16_t)insns;
+                *(uint16_t*)(stats + 2) = (uint16_t)cm;
+                *(uint16_t*)(stats + 4) = (uint16_t)ca;
+                *(uint16_t*)(stats + 6) = (uint16_t)cc;
+                *(uint16_t*)(stats + 8) = (uint16_t)co;
+                soul_write_buf(&soul, S_CODE_INSNS, stats, 10);
 
                 inp.code_insns = (uint16_t)insns;
                 inp.code_ctrl  = (uint16_t)cc;
-                inst = instinct_evaluate(&inp);
-                drive = (int)((inst.desire - inst.fear + inst.curiosity) * 100.0f);
-                if (drive > 127) drive = 127;
-                if (drive < -128) drive = -128;
-                soul_set_drive(&soul, (int8_t)drive);
             }
         }
 
-        /* every 300 rounds: code modification attempt */
+        /* every 300 rounds: conservative modification (je→jz) */
         if (i % 300 == 0 && !mod_attempted) {
             char asm_buf[8192];
-            char backup[8192];
             int alen = asm_read_file("benchmark/memcpy/ref.s", asm_buf, sizeof(asm_buf));
             if (alen > 0) {
+                char backup[8192];
                 int backup_len = alen;
                 memcpy(backup, asm_buf, alen);
 
-                /* try replacing je with jz (exact same opcode, different mnemonic) */
                 int rep = asm_replace_operand(asm_buf, alen, "memcpy_tork",
                                               "\tje\t", "\tjz\t", 1);
                 if (rep == 1) {
-                    /* same length, no len adjustment needed */
-
                     int verified = asm_verify_modification(asm_buf, alen, "benchmark/memcpy");
                     if (verified) {
                         FILE *f = fopen("benchmark/memcpy/ref.s", "w");
-                        if (f) {
-                            fwrite(asm_buf, 1, alen, f);
-                            fclose(f);
-                        }
-                        printf("[%4d] tick=%-6u MODIFY SUCCESS: replaced je with jz\n",
-                               i, inp.tick);
+                        if (f) { fwrite(asm_buf, 1, alen, f); fclose(f); }
+                        printf("[%4d] tick=%-6u MODIFY SUCCESS: replaced je with jz\n", i, inp.tick);
                         uint8_t ms = 1;
                         soul_write_buf(&soul, S_CODE_MOD_SUCCESS, &ms, 1);
                         inp.code_mod_success = 1;
                     } else {
                         asm_rollback(asm_buf, sizeof(asm_buf), backup, backup_len);
-                        printf("[%4d] tick=%-6u MODIFY FAILED: je→jz rejected by assembler\n",
-                               i, inp.tick);
+                        printf("[%4d] tick=%-6u MODIFY FAILED: je→jz rejected\n", i, inp.tick);
                         uint8_t ms = 2;
                         soul_write_buf(&soul, S_CODE_MOD_SUCCESS, &ms, 1);
                         inp.code_mod_success = 2;
                     }
                 } else {
-                    printf("[%4d] tick=%-6u MODIFY SKIP: je not found in memcpy_tork\n",
-                           i, inp.tick);
+                    printf("[%4d] tick=%-6u MODIFY SKIP: je not found\n", i, inp.tick);
                 }
-
-                inst = instinct_evaluate(&inp);
-                drive = (int)((inst.desire - inst.fear + inst.curiosity) * 100.0f);
-                if (drive > 127) drive = 127;
-                if (drive < -128) drive = -128;
-                soul_set_drive(&soul, (int8_t)drive);
                 mod_attempted = 1;
             }
         }
+
+        /* every 600 rounds: aggressive optimization (dead code deletion) */
+        if (i % 600 == 0 && !opt_attempted) {
+            char asm_buf[8192];
+            int alen = asm_read_file("benchmark/memcpy/ref.s", asm_buf, sizeof(asm_buf));
+            if (alen > 0) {
+                char backup[8192];
+                int backup_len = alen;
+                memcpy(backup, asm_buf, alen);
+
+                printf("[%4d] tick=%-6u OPT: scanning for dead code...\n", i, inp.tick);
+
+                int new_len = alen;
+                int deleted = asm_delete_dead_insns(asm_buf, alen, "memcpy_tork", &new_len);
+                if (deleted > 0) {
+                    int verified = asm_verify_modification(asm_buf, new_len, "benchmark/memcpy");
+                    if (verified) {
+                        FILE *f = fopen("benchmark/memcpy/ref.s", "w");
+                        if (f) { fwrite(asm_buf, 1, new_len, f); fclose(f); }
+                        printf("[%4d] tick=%-6u OPT: deleted %d dead insn(s) after ret\n",
+                               i, inp.tick, deleted);
+                        printf("[%4d] tick=%-6u OPT: verification PASSED, writing to file\n",
+                               i, inp.tick);
+                        uint8_t sv = (uint8_t)deleted;
+                        soul_write_buf(&soul, S_CODE_OPT_SAVED, &sv, 1);
+                        inp.code_opt_saved = sv;
+                    } else {
+                        asm_rollback(asm_buf, sizeof(asm_buf), backup, backup_len);
+                        printf("[%4d] tick=%-6u OPT: deleted %d but verification FAILED, rollback\n",
+                               i, inp.tick, deleted);
+                    }
+                } else {
+                    printf("[%4d] tick=%-6u OPT: no dead code found\n", i, inp.tick);
+                }
+                opt_attempted = 1;
+            }
+        }
+
+        /* re-evaluate instinct after all modifications */
+        inst = instinct_evaluate(&inp);
+        drive = (int)((inst.desire - inst.fear + inst.curiosity) * 100.0f);
+        if (drive > 127) drive = 127;
+        if (drive < -128) drive = -128;
+        soul_set_drive(&soul, (int8_t)drive);
 
         /* every 10 rounds: print state */
         if (i % 10 == 0) {

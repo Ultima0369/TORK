@@ -56,6 +56,10 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
     else if (in->code_mod_success == 2)
         inst.fear += 0.1f;
 
+    /* ── code optimization feedback ──────────────────────── */
+    if (in->code_opt_saved > 0)
+        inst.desire += 0.3f;
+
     return inst;
 }
 

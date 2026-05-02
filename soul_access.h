@@ -33,6 +33,7 @@
 #define S_CODE_CTRL   0x3A  /* uint16 */
 #define S_CODE_OTHER  0x3C  /* uint16 */
 #define S_CODE_MOD_SUCCESS 0x3E  /* uint8: 0=none, 1=success, 2=failed */
+#define S_CODE_OPT_SAVED  0x3F  /* uint8: dead code lines deleted */
 
 /* ── Soul reader/writer via /proc/PID/mem ─────────────────────
    Writes require ptrace attach for permission.                    */
@@ -140,6 +141,7 @@ static inline uint16_t  soul_code_arith(soul_t *s) { return SOUL_U16(s, S_CODE_A
 static inline uint16_t  soul_code_ctrl(soul_t *s)  { return SOUL_U16(s, S_CODE_CTRL); }
 static inline uint16_t  soul_code_other(soul_t *s) { return SOUL_U16(s, S_CODE_OTHER); }
 static inline uint8_t   soul_code_mod_success(soul_t *s) { return SOUL_U8(s, S_CODE_MOD_SUCCESS); }
+static inline uint8_t   soul_code_opt_saved(soul_t *s)   { return SOUL_U8(s, S_CODE_OPT_SAVED); }
 
 /* CRC32 verification of the snapshot */
 int soul_verify(soul_t *s);

@@ -29,6 +29,7 @@
 .equ S_CODE_CTRL,    0x3A             # uint16
 .equ S_CODE_OTHER,   0x3C             # uint16
 .equ S_CODE_MOD_SUCCESS, 0x3E       # uint8: 0=none,1=ok,2=fail
+.equ S_CODE_OPT_SAVED,  0x3F       # uint8: dead code lines deleted
 
 # syscalls
 .equ SYS_READ,       0

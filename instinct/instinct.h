@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+struct tork_params;
+
 typedef struct {
     float fear;
     float desire;
@@ -15,14 +17,15 @@ typedef struct {
     uint64_t expected;
     uint8_t  hw_stress;
     uint8_t  mode;
-    uint16_t code_insns;   /* instruction count from code reading */
-    uint16_t code_ctrl;    /* control-flow instruction count */
-    uint8_t  code_mod_success; /* 0=none, 1=success, 2=failed */
-    uint8_t  code_opt_saved;   /* cumulative dead code lines deleted */
-    uint8_t  code_nop_count;   /* nop insns found in last scan */
-    uint8_t  fission_count;    /* number of fissions performed */
-    uint16_t wins;             /* sovereignty migration wins */
-    uint32_t bb_global_opts;   /* blackboard: global optimization count */
+    uint16_t code_insns;
+    uint16_t code_ctrl;
+    uint8_t  code_mod_success;
+    uint8_t  code_opt_saved;
+    uint8_t  code_nop_count;
+    uint8_t  fission_count;
+    uint16_t wins;
+    uint32_t bb_global_opts;
+    const struct tork_params *params;  /* calibrator params, may be NULL */
 } instinct_input_t;
 
 tork_instinct_t instinct_evaluate(const instinct_input_t *in);

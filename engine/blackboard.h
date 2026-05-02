@@ -29,6 +29,7 @@
 #define BB_TYPE_TEMP_EVENT   3
 #define BB_TYPE_INSTINCT     4
 #define BB_TYPE_FISSION      5
+#define BB_TYPE_PARAM_ADJUST 6
 
 /* Initialize blackboard at 0x300000. Returns 0 on success. */
 int bb_init(void);

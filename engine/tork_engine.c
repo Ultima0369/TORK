@@ -5,6 +5,7 @@
 #include "monitor.h"
 #include "fission.h"
 #include "blackboard.h"
+#include "calibrator.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -72,8 +73,11 @@ int main(int argc, char **argv) {
     if (bb_init() != 0)
         fprintf(stderr, "warning: bb_init failed — blackboard unavailable\n");
 
+    if (cal_init() != 0)
+        fprintf(stderr, "warning: cal_init failed — calibrator unavailable\n");
+
     printf("TORK engine started. core PID=%d\n", core_pid);
-    printf("polling 500ms | instinct 10 | code 200 | modify 300 | optimize 600 | nop 900 | fission 1000 | bb 100\n\n");
+    printf("polling 500ms | instinct 10 | code 200 | modify 300 | optimize 600 | nop 900 | fission 1000 | bb 100 | cal 500\n\n");
 
     int mod_attempted = 0;
     int opt_attempted = 0;
@@ -100,9 +104,15 @@ int main(int argc, char **argv) {
             .fission_count    = soul_fission_count(&soul),
             .wins             = soul_wins(&soul),
             .bb_global_opts   = bb_global_optimizations(),
+            .params           = cal_params(),
         };
 
         bb_set_tick(inp.tick);
+
+        const struct tork_params *cp = cal_params();
+        int mod_cycle = cp->conservative_cycle * 10;
+        int opt_cycle = cp->aggressive_cycle * 10;
+        int nop_cycle = cp->nop_cycle * 10;
 
         tork_instinct_t inst = instinct_evaluate(&inp);
 
@@ -145,8 +155,8 @@ int main(int argc, char **argv) {
             }
         }
 
-        /* every 300 rounds: conservative modification (je→jz) */
-        if (i % 300 == 0 && !mod_attempted) {
+        /* conservative modification (je→jz) */
+        if (i % mod_cycle == 0 && !mod_attempted) {
             char asm_buf[8192];
             int alen = asm_read_file("benchmark/memcpy/ref.s", asm_buf, sizeof(asm_buf));
             if (alen > 0) {
@@ -182,8 +192,8 @@ int main(int argc, char **argv) {
             }
         }
 
-        /* every 600 rounds: aggressive optimization (dead code deletion) */
-        if (i % 600 == 0 && !opt_attempted) {
+        /* aggressive optimization (dead code deletion) */
+        if (i % opt_cycle == 0 && !opt_attempted) {
             char asm_buf[8192];
             int alen = asm_read_file("benchmark/memcpy/ref.s", asm_buf, sizeof(asm_buf));
             if (alen > 0) {
@@ -221,8 +231,8 @@ int main(int argc, char **argv) {
             }
         }
 
-        /* every 900 rounds: NOP deletion (alignment padding removal) */
-        if (i % 900 == 0 && !nop_attempted) {
+        /* NOP deletion (alignment padding removal) */
+        if (i % nop_cycle == 0 && !nop_attempted) {
             char asm_buf[8192];
             int alen = asm_read_file("benchmark/memcpy/ref.s", asm_buf, sizeof(asm_buf));
             if (alen > 0) {
@@ -302,6 +312,15 @@ int main(int argc, char **argv) {
             }
         }
 
+        /* every 500 rounds: calibrator self-calibration */
+        if (i % 500 == 0 && i > 0) {
+            cal_extract_patterns();
+            struct tork_params suggested;
+            if (cal_suggest_adjustments(&suggested) == 0) {
+                cal_apply_adjustments(&suggested);
+            }
+        }
+
         /* re-evaluate instinct after all modifications */
         inst = instinct_evaluate(&inp);
         drive = (int)((inst.desire - inst.fear + inst.curiosity) * 100.0f);
@@ -338,6 +357,7 @@ int main(int argc, char **argv) {
 
     fission_cleanup();
     bb_cleanup();
+    cal_cleanup();
     soul_close(&soul);
     return 0;
 }

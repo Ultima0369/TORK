@@ -1,0 +1,145 @@
+#ifndef SOUL_ACCESS_H
+#define SOUL_ACCESS_H
+
+#include <stdint.h>
+#include <sys/mman.h>
+#include <sys/ptrace.h>
+#include <sys/wait.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdio.h>
+
+#define SOUL_ADDR_VAL  0x200000
+#define SOUL_SIZE      96
+#define SOUL_PAGE      4096
+
+/* Soul field offsets — must match tork_core.asm exactly (v0.7) */
+#define S_TICK        0x00  /* uint32 */
+#define S_LAST_TSC    0x04  /* uint64 */
+#define S_CUR_TSC     0x0C  /* uint64 */
+#define S_ELAPSED     0x14  /* uint64 */
+#define S_EXPECTED    0x1C  /* uint64 */
+#define S_HW_STRESS   0x24  /* uint8  */
+#define S_MODE        0x25  /* uint8  */
+#define S_PAD         0x26  /* uint8[2] */
+#define S_CRC         0x28  /* uint32 */
+#define S_SELF_PID    0x2C  /* uint32 */
+#define S_DRIVE       0x30  /* int8   */
+#define S_RESERVED2   0x31  /* uint8  */
+#define S_PPID        0x32  /* uint16 */
+#define S_CODE_INSNS  0x34  /* uint16 */
+#define S_CODE_MOV    0x36  /* uint16 */
+#define S_CODE_ARITH  0x38  /* uint16 */
+#define S_CODE_CTRL   0x3A  /* uint16 */
+#define S_CODE_OTHER  0x3C  /* uint16 */
+
+/* ── Soul reader/writer via /proc/PID/mem ─────────────────────
+   Writes require ptrace attach for permission.                    */
+
+typedef struct {
+    int    mem_fd;    /* fd for /proc/PID/mem (O_RDONLY) */
+    int    wr_fd;     /* fd for /proc/PID/mem (O_RDWR) — needs ptrace */
+    pid_t  pid;
+    uint8_t buf[SOUL_SIZE];
+} soul_t;
+
+/* Open /proc/pid/mem for reading and writing.
+   Uses ptrace attach briefly to open O_RDWR fd. */
+static inline int soul_open(soul_t *s, pid_t pid) {
+    s->pid = pid;
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/mem", pid);
+
+    s->mem_fd = open(path, O_RDONLY);
+    s->wr_fd = -1;
+    if (s->mem_fd < 0) return -1;
+
+    /* ptrace attach → open O_RDWR → detach */
+    if (ptrace(PTRACE_ATTACH, pid, NULL, NULL) == 0) {
+        waitpid(pid, NULL, 0);
+        int wfd = open(path, O_RDWR);
+        ptrace(PTRACE_DETACH, pid, NULL, NULL);
+        if (wfd >= 0) s->wr_fd = wfd;
+    }
+
+    return 0;
+}
+
+/* Snapshot the full 96-byte soul into internal buffer.
+   Returns 0 on success, -1 on failure. */
+static inline int soul_read(soul_t *s) {
+    if (lseek(s->mem_fd, SOUL_ADDR_VAL, SEEK_SET) == (off_t)-1)
+        return -1;
+    ssize_t n = read(s->mem_fd, s->buf, SOUL_SIZE);
+    return (n == SOUL_SIZE) ? 0 : -1;
+}
+
+static inline void soul_close(soul_t *s) {
+    if (s->mem_fd >= 0) close(s->mem_fd);
+    if (s->wr_fd >= 0) close(s->wr_fd);
+    s->mem_fd = -1;
+    s->wr_fd = -1;
+}
+
+/* Write a single byte to soul at given offset via /proc/PID/mem.
+   Briefly ptrace-attaches to gain write permission. */
+static inline int soul_write_byte(soul_t *s, uint32_t offset, uint8_t val) {
+    if (s->wr_fd < 0) return -1;
+    if (ptrace(PTRACE_ATTACH, s->pid, NULL, NULL) != 0)
+        return -1;
+    waitpid(s->pid, NULL, 0);
+    if (lseek(s->wr_fd, SOUL_ADDR_VAL + offset, SEEK_SET) == (off_t)-1) {
+        ptrace(PTRACE_DETACH, s->pid, NULL, NULL);
+        return -1;
+    }
+    ssize_t w = write(s->wr_fd, &val, 1);
+    ptrace(PTRACE_DETACH, s->pid, NULL, NULL);
+    return (w == 1) ? 0 : -1;
+}
+
+/* Write N bytes at given offset. Returns 0 on success. */
+static inline int soul_write_buf(soul_t *s, uint32_t offset, const void *data, size_t len) {
+    if (s->wr_fd < 0) return -1;
+    if (ptrace(PTRACE_ATTACH, s->pid, NULL, NULL) != 0)
+        return -1;
+    waitpid(s->pid, NULL, 0);
+    if (lseek(s->wr_fd, SOUL_ADDR_VAL + offset, SEEK_SET) == (off_t)-1) {
+        ptrace(PTRACE_DETACH, s->pid, NULL, NULL);
+        return -1;
+    }
+    ssize_t w = write(s->wr_fd, data, len);
+    ptrace(PTRACE_DETACH, s->pid, NULL, NULL);
+    return (w == (ssize_t)len) ? 0 : -1;
+}
+
+static inline int soul_set_drive(soul_t *s, int8_t drive) {
+    return soul_write_byte(s, S_DRIVE, (uint8_t)drive);
+}
+
+/* Accessor macros — operate on the internal buffer */
+#define SOUL_U32(s, off)  (*(uint32_t*)((s)->buf + (off)))
+#define SOUL_U64(s, off)  (*(uint64_t*)((s)->buf + (off)))
+#define SOUL_U16(s, off)  (*(uint16_t*)((s)->buf + (off)))
+#define SOUL_U8(s, off)   ((s)->buf[(off)])
+
+static inline uint32_t  soul_tick(soul_t *s)      { return SOUL_U32(s, S_TICK); }
+static inline uint64_t  soul_last_tsc(soul_t *s)  { return SOUL_U64(s, S_LAST_TSC); }
+static inline uint64_t  soul_cur_tsc(soul_t *s)   { return SOUL_U64(s, S_CUR_TSC); }
+static inline uint64_t  soul_elapsed(soul_t *s)   { return SOUL_U64(s, S_ELAPSED); }
+static inline uint64_t  soul_expected(soul_t *s)   { return SOUL_U64(s, S_EXPECTED); }
+static inline uint8_t   soul_hw_stress(soul_t *s) { return SOUL_U8(s, S_HW_STRESS); }
+static inline uint8_t   soul_mode(soul_t *s)       { return SOUL_U8(s, S_MODE); }
+static inline uint32_t  soul_checksum(soul_t *s)   { return SOUL_U32(s, S_CRC); }
+static inline uint32_t  soul_self_pid(soul_t *s)   { return SOUL_U32(s, S_SELF_PID); }
+static inline int8_t    soul_drive(soul_t *s)      { return (int8_t)SOUL_U8(s, S_DRIVE); }
+static inline uint16_t  soul_ppid(soul_t *s)       { return SOUL_U16(s, S_PPID); }
+static inline uint16_t  soul_code_insns(soul_t *s) { return SOUL_U16(s, S_CODE_INSNS); }
+static inline uint16_t  soul_code_mov(soul_t *s)   { return SOUL_U16(s, S_CODE_MOV); }
+static inline uint16_t  soul_code_arith(soul_t *s) { return SOUL_U16(s, S_CODE_ARITH); }
+static inline uint16_t  soul_code_ctrl(soul_t *s)  { return SOUL_U16(s, S_CODE_CTRL); }
+static inline uint16_t  soul_code_other(soul_t *s) { return SOUL_U16(s, S_CODE_OTHER); }
+
+/* CRC32 verification of the snapshot */
+int soul_verify(soul_t *s);
+
+#endif

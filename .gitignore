@@ -1,0 +1,7 @@
+# Build artifacts
+tork_core
+tork_core.o
+tork_engine
+
+# Test binaries
+/tmp/

@@ -9,27 +9,8 @@
 .equ PAGE_SIZE,      4096
 .equ EXPECTED_TSC,   300000000
 
-# Soul layout v0.7
-.equ S_TICK,         0x00
-.equ S_LAST_TSC,     0x04
-.equ S_CUR_TSC,      0x0C
-.equ S_ELAPSED,      0x14
-.equ S_EXPECTED,     0x1C
-.equ S_HW_STRESS,    0x24
-.equ S_MODE,         0x25
-.equ S_PAD,          0x26
-.equ S_CRC,          0x28
-.equ S_SELF_PID,     0x2C             # uint32 — written once by C layer
-.equ S_DRIVE,        0x30             # int8 — from C instinct layer
-.equ S_RESERVED2,    0x31
-.equ S_PPID,         0x32             # uint16
-.equ S_CODE_INSNS,   0x34             # uint16
-.equ S_CODE_MOV,     0x36             # uint16
-.equ S_CODE_ARITH,   0x38             # uint16
-.equ S_CODE_CTRL,    0x3A             # uint16
-.equ S_CODE_OTHER,   0x3C             # uint16
-.equ S_CODE_MOD_SUCCESS, 0x3E       # uint8: 0=none,1=ok,2=fail
-.equ S_CODE_OPT_SAVED,  0x3F       # uint8: dead code lines deleted
+# Soul layout — single source of truth in tork_soul.inc
+.include "tork_soul.inc"
 
 # syscalls
 .equ SYS_READ,       0

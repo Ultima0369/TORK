@@ -1,7 +1,6 @@
-# Build artifacts
-tork_core
-tork_core.o
-tork_engine
+# Build output
+build/
 
-# Test binaries
-/tmp/
+# Temp files
+*.o
+*.s~

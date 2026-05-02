@@ -177,7 +177,7 @@ int asm_extract_opcodes(const char *buf, int len, const char *func_name,
         char opc[16];
         int olen = extract_opcode_from_line(ls, ll, opc, sizeof(opc));
         if (olen > 0) {
-            snprintf(opcodes[count], 8, "%s", opc);
+            snprintf(opcodes[count], 8, "%.7s", opc);
             count++;
         }
     }

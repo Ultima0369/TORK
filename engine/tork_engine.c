@@ -2,6 +2,7 @@
 #include "instinct.h"
 #include "code_reader.h"
 #include "code_modifier.h"
+#include "monitor.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,6 +13,7 @@
 static pid_t core_pid = 0;
 
 static void cleanup_core(int sig) {
+    (void)sig;
     if (core_pid > 0) {
         kill(core_pid, SIGTERM);
         waitpid(core_pid, NULL, 0);
@@ -24,30 +26,12 @@ static int start_core(void) {
     if (core_pid == 0) {
         FILE *dn = fopen("/dev/null", "w");
         if (dn) { dup2(fileno(dn), STDOUT_FILENO); fclose(dn); }
-        execl("./tork_core", "tork_core", NULL);
+        execl("build/tork_core", "tork_core", NULL);
         _exit(1);
     }
     if (core_pid < 0) return -1;
     usleep(200000);
     return 0;
-}
-
-static int parse_proc_status_int(pid_t pid, const char *field, uint32_t *out) {
-    char path[64];
-    snprintf(path, sizeof(path), "/proc/%d/status", pid);
-    FILE *f = fopen(path, "r");
-    if (!f) return -1;
-    char line[256];
-    size_t flen = strlen(field);
-    while (fgets(line, sizeof(line), f)) {
-        if (strncmp(line, field, flen) == 0) {
-            *out = (uint32_t)strtoul(line + flen, NULL, 10);
-            fclose(f);
-            return 0;
-        }
-    }
-    fclose(f);
-    return -1;
 }
 
 int main(int argc, char **argv) {
@@ -77,7 +61,7 @@ int main(int argc, char **argv) {
     }
     {
         uint32_t val;
-        if (parse_proc_status_int(core_pid, "PPid:\t", &val) == 0) {
+        if (monitor_parse_proc_status(core_pid, "PPid:\t", &val) == 0) {
             uint16_t v = (val > 65535) ? 65535 : (uint16_t)val;
             soul_write_buf(&soul, S_PPID, &v, 2);
         }

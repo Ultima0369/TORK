@@ -68,10 +68,11 @@ int main(int argc, char **argv) {
     }
 
     printf("TORK engine started. core PID=%d\n", core_pid);
-    printf("polling 500ms | instinct 10 | code 200 | modify 300 | optimize 600\n\n");
+    printf("polling 500ms | instinct 10 | code 200 | modify 300 | optimize 600 | nop 900\n\n");
 
     int mod_attempted = 0;
     int opt_attempted = 0;
+    int nop_attempted = 0;
 
     for (int i = 0; i < rounds; i++) {
         int rc = soul_read(&soul);
@@ -90,6 +91,7 @@ int main(int argc, char **argv) {
             .code_ctrl  = soul_code_ctrl(&soul),
             .code_mod_success = soul_code_mod_success(&soul),
             .code_opt_saved   = soul_code_opt_saved(&soul),
+            .code_nop_count   = soul_code_nop_count(&soul),
         };
 
         tork_instinct_t inst = instinct_evaluate(&inp);
@@ -201,6 +203,47 @@ int main(int argc, char **argv) {
                     printf("[%4d] tick=%-6u OPT: no dead code found\n", i, inp.tick);
                 }
                 opt_attempted = 1;
+            }
+        }
+
+        /* every 900 rounds: NOP deletion (alignment padding removal) */
+        if (i % 900 == 0 && !nop_attempted) {
+            char asm_buf[8192];
+            int alen = asm_read_file("benchmark/memcpy/ref.s", asm_buf, sizeof(asm_buf));
+            if (alen > 0) {
+                char backup[8192];
+                int backup_len = alen;
+                memcpy(backup, asm_buf, alen);
+
+                int new_len = alen;
+                int nops = asm_delete_nop_insns(asm_buf, alen, "memcpy_tork", &new_len);
+                if (nops > 0) {
+                    printf("[%4d] tick=%-6u NOP: found %d nop insns in memcpy_tork\n", i, inp.tick, nops);
+                    printf("[%4d] tick=%-6u NOP: deleting %d nop insns...\n", i, inp.tick, nops);
+                    int verified = asm_verify_modification(asm_buf, new_len, "benchmark/memcpy");
+                    if (verified) {
+                        FILE *f = fopen("benchmark/memcpy/ref.s", "w");
+                        if (f) { fwrite(asm_buf, 1, new_len, f); fclose(f); }
+                        uint8_t total = inp.code_opt_saved + (uint8_t)nops;
+                        soul_write_buf(&soul, S_CODE_OPT_SAVED, &total, 1);
+                        uint8_t nc = (uint8_t)nops;
+                        soul_write_buf(&soul, S_CODE_NOP_COUNT, &nc, 1);
+                        inp.code_opt_saved = total;
+                        inp.code_nop_count = nc;
+                        printf("[%4d] tick=%-6u NOP: verification PASSED, saved %d lines total\n",
+                               i, inp.tick, total);
+                    } else {
+                        asm_rollback(asm_buf, sizeof(asm_buf), backup, backup_len);
+                        printf("[%4d] tick=%-6u NOP: deleted %d but verification FAILED, rollback\n",
+                               i, inp.tick, nops);
+                    }
+                } else if (nops == 0) {
+                    printf("[%4d] tick=%-6u NOP: no nop insns found in memcpy_tork\n", i, inp.tick);
+                    uint8_t nc = 0;
+                    soul_write_buf(&soul, S_CODE_NOP_COUNT, &nc, 1);
+                    inp.code_nop_count = 0;
+                }
+                nop_attempted = 1;
             }
         }
 

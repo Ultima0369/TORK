@@ -13,7 +13,7 @@
 #define SOUL_SIZE      96
 #define SOUL_PAGE      4096
 
-/* Soul field offsets — must match tork_core.asm exactly (v0.7) */
+/* Soul field offsets — must match tork_core.asm exactly (v0.8) */
 #define S_TICK        0x00  /* uint32 */
 #define S_LAST_TSC    0x04  /* uint64 */
 #define S_CUR_TSC     0x0C  /* uint64 */
@@ -33,7 +33,8 @@
 #define S_CODE_CTRL   0x3A  /* uint16 */
 #define S_CODE_OTHER  0x3C  /* uint16 */
 #define S_CODE_MOD_SUCCESS 0x3E  /* uint8: 0=none, 1=success, 2=failed */
-#define S_CODE_OPT_SAVED  0x3F  /* uint8: dead code lines deleted */
+#define S_CODE_OPT_SAVED  0x3F  /* uint8: cumulative lines saved by optimization */
+#define S_CODE_NOP_COUNT 0x40  /* uint8: nop insns found in last scan */
 
 /* ── Soul reader/writer via /proc/PID/mem ─────────────────────
    Writes require ptrace attach for permission.                    */
@@ -142,6 +143,7 @@ static inline uint16_t  soul_code_ctrl(soul_t *s)  { return SOUL_U16(s, S_CODE_C
 static inline uint16_t  soul_code_other(soul_t *s) { return SOUL_U16(s, S_CODE_OTHER); }
 static inline uint8_t   soul_code_mod_success(soul_t *s) { return SOUL_U8(s, S_CODE_MOD_SUCCESS); }
 static inline uint8_t   soul_code_opt_saved(soul_t *s)   { return SOUL_U8(s, S_CODE_OPT_SAVED); }
+static inline uint8_t   soul_code_nop_count(soul_t *s)   { return SOUL_U8(s, S_CODE_NOP_COUNT); }
 
 /* CRC32 verification of the snapshot */
 int soul_verify(soul_t *s);

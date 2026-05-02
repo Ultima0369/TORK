@@ -1,4 +1,4 @@
-# TORK Soul Layout v0.7
+# TORK Soul Layout v0.8
 # This file is the single source of truth for Soul field offsets.
 # Both tork_core.asm (.include) and soul_access.h (#define) must match.
 # When modifying: recalculate offsets manually and update BOTH files.
@@ -22,4 +22,5 @@
 .equ S_CODE_CTRL,         0x3A            # uint16
 .equ S_CODE_OTHER,        0x3C            # uint16
 .equ S_CODE_MOD_SUCCESS,  0x3E            # uint8: 0=none,1=ok,2=fail
-.equ S_CODE_OPT_SAVED,    0x3F            # uint8: dead code lines deleted
+.equ S_CODE_OPT_SAVED,    0x3F            # uint8: cumulative dead code lines deleted
+.equ S_CODE_NOP_COUNT,    0x40            # uint8: nop insns found in last scan

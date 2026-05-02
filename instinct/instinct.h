@@ -18,7 +18,8 @@ typedef struct {
     uint16_t code_insns;   /* instruction count from code reading */
     uint16_t code_ctrl;    /* control-flow instruction count */
     uint8_t  code_mod_success; /* 0=none, 1=success, 2=failed */
-    uint8_t  code_opt_saved;   /* dead code lines deleted */
+    uint8_t  code_opt_saved;   /* cumulative dead code lines deleted */
+    uint8_t  code_nop_count;   /* nop insns found in last scan */
 } instinct_input_t;
 
 tork_instinct_t instinct_evaluate(const instinct_input_t *in);

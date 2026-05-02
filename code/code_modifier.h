@@ -11,4 +11,6 @@ int asm_rollback(char *buf, int len, const char *backup, int backup_len);
 
 int asm_delete_dead_insns(char *buf, int len, const char *func_name, int *new_len);
 
+int asm_delete_nop_insns(char *buf, int len, const char *func_name, int *new_len);
+
 #endif

@@ -27,6 +27,8 @@ static const char *find_func_start(const char *buf, int len, const char *func_na
 }
 
 static int is_label_line(const char *line, int len) {
+    /* Labels don't start with \t — instructions always do */
+    if (len > 0 && line[0] == '\t') return 0;
     for (int i = 0; i < len; i++) {
         if (line[i] == '#') return 0;
         if (line[i] == ':') return 1;
@@ -147,6 +149,77 @@ static int is_insn_line(const char *line, int len) {
     return isalpha((unsigned char)line[i]);
 }
 
+/* Check if a line is a NOP instruction (nop, nopw, nopl, nopq, or .byte nop encoding) */
+static int is_nop_insn(const char *line, int len) {
+    int i = 0;
+    while (i < len && (line[i] == ' ' || line[i] == '\t')) i++;
+    if (i >= len) return 0;
+
+    /* nop variants: nop, nopw, nopl, nopq (may have operands after) */
+    if (i + 3 <= len && strncmp(line + i, "nop", 3) == 0) {
+        char suf = (i + 3 < len) ? line[i + 3] : '\0';
+        /* bare nop: followed by nothing, whitespace, or newline */
+        if (suf == '\0' || suf == '\n' || suf == '\r' || suf == ' ' || suf == '\t')
+            return 1;
+        /* nopw/nopl/nopq: may be followed by operands */
+        if (suf == 'w' || suf == 'l' || suf == 'q')
+            return 1;
+    }
+
+    /* .byte 0x66, 0x90 — two-byte nop encoding */
+    if (i + 5 <= len && strncmp(line + i, ".byte", 5) == 0) {
+        const char *p = line + i + 5;
+        while (p < line + len && (*p == ' ' || *p == '\t')) p++;
+        if (p + 4 < line + len && strncmp(p, "0x66", 4) == 0)
+            return 1;
+        if (p + 4 < line + len && strncmp(p, "0x90", 4) == 0)
+            return 1;
+    }
+
+    return 0;
+}
+
+int asm_delete_nop_insns(char *buf, int len, const char *func_name, int *new_len) {
+    const char *p = find_func_start(buf, len, func_name);
+    if (!p) { if (new_len) *new_len = len; return -1; }
+    const char *end = buf + len;
+    int deleted = 0;
+
+    while (p < end) {
+        const char *ls;
+        int ll;
+        const char *next = next_line(p, end, &ls, &ll);
+
+        /* stop at next non-local label (function boundary) */
+        if (is_label_line(ls, ll)) {
+            if (!(ll > 1 && ls[0] == '.' && ls[1] == 'L'))
+                break;
+            p = next;
+            continue;
+        }
+
+        /* skip directives and blanks */
+        if (is_directive_line(ls, ll)) { p = next; continue; }
+
+        if (is_nop_insn(ls, ll)) {
+            int line_total = (int)(next - ls);
+            int pos = (int)(ls - buf);
+            memmove(buf + pos, buf + pos + line_total, len - pos - line_total);
+            len -= line_total;
+            end = buf + len;
+            deleted++;
+            p = buf + pos;
+            continue;
+        }
+
+        p = next;
+    }
+
+    buf[len] = '\0';
+    if (new_len) *new_len = len;
+    return deleted;
+}
+
 int asm_delete_dead_insns(char *buf, int len, const char *func_name, int *new_len) {
     const char *p = find_func_start(buf, len, func_name);
     if (!p) { if (new_len) *new_len = len; return -1; }
@@ -183,6 +256,7 @@ int asm_delete_dead_insns(char *buf, int len, const char *func_name, int *new_le
             bytes_removed += line_total;
             end = buf + len;
             deleted++;
+            p = buf + pos;
             continue;
         }
 

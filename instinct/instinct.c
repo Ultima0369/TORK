@@ -60,6 +60,12 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
     if (in->code_opt_saved > 0)
         inst.desire += 0.3f;
 
+    /* ── NOP awareness ──────────────────────────────────────── */
+    if (in->code_nop_count > 0)
+        inst.curiosity += 0.15f;
+    if (in->code_opt_saved > 0 && in->code_nop_count > 0)
+        inst.desire += 0.2f;
+
     return inst;
 }
 

@@ -3,6 +3,8 @@
 #include "code_reader.h"
 #include "code_modifier.h"
 #include "monitor.h"
+#include "fission.h"
+#include "blackboard.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,8 +69,11 @@ int main(int argc, char **argv) {
         }
     }
 
+    if (bb_init() != 0)
+        fprintf(stderr, "warning: bb_init failed — blackboard unavailable\n");
+
     printf("TORK engine started. core PID=%d\n", core_pid);
-    printf("polling 500ms | instinct 10 | code 200 | modify 300 | optimize 600 | nop 900\n\n");
+    printf("polling 500ms | instinct 10 | code 200 | modify 300 | optimize 600 | nop 900 | fission 1000 | bb 100\n\n");
 
     int mod_attempted = 0;
     int opt_attempted = 0;
@@ -92,7 +97,12 @@ int main(int argc, char **argv) {
             .code_mod_success = soul_code_mod_success(&soul),
             .code_opt_saved   = soul_code_opt_saved(&soul),
             .code_nop_count   = soul_code_nop_count(&soul),
+            .fission_count    = soul_fission_count(&soul),
+            .wins             = soul_wins(&soul),
+            .bb_global_opts   = bb_global_optimizations(),
         };
+
+        bb_set_tick(inp.tick);
 
         tork_instinct_t inst = instinct_evaluate(&inp);
 
@@ -155,12 +165,15 @@ int main(int argc, char **argv) {
                         uint8_t ms = 1;
                         soul_write_buf(&soul, S_CODE_MOD_SUCCESS, &ms, 1);
                         inp.code_mod_success = 1;
+                        bb_write(BB_TYPE_OPT_SUCCESS, 1, (uint32_t)i);
+                        bb_inc_optimizations();
                     } else {
                         asm_rollback(asm_buf, sizeof(asm_buf), backup, backup_len);
                         printf("[%4d] tick=%-6u MODIFY FAILED: je→jz rejected\n", i, inp.tick);
                         uint8_t ms = 2;
                         soul_write_buf(&soul, S_CODE_MOD_SUCCESS, &ms, 1);
                         inp.code_mod_success = 2;
+                        bb_write(BB_TYPE_OPT_FAIL, 1, (uint32_t)i);
                     }
                 } else {
                     printf("[%4d] tick=%-6u MODIFY SKIP: je not found\n", i, inp.tick);
@@ -194,6 +207,8 @@ int main(int argc, char **argv) {
                         uint8_t sv = (uint8_t)deleted;
                         soul_write_buf(&soul, S_CODE_OPT_SAVED, &sv, 1);
                         inp.code_opt_saved = sv;
+                        bb_write(BB_TYPE_OPT_SUCCESS, 2, (uint32_t)deleted);
+                        bb_inc_optimizations();
                     } else {
                         asm_rollback(asm_buf, sizeof(asm_buf), backup, backup_len);
                         printf("[%4d] tick=%-6u OPT: deleted %d but verification FAILED, rollback\n",
@@ -232,6 +247,8 @@ int main(int argc, char **argv) {
                         inp.code_nop_count = nc;
                         printf("[%4d] tick=%-6u NOP: verification PASSED, saved %d lines total\n",
                                i, inp.tick, total);
+                        bb_write(BB_TYPE_OPT_SUCCESS, 3, (uint32_t)nops);
+                        bb_inc_optimizations();
                     } else {
                         asm_rollback(asm_buf, sizeof(asm_buf), backup, backup_len);
                         printf("[%4d] tick=%-6u NOP: deleted %d but verification FAILED, rollback\n",
@@ -247,6 +264,44 @@ int main(int argc, char **argv) {
             }
         }
 
+        /* every 1000 rounds: fission check (instinct-driven) */
+        if (i % 1000 == 0 && i > 0) {
+            if (fission_decide(&soul) && inst.curiosity > 0.6f) {
+                printf("[%4d] tick=%-6u FISSION: instinct triggers fission\n", i, inp.tick);
+                pid_t child = fission_spawn();
+                if (child > 0) {
+                    uint16_t cp = (uint16_t)child;
+                    soul_write_buf(&soul, S_CHILD_PID, &cp, 2);
+                    uint8_t fc = inp.fission_count + 1;
+                    soul_write_buf(&soul, S_FISSION_COUNT, &fc, 1);
+                    uint16_t ft = (uint16_t)inp.tick;
+                    soul_write_buf(&soul, S_FISSION_TICK, &ft, 2);
+                    inp.fission_count = fc;
+                    printf("[%4d] tick=%-6u FISSION: child spawned PID=%d\n", i, inp.tick, child);
+                    bb_write(BB_TYPE_FISSION, 1, (uint32_t)child);
+                    bb_inc_fissions();
+
+                    int result = fission_migrate(child);
+                    if (result == 0) {
+                        /* parent won */
+                        uint16_t w = inp.wins + 1;
+                        soul_write_buf(&soul, S_WINS, &w, 2);
+                        inp.wins = w;
+                        /* clear child_pid */
+                        uint16_t zero16 = 0;
+                        soul_write_buf(&soul, S_CHILD_PID, &zero16, 2);
+                        printf("[%4d] tick=%-6u FISSION: parent won, wins=%d\n", i, inp.tick, w);
+                    }
+                    /* if child won, fission_migrate already called exit(0) */
+                } else {
+                    printf("[%4d] tick=%-6u FISSION: spawn failed\n", i, inp.tick);
+                }
+            } else {
+                printf("[%4d] tick=%-6u FISSION: conditions not met (tick=%u drive=%+d curiosity=%.1f)\n",
+                       i, inp.tick, inp.tick, drive, inst.curiosity);
+            }
+        }
+
         /* re-evaluate instinct after all modifications */
         inst = instinct_evaluate(&inp);
         drive = (int)((inst.desire - inst.fear + inst.curiosity) * 100.0f);
@@ -254,11 +309,22 @@ int main(int argc, char **argv) {
         if (drive < -128) drive = -128;
         soul_set_drive(&soul, (int8_t)drive);
 
+        /* every 100 rounds: blackboard summary */
+        if (i % 100 == 0) {
+            uint32_t bb_opt = bb_global_optimizations();
+            uint32_t bb_fis = bb_global_fissions();
+            uint32_t bb_err = bb_global_errors();
+            printf("[%4d] tick=%-6u BB: opts=%u fissions=%u errors=%u\n",
+                   i, inp.tick, bb_opt, bb_fis, bb_err);
+        }
+
         /* every 10 rounds: print state */
         if (i % 10 == 0) {
-            printf("[%4d] tick=%-6u pid=%-5u ppid=%-4u drive=%+4d fear=%.1f desire=%.1f curiosity=%.1f\n",
+            uint32_t bb_opt = bb_global_optimizations();
+            printf("[%4d] tick=%-6u pid=%-5u ppid=%-4u drive=%+4d fear=%.1f desire=%.1f curiosity=%.1f fission=%d wins=%d bb_opts=%u\n",
                    i, inp.tick, soul_self_pid(&soul), soul_ppid(&soul),
-                   drive, inst.fear, inst.desire, inst.curiosity);
+                   drive, inst.fear, inst.desire, inst.curiosity,
+                   inp.fission_count, inp.wins, bb_opt);
         }
 
         usleep(500000);
@@ -270,6 +336,8 @@ int main(int argc, char **argv) {
     waitpid(core_pid, &st, 0);
     printf("core exited.\n");
 
+    fission_cleanup();
+    bb_cleanup();
     soul_close(&soul);
     return 0;
 }

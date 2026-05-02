@@ -8,7 +8,7 @@ memcpy_tork:
 	.cfi_startproc
 	movq	%rdi, %rax
 	testq	%rdx, %rdx
-	je	.L2
+	jz	.L2
 	xorl	%ecx, %ecx
 	.p2align 5
 	.p2align 4

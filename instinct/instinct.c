@@ -66,6 +66,14 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
     if (in->code_opt_saved > 0 && in->code_nop_count > 0)
         inst.desire += 0.2f;
 
+    /* ── sovereignty win feedback ──────────────────────────── */
+    if (in->wins > 0)
+        inst.desire += 0.3f;
+
+    /* ── blackboard: global optimization awareness ────────── */
+    if (in->bb_global_opts > 0)
+        inst.curiosity += 0.1f;
+
     return inst;
 }
 

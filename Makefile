@@ -21,11 +21,14 @@ build/tork_core: build/tork_core.o
 
 # ── C engine ────────────────────────────────────────────────────────
 
-build/tork_engine.o: engine/tork_engine.c engine/soul_access.h engine/monitor.h
+build/tork_engine.o: engine/tork_engine.c engine/soul_access.h engine/monitor.h engine/fission.h engine/blackboard.h
 	$(CC) $(CFLAGS) -c -o build/tork_engine.o engine/tork_engine.c
 
 build/monitor.o: engine/monitor.c engine/monitor.h
 	$(CC) $(CFLAGS) -c -o build/monitor.o engine/monitor.c
+
+build/fission.o: engine/fission.c engine/fission.h engine/soul_access.h
+	$(CC) $(CFLAGS) -c -o build/fission.o engine/fission.c
 
 build/instinct.o: instinct/instinct.c instinct/instinct.h engine/soul_access.h
 	$(CC) $(CFLAGS) -c -o build/instinct.o instinct/instinct.c
@@ -36,8 +39,11 @@ build/code_reader.o: code/code_reader.c code/code_reader.h
 build/code_modifier.o: code/code_modifier.c code/code_modifier.h
 	$(CC) $(CFLAGS) -c -o build/code_modifier.o code/code_modifier.c
 
-build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o
-	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o -lm
+build/blackboard.o: engine/blackboard.c engine/blackboard.h engine/soul_access.h
+	$(CC) $(CFLAGS) -c -o build/blackboard.o engine/blackboard.c
+
+build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o
+	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o -lm
 
 # ── Targets ─────────────────────────────────────────────────────────
 

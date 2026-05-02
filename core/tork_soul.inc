@@ -1,4 +1,4 @@
-# TORK Soul Layout v0.8
+# TORK Soul Layout v0.9
 # This file is the single source of truth for Soul field offsets.
 # Both tork_core.asm (.include) and soul_access.h (#define) must match.
 # When modifying: recalculate offsets manually and update BOTH files.
@@ -24,3 +24,7 @@
 .equ S_CODE_MOD_SUCCESS,  0x3E            # uint8: 0=none,1=ok,2=fail
 .equ S_CODE_OPT_SAVED,    0x3F            # uint8: cumulative dead code lines deleted
 .equ S_CODE_NOP_COUNT,    0x40            # uint8: nop insns found in last scan
+.equ S_FISSION_COUNT,     0x41            # uint8: fission count (max 255)
+.equ S_CHILD_PID,         0x42            # uint16: child instance PID (0=none)
+.equ S_FISSION_TICK,      0x44            # uint16: tick at last fission (low bits)
+.equ S_WINS,              0x46            # uint16: sovereignty migration wins

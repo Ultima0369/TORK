@@ -46,10 +46,15 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
     /* ── code-awareness adjustments ──────────────────────── */
     if (in->code_insns > 0) {
         inst.curiosity += 0.1f;
-        /* complex control flow → more interesting */
         if (in->code_ctrl * 100 / in->code_insns > 30)
             inst.desire += 0.1f;
     }
+
+    /* ── code modification feedback ──────────────────────── */
+    if (in->code_mod_success == 1)
+        inst.desire += 0.2f;
+    else if (in->code_mod_success == 2)
+        inst.fear += 0.1f;
 
     return inst;
 }

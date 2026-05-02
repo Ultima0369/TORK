@@ -1,6 +1,7 @@
 #include "soul_access.h"
 #include "instinct.h"
 #include "code_reader.h"
+#include "code_modifier.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -85,9 +86,10 @@ int main(int argc, char **argv) {
     }
 
     printf("TORK engine started. core PID=%d\n", core_pid);
-    printf("polling soul every 500ms | instinct every 10 | env every 50 | code every 200\n\n");
+    printf("polling 500ms | instinct 10 | env 50 | code 200 | modify 300\n\n");
 
-    /* code reading state — for future delta detection */
+    /* code modification tracking */
+    int mod_attempted = 0;
 
     for (int i = 0; i < rounds; i++) {
         int rc = soul_read(&soul);
@@ -104,6 +106,7 @@ int main(int argc, char **argv) {
             .mode     = soul_mode(&soul),
             .code_insns = soul_code_insns(&soul),
             .code_ctrl  = soul_code_ctrl(&soul),
+            .code_mod_success = soul_code_mod_success(&soul),
         };
 
         tork_instinct_t inst = instinct_evaluate(&inp);
@@ -112,11 +115,6 @@ int main(int argc, char **argv) {
         if (drive > 127) drive = 127;
         if (drive < -128) drive = -128;
         soul_set_drive(&soul, (int8_t)drive);
-
-        /* every 50 rounds: environment perception (placeholder) */
-        if (i % 50 == 0) {
-            /* future: write process stats to soul */
-        }
 
         /* every 200 rounds: code reading */
         if (i % 200 == 0) {
@@ -138,9 +136,9 @@ int main(int argc, char **argv) {
                 printf("\n");
                 printf("       class: mov=%d arith=%d control=%d other=%d\n", cm, ca, cc, co);
 
-                /* write code stats to soul (single ptrace cycle) */
+                /* write code stats to soul */
                 {
-                    uint8_t stats[12]; /* insns(2) + mov(2) + arith(2) + ctrl(2) + other(2) + pad(2) */
+                    uint8_t stats[10];
                     memset(stats, 0, sizeof(stats));
                     *(uint16_t*)(stats + 0) = (uint16_t)insns;
                     *(uint16_t*)(stats + 2) = (uint16_t)cm;
@@ -157,6 +155,55 @@ int main(int argc, char **argv) {
                 if (drive > 127) drive = 127;
                 if (drive < -128) drive = -128;
                 soul_set_drive(&soul, (int8_t)drive);
+            }
+        }
+
+        /* every 300 rounds: code modification attempt */
+        if (i % 300 == 0 && !mod_attempted) {
+            char asm_buf[8192];
+            char backup[8192];
+            int alen = asm_read_file("benchmark/memcpy/ref.s", asm_buf, sizeof(asm_buf));
+            if (alen > 0) {
+                int backup_len = alen;
+                memcpy(backup, asm_buf, alen);
+
+                /* try replacing je with jz (exact same opcode, different mnemonic) */
+                int rep = asm_replace_operand(asm_buf, alen, "memcpy_tork",
+                                              "\tje\t", "\tjz\t", 1);
+                if (rep == 1) {
+                    /* same length, no len adjustment needed */
+
+                    int verified = asm_verify_modification(asm_buf, alen, "benchmark/memcpy");
+                    if (verified) {
+                        FILE *f = fopen("benchmark/memcpy/ref.s", "w");
+                        if (f) {
+                            fwrite(asm_buf, 1, alen, f);
+                            fclose(f);
+                        }
+                        printf("[%4d] tick=%-6u MODIFY SUCCESS: replaced je with jz\n",
+                               i, inp.tick);
+                        uint8_t ms = 1;
+                        soul_write_buf(&soul, S_CODE_MOD_SUCCESS, &ms, 1);
+                        inp.code_mod_success = 1;
+                    } else {
+                        asm_rollback(asm_buf, sizeof(asm_buf), backup, backup_len);
+                        printf("[%4d] tick=%-6u MODIFY FAILED: je→jz rejected by assembler\n",
+                               i, inp.tick);
+                        uint8_t ms = 2;
+                        soul_write_buf(&soul, S_CODE_MOD_SUCCESS, &ms, 1);
+                        inp.code_mod_success = 2;
+                    }
+                } else {
+                    printf("[%4d] tick=%-6u MODIFY SKIP: je not found in memcpy_tork\n",
+                           i, inp.tick);
+                }
+
+                inst = instinct_evaluate(&inp);
+                drive = (int)((inst.desire - inst.fear + inst.curiosity) * 100.0f);
+                if (drive > 127) drive = 127;
+                if (drive < -128) drive = -128;
+                soul_set_drive(&soul, (int8_t)drive);
+                mod_attempted = 1;
             }
         }
 

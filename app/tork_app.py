@@ -154,7 +154,7 @@ def mark_agreed():
 class TORKApp:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("🥚 T🥚RK")
+        self.root.title("T🥚RK")
         self.root.configure(bg=BG_DARK)
         self.root.resizable(False, False)
         
@@ -208,7 +208,7 @@ class TORKApp:
         for w in self.root.winfo_children():
             w.destroy()
         
-        self.root.title("🥚 T🥚RK — 共生协议")
+        self.root.title("T🥚RK — 共生协议")
         
         # ── 主容器（grid 布局，按钮区永不挤压）──
         outer = tk.Frame(self.root, bg=BG_DARK)
@@ -218,7 +218,7 @@ class TORKApp:
         logo_f = tk.Frame(outer, bg=BG_DARK, height=65)
         logo_f.pack(fill="x", pady=(22,0))
         logo_f.pack_propagate(False)
-        tk.Label(logo_f, text="🥚 T🥚RK", font=FONT_TITLE,
+        tk.Label(logo_f, text="T🥚RK", font=FONT_TITLE,
                  bg=BG_DARK, fg=ACCENT).pack()
         
         # Subtitle
@@ -279,13 +279,13 @@ class TORKApp:
         for w in self.root.winfo_children():
             w.destroy()
         
-        self.root.title("🥚 T🥚RK")
+        self.root.title("T🥚RK")
         
         # ── 顶栏 ──
         top = tk.Frame(self.root, bg=BG_DARK)
         top.pack(fill="x", padx=10, pady=(8,0))
         
-        tk.Label(top, text="🥚 T🥚RK", font=FONT_TITLE,
+        tk.Label(top, text="T🥚RK", font=FONT_TITLE,
                  bg=BG_DARK, fg=ACCENT).pack(side="left")
         
         # 设置按钮

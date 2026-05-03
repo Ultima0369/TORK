@@ -212,3 +212,10 @@ TORK-x86_64.AppImage (自解压 shell + base64)
 - 根因：tk.Entry 在 Linux 下 IME/输入法兼容性差，bd=8 影响鼠标事件
 - 修复：改为 tk.Text（单行模式），原生支持 fcitx/ibus 中文输入
 - 人设：删除 system prompt 中的"傲娇"表演，改为务实助手
+
+## 2026-05-04 测试连接异步化 + 人设可配置
+- 根因：urllib.request.urlopen 在主线程阻塞 Tkinter 事件循环，UI 假死
+- 修复：测试连接放入 threading 线程，显示 "⏳ 测试中…" 状态
+- 根因2：system prompt 硬编码在代码里
+- 修复：设置对话框加入设编辑区（Text 6行），保存到 config.json
+- 对话时从 self.config.get("persona") 读取，用户可随意修改

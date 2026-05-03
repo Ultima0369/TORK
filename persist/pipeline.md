@@ -201,3 +201,9 @@ TORK-x86_64.AppImage (自解压 shell + base64)
 - [ ] 测试：在有图形界面的机器上双击运行
 - [ ] 优化：AppImage 大小（目前 201KB，含完整源码）
 - [ ] 分发：放到什么地方让用户下载
+
+## 2026-05-04 协议界面修复 + Logo
+- 根因：Text 控件 expand=True 撑满窗口，按钮被挤出可见区域
+- 修复：grid 布局 + 固定高度按钮区 + place 居中定位
+- Logo：TORK → T🥚RK（蛋形 O）
+- AppImage: 79KB ELF 二进制，双击即用

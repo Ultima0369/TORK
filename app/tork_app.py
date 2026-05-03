@@ -209,40 +209,59 @@ class TORKApp:
         
         self.root.title("🥚 T🥚RK — 共生协议")
         
-        # Logo / 标题
-        tk.Label(self.root, text="🥚 T🥚RK", font=FONT_TITLE,
-                 bg=BG_DARK, fg=ACCENT).pack(pady=(20,5))
-        tk.Label(self.root, text="The Organism That Reads and Knows", 
+        # ── 主容器（grid 布局，按钮区永不挤压）──
+        outer = tk.Frame(self.root, bg=BG_DARK)
+        outer.pack(fill="both", expand=True)
+        
+        # Logo
+        logo_f = tk.Frame(outer, bg=BG_DARK, height=65)
+        logo_f.pack(fill="x", pady=(22,0))
+        logo_f.pack_propagate(False)
+        tk.Label(logo_f, text="🥚 T🥚RK", font=FONT_TITLE,
+                 bg=BG_DARK, fg=ACCENT).pack()
+        
+        # Subtitle
+        sub_f = tk.Frame(outer, bg=BG_DARK, height=25)
+        sub_f.pack(fill="x")
+        sub_f.pack_propagate(False)
+        tk.Label(sub_f, text="The Organism That Reads and Knows", 
                  font=FONT_SMALL, bg=BG_DARK, fg=TEXT_DIM).pack()
         
-        # 协议文本
-        text_frame = tk.Frame(self.root, bg=BG_MID, bd=1, relief="solid")
-        text_frame.pack(padx=20, pady=15, fill="both", expand=True)
+        # 协议文本（有最大高度，不撑爆）
+        text_f = tk.Frame(outer, bg=BG_MID, bd=1, relief="solid")
+        text_f.pack(fill="both", expand=True, padx=25, pady=(10,5))
         
-        text_w = tk.Text(text_frame, wrap="word", font=FONT,
+        text_w = tk.Text(text_f, wrap="word", font=FONT,
                          bg=BG_MID, fg=TEXT_LIGHT,
                          insertbackground=TEXT_LIGHT,
-                         padx=15, pady=15,
+                         padx=18, pady=18,
                          relief="flat", bd=0,
-                         highlightthickness=0)
+                         highlightthickness=0,
+                         height=14)
         text_w.insert("1.0", AGREEMENT_TEXT)
         text_w.config(state="disabled")
         text_w.pack(fill="both", expand=True)
         
-        # 按钮
-        btn_frame = tk.Frame(self.root, bg=BG_DARK)
-        btn_frame.pack(pady=20)
+        # 按钮区（固定高度，永远在最底部）
+        btn_f = tk.Frame(outer, bg=BG_DARK, height=120)
+        btn_f.pack(fill="x", pady=(5,20))
+        btn_f.pack_propagate(False)
         
-        tk.Button(btn_frame, text="✅ 我理解并接受这种合作关系",
-                  font=FONT, bg=GREEN, fg=BG_DARK,
-                  relief="flat", padx=20, pady=8, bd=0,
-                  command=self._on_agree).pack(pady=5)
+        tk.Button(btn_f,
+              text="✅  我理解并接受这种合作关系",
+              font=(FONT[0], 12, "bold"), bg=GREEN, fg=BG_DARK,
+              relief="flat", padx=30, pady=12, bd=0, cursor="hand2",
+              activebackground="#3dbb8a", activeforeground=BG_DARK,
+              command=self._on_agree
+              ).place(relx=0.5, rely=0.3, anchor="center")
         
-        tk.Button(btn_frame, text="❌ 我不接受，退出",
-                  font=FONT, bg="#555", fg=TEXT_LIGHT,
-                  relief="flat", padx=20, pady=8, bd=0,
-                  command=self._on_close).pack(pady=5)
-    
+        tk.Button(btn_f,
+              text="❌  我不接受，退出",
+              font=FONT, bg="#555", fg=TEXT_LIGHT,
+              relief="flat", padx=30, pady=8, bd=0, cursor="hand2",
+              activebackground="#777", activeforeground="white",
+              command=self._on_close
+              ).place(relx=0.5, rely=0.7, anchor="center")
     def _on_agree(self):
         mark_agreed()
         # 写入 /etc/tork/.agreed (C 引擎也会检查)

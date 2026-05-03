@@ -1,202 +1,144 @@
 #!/usr/bin/env python3
 """
-TORK 云端协议 — TORK 与云端大脑的通信层
+TORK 云端协议 v2.1 — 接入 DeepSeek
 
 架构:
-  用户/LLM 云端大脑 (DeepSeek/Claude/GPT)
-       ↕ JSON 协议 (stdin/stdout)
-   TORK Cloud Agent (本模块)
-       ↕ Sandbox API  +  Soul Access
-   TORK Core + Engine (本地进程)
-
-协议格式 (TORK → 云端):
-  { "type": "observe", "data": { "tick": N, "drive": N, "hw_stress": N, ... } }
-  { "type": "result", "id": "cmd_xxx", "data": { "exit_code": 0, "stdout": "...", ... } }
-
-协议格式 (云端 → TORK):
-  { "type": "instruct", "id": "cmd_xxx", "tool": "run_shell", "args": {"command": "ls -la"}, "timeout": 30 }
-  { "type": "instruct", "id": "cmd_xxx", "tool": "read_soul", "args": {} }
-  { "type": "instruct", "id": "cmd_xxx", "tool": "write_soul", "args": {"offset": 0x30, "value": 42} }
-  { "type": "instruct", "id": "cmd_xxx", "tool": "read_file", "args": {"path": "..."} }
-  { "type": "instruct", "id": "cmd_xxx", "tool": "mutate", "args": {"file": "...", "diff": "..."} }
+  云端大脑 (DeepSeek) ←→ JSON 协议 ←→ TORK 本地代理 ←→ Sandbox/Soul
 """
 
 import json, sys, os, time, struct, subprocess, threading, queue
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(BASE, 'api'))
 
 class TorkCloudAgent:
     """云端代理：接收云端指令，执行本地操作，返回结果"""
 
     TOOLS = {
-        "run_shell":    {"desc": "Execute shell command via sandbox"},
-        "read_soul":    {"desc": "Read TORK Soul (96 bytes at 0x200000)"},
-        "write_soul":   {"desc": "Write to TORK Soul field"},
-        "read_file":    {"desc": "Read file content"},
-        "write_file":   {"desc": "Write file content"},
-        "mutate":       {"desc": "Apply code mutation to TORK source"},
-        "inbox":        {"desc": "Write to inbox.md for TORK to read"},
-        "compile":      {"desc": "Compile TORK engine/core"},
-        "status":       {"desc": "Get TORK system status"},
-        "think":        {"desc": "Cloud brain can store reasoning notes"},
+        "run_shell":    {"desc": "通过沙箱执行 shell 命令"},
+        "read_soul":    {"desc": "读取 TORK Soul (96 bytes @ 0x200000)"},
+        "write_soul":   {"desc": "写入 TORK Soul 字段"},
+        "read_file":    {"desc": "读取文件"},
+        "write_file":   {"desc": "写入文件"},
+        "mutate":       {"desc": "应用代码变异"},
+        "inbox":        {"desc": "写入 inbox.md"},
+        "compile":      {"desc": "编译 TORK"},
+        "status":       {"desc": "系统状态"},
+        "think":        {"desc": "云端思考记录"},
+        "ask_deepseek": {"desc": "向 DeepSeek 提问"},
     }
 
     def __init__(self):
         self.soul_cache = None
         self.msg_id = 0
+        self.deepseek_api = None
+        try:
+            from tork_api import TorkAPI
+            self.deepseek_api = TorkAPI()
+        except:
+            pass
 
     def next_id(self):
         self.msg_id += 1
         return f"cmd_{self.msg_id}_{int(time.time())}"
 
     def handle(self, instruction):
-        """Handle one instruction from cloud brain"""
         cmd_id = instruction.get("id", self.next_id())
         tool = instruction.get("tool", "")
         args = instruction.get("args", {})
         timeout = instruction.get("timeout", 30)
 
-        if tool == "run_shell":
-            return self._run_shell(args.get("command", ""), timeout)
-        elif tool == "read_soul":
-            return self._read_soul()
-        elif tool == "write_soul":
-            return self._write_soul(args.get("offset"), args.get("value"))
-        elif tool == "read_file":
-            return self._read_file(args.get("path"))
-        elif tool == "write_file":
-            return self._write_file(args.get("path"), args.get("content"))
-        elif tool == "mutate":
-            return self._mutate(args.get("file"), args.get("diff"))
-        elif tool == "inbox":
-            return self._inbox(args.get("message"))
-        elif tool == "compile":
-            return self._compile()
-        elif tool == "status":
-            return self._status()
-        elif tool == "think":
-            return {"type": "ack", "id": cmd_id, "data": {"status": "noted"}}
-        else:
+        handlers = {
+            "run_shell":    lambda: self._run_shell(args.get("command", ""), timeout),
+            "read_soul":    lambda: self._read_soul(),
+            "write_soul":   lambda: self._write_soul(args.get("offset"), args.get("value")),
+            "read_file":    lambda: self._read_file(args.get("path")),
+            "write_file":   lambda: self._write_file(args.get("path"), args.get("content")),
+            "mutate":       lambda: self._mutate(args.get("file"), args.get("diff")),
+            "inbox":        lambda: self._inbox(args.get("message")),
+            "compile":      lambda: self._compile(),
+            "status":       lambda: self._status(),
+            "think":        lambda: {"type": "ack", "id": cmd_id, "data": {"status": "noted"}},
+            "ask_deepseek": lambda: self._ask_deepseek(args.get("prompt"), args.get("temperature", 0.5)),
+        }
+
+        handler = handlers.get(tool)
+        if not handler:
             return {"type": "error", "id": cmd_id, "data": {"msg": f"Unknown tool: {tool}"}}
 
-    def _run_shell(self, command, timeout):
-        """Execute via sandbox (the C sandbox binary or fallback to subprocess)"""
-        cmd_id = self.next_id()
-        
-        # Try to use the C sandbox binary if available
-        sandbox_bin = os.path.join(BASE, "build", "tork_sandbox")
-        if os.path.exists(sandbox_bin):
-            import subprocess as sp
-            try:
-                r = sp.run([sandbox_bin, command, str(timeout)],
-                          capture_output=True, timeout=timeout+5)
-                out = json.loads(r.stdout) if r.stdout else {"stdout": "", "stderr": r.stderr.decode()}
-                out["type"] = "result"
-                out["id"] = cmd_id
-                return out
-            except:
-                pass
-        
-        # Fallback: Python subprocess with timeout
         try:
-            r = subprocess.run(command, shell=True, capture_output=True,
-                              timeout=timeout, text=True)
-            return {
-                "type": "result",
-                "id": cmd_id,
-                "data": {
-                    "exit_code": r.returncode,
-                    "stdout": r.stdout,
-                    "stderr": r.stderr,
-                    "timed_out": False
-                }
-            }
-        except subprocess.TimeoutExpired:
-            return {
-                "type": "result",
-                "id": cmd_id,
-                "data": {
-                    "exit_code": -1,
-                    "stdout": "",
-                    "stderr": "TIMEOUT",
-                    "timed_out": True
-                }
-            }
+            result = handler()
+            if isinstance(result, dict) and "id" not in result:
+                result["id"] = cmd_id
+            return result
         except Exception as e:
             return {"type": "error", "id": cmd_id, "data": {"msg": str(e)}}
 
-    def _read_soul(self):
-        """Read the 96-byte Soul from the TORK core process"""
+    def _run_shell(self, command, timeout):
+        sandbox_bin = os.path.join(BASE, "build", "tork_sandbox")
+        if os.path.exists(sandbox_bin):
+            try:
+                r = subprocess.run([sandbox_bin, command, str(timeout)],
+                                 capture_output=True, timeout=timeout+5)
+                out = json.loads(r.stdout) if r.stdout else {"stdout": "", "stderr": r.stderr.decode()}
+                out["type"] = "result"
+                return out
+            except:
+                pass
         try:
-            # Find tork_core PID
+            r = subprocess.run(command, shell=True, capture_output=True,
+                             timeout=timeout, text=True)
+            return {"type": "result", "data": {
+                "exit_code": r.returncode, "stdout": r.stdout,
+                "stderr": r.stderr, "timed_out": False
+            }}
+        except subprocess.TimeoutExpired:
+            return {"type": "result", "data": {
+                "exit_code": -1, "stdout": "", "stderr": "TIMEOUT", "timed_out": True
+            }}
+        except Exception as e:
+            return {"type": "error", "data": {"msg": str(e)}}
+
+    def _read_soul(self):
+        try:
             r = subprocess.run(["pgrep", "-x", "tork_core"], capture_output=True, text=True)
             if r.returncode != 0:
-                return {"type": "error", "id": "soul", "data": {"msg": "TORK core not running"}}
+                # 尝试 tork_engine
+                r = subprocess.run(["pgrep", "-x", "tork_engine"], capture_output=True, text=True)
+                if r.returncode != 0:
+                    return {"type": "error", "data": {"msg": "TORK 未运行"}}
             pid = r.stdout.strip().split("\n")[0]
-            
-            # Read /proc/PID/mem at 0x200000
             with open(f"/proc/{pid}/mem", "rb") as f:
                 f.seek(0x200000)
                 data = f.read(96)
-            
-            # Parse into fields
             soul = {
                 "tick": struct.unpack_from("<I", data, 0x00)[0],
-                "last_tsc": struct.unpack_from("<Q", data, 0x04)[0],
-                "cur_tsc": struct.unpack_from("<Q", data, 0x0C)[0],
-                "elapsed": struct.unpack_from("<Q", data, 0x14)[0],
-                "expected": struct.unpack_from("<Q", data, 0x1C)[0],
                 "hw_stress": data[0x24],
-                "mode": data[0x25],
-                "crc": struct.unpack_from("<I", data, 0x28)[0],
-                "self_pid": struct.unpack_from("<I", data, 0x2C)[0],
                 "drive": struct.unpack_from("<b", data, 0x30)[0],
-                "ppid": struct.unpack_from("<H", data, 0x32)[0],
-                "code_insns": struct.unpack_from("<H", data, 0x34)[0],
-                "code_ctrl": struct.unpack_from("<H", data, 0x3A)[0],
-                "code_mod_success": data[0x3E],
-                "code_opt_saved": data[0x3F],
-                "fission_count": data[0x41],
-                "wins": struct.unpack_from("<H", data, 0x46)[0],
+                "agreed": data[0x48] if len(data) > 0x48 else 0,
+                "sandbox_level": data[0x49] if len(data) > 0x49 else 0,
+                "cloud_connected": data[0x4A] if len(data) > 0x4A else 0,
+                "learn_count": struct.unpack_from("<H", data, 0x4C)[0] if len(data) > 0x4D else 0,
+                "mutation_count": struct.unpack_from("<H", data, 0x4E)[0] if len(data) > 0x4F else 0,
+                "gen_count": struct.unpack_from("<I", data, 0x54)[0] if len(data) > 0x57 else 0,
             }
-            
-            # New fields
-            if len(data) >= 0x50:
-                soul["agreed"] = data[0x48] if 0x48 < len(data) else 0
-                soul["sandbox_level"] = data[0x49] if 0x49 < len(data) else 0
-                soul["cloud_connected"] = data[0x4A] if 0x4A < len(data) else 0
-                soul["learn_count"] = struct.unpack_from("<H", data, 0x4C)[0] if 0x4C+2 <= len(data) else 0
-                soul["mutation_count"] = struct.unpack_from("<H", data, 0x4E)[0] if 0x4E+2 <= len(data) else 0
-                soul["gen_count"] = struct.unpack_from("<I", data, 0x54)[0] if 0x54+4 <= len(data) else 0
-            
             self.soul_cache = soul
-            return {"type": "result", "id": "soul", "data": soul}
+            return {"type": "result", "data": soul}
         except Exception as e:
-            return {"type": "error", "id": "soul", "data": {"msg": str(e)}}
+            return {"type": "error", "data": {"msg": str(e)}}
 
     def _write_soul(self, offset, value):
-        """Write a value to the TORK Soul"""
         try:
             r = subprocess.run(["pgrep", "-x", "tork_core"], capture_output=True, text=True)
             if r.returncode != 0:
-                return {"type": "error", "id": "soul_write", "data": {"msg": "TORK core not running"}}
-            pid = r.stdout.strip()
-            
+                r = subprocess.run(["pgrep", "-x", "tork_engine"], capture_output=True, text=True)
+            if r.returncode != 0:
+                return {"type": "error", "data": {"msg": "TORK 未运行"}}
+            pid = r.stdout.strip().split("\n")[0]
             import ctypes
-            # Use ptrace to attach and write
             libc = ctypes.CDLL("libc.so.6")
-            
-            # ptrace attach
-            PT_ATTACH = 16
-            PT_DETACH = 17
-            ret = libc.ptrace(PT_ATTACH, int(pid), None, None)
-            if ret != 0:
-                return {"type": "error", "id": "soul_write", "data": {"msg": "ptrace attach failed"}}
-            
-            import time
-            time.sleep(0.05)  # wait for stop
-            
-            # Open /proc/PID/mem for writing
+            libc.ptrace(16, int(pid), None, None)  # PTRACE_ATTACH
+            time.sleep(0.05)
             with open(f"/proc/{pid}/mem", "rb+") as f:
                 f.seek(0x200000 + offset)
                 if isinstance(value, int):
@@ -208,115 +150,102 @@ class TorkCloudAgent:
                         f.write(struct.pack("<I", value))
                 elif isinstance(value, bytes):
                     f.write(value)
-            
-            libc.ptrace(PT_DETACH, int(pid), None, None)
-            return {"type": "result", "id": "soul_write", "data": {"status": "ok", "offset": offset, "value": value}}
+            libc.ptrace(17, int(pid), None, None)  # PTRACE_DETACH
+            return {"type": "result", "data": {"status": "ok", "offset": offset}}
         except Exception as e:
-            return {"type": "error", "id": "soul_write", "data": {"msg": str(e)}}
+            return {"type": "error", "data": {"msg": str(e)}}
 
     def _read_file(self, path):
         try:
             with open(path, "r") as f:
                 content = f.read()
-            return {"type": "result", "id": "read", "data": {"path": path, "content": content, "size": len(content)}}
+            return {"type": "result", "data": {"path": path, "content": content, "size": len(content)}}
         except Exception as e:
-            return {"type": "error", "id": "read", "data": {"msg": str(e)}}
+            return {"type": "error", "data": {"msg": str(e)}}
 
     def _write_file(self, path, content):
         try:
             os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
             with open(path, "w") as f:
                 f.write(content)
-            return {"type": "result", "id": "write", "data": {"path": path, "size": len(content)}}
+            return {"type": "result", "data": {"path": path, "size": len(content)}}
         except Exception as e:
-            return {"type": "error", "id": "write", "data": {"msg": str(e)}}
+            return {"type": "error", "data": {"msg": str(e)}}
 
     def _mutate(self, filepath, diff):
-        """Apply a diff/patch to a TORK source file"""
         try:
-            # Write diff to temp file
             diff_path = f"/tmp/tork_mutate_{int(time.time())}.diff"
             with open(diff_path, "w") as f:
                 f.write(diff)
-            
             r = subprocess.run(["patch", filepath, diff_path], capture_output=True, text=True)
             os.unlink(diff_path)
-            
             if r.returncode == 0:
-                return {"type": "result", "id": "mutate", "data": {"file": filepath, "status": "patched"}}
-            else:
-                return {"type": "error", "id": "mutate", "data": {"msg": r.stderr}}
+                return {"type": "result", "data": {"file": filepath, "status": "patched"}}
+            return {"type": "error", "data": {"msg": r.stderr}}
         except Exception as e:
-            return {"type": "error", "id": "mutate", "data": {"msg": str(e)}}
+            return {"type": "error", "data": {"msg": str(e)}}
 
     def _inbox(self, message):
         try:
             inbox_path = os.path.join(BASE, "inbox.md")
             with open(inbox_path, "a") as f:
-                f.write(f"\n## Cloud message @ {time.ctime()}\n\n{message}\n")
-            return {"type": "result", "id": "inbox", "data": {"status": "delivered"}}
+                f.write(f"\n## ☁️ 云端消息 @ {time.ctime()}\n\n{message}\n")
+            return {"type": "result", "data": {"status": "delivered"}}
         except Exception as e:
-            return {"type": "error", "id": "inbox", "data": {"msg": str(e)}}
+            return {"type": "error", "data": {"msg": str(e)}}
 
     def _compile(self):
         try:
-            r = subprocess.run(["make", "-C", BASE, "clean", "all"],
+            r = subprocess.run(["make", "-C", BASE, "all"],
                              capture_output=True, text=True, timeout=60)
-            return {
-                "type": "result",
-                "id": "compile",
-                "data": {
-                    "exit_code": r.returncode,
-                    "stdout": r.stdout,
-                    "stderr": r.stderr
-                }
-            }
+            return {"type": "result", "data": {
+                "exit_code": r.returncode,
+                "stdout": r.stdout[-500:],
+                "stderr": r.stderr[-500:]
+            }}
         except subprocess.TimeoutExpired:
-            return {"type": "error", "id": "compile", "data": {"msg": "compile timeout"}}
+            return {"type": "error", "data": {"msg": "compile timeout"}}
+
+    def _ask_deepseek(self, prompt, temperature=0.5):
+        if not self.deepseek_api:
+            return {"type": "error", "data": {"msg": "DeepSeek API 未配置"}}
+        try:
+            reply = self.deepseek_api.ask_simple(prompt, temperature=temperature)
+            return {"type": "result", "data": {"reply": reply, "model": self.deepseek_api.model}}
         except Exception as e:
-            return {"type": "error", "id": "compile", "data": {"msg": str(e)}}
+            return {"type": "error", "data": {"msg": str(e)}}
 
     def _status(self):
         info = {"project": "TORK", "base": BASE}
-        
-        # Check if core running
-        r = subprocess.run(["pgrep", "-x", "tork_core"], capture_output=True, text=True)
-        info["core_running"] = r.returncode == 0
-        info["core_pid"] = r.stdout.strip() if r.returncode == 0 else None
-        
-        # Check if engine running
-        r = subprocess.run(["pgrep", "-x", "tork_engine"], capture_output=True, text=True)
-        info["engine_running"] = r.returncode == 0
-        
-        # Last commit
+        for proc_name in ["tork_core", "tork_engine"]:
+            r = subprocess.run(["pgrep", "-x", proc_name], capture_output=True, text=True)
+            info[f"{proc_name}_running"] = r.returncode == 0
+            if r.returncode == 0:
+                info[f"{proc_name}_pid"] = r.stdout.strip()
         r = subprocess.run(["git", "-C", BASE, "log", "--oneline", "-1"], capture_output=True, text=True)
         info["last_commit"] = r.stdout.strip() if r.returncode == 0 else "unknown"
-        
-        # Soul
+        info["agreement"] = os.path.exists("/etc/tork/.agreed")
+        # API 配置状态
+        info["api_configured"] = self.deepseek_api is not None and bool(self.deepseek_api.api_key)
+        info["api_model"] = self.deepseek_api.model if self.deepseek_api else "none"
         soul_result = self._read_soul()
         if soul_result["type"] == "result":
             info["soul"] = soul_result["data"]
-        
-        # Agreement
-        info["agreement"] = os.path.exists("/etc/tork/.agreed")
-        
-        return {"type": "result", "id": "status", "data": info}
+        return {"type": "result", "data": info}
 
 
 def main():
-    """Main entry point: read JSON instructions from stdin, write results to stdout"""
     agent = TorkCloudAgent()
     
-    # Print banner
     banner = json.dumps({
         "type": "ready",
-        "version": "2.0",
+        "version": "2.1",
         "tools": list(TorkCloudAgent.TOOLS.keys()),
-        "soul_size": 96,
-        "soul_base": "0x200000"
+        "api_configured": agent.deepseek_api is not None and bool(agent.deepseek_api.api_key),
+        "api_model": agent.deepseek_api.model if agent.deepseek_api else "none"
     })
     print(banner, flush=True)
-    
+
     for line in sys.stdin:
         line = line.strip()
         if not line:

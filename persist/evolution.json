@@ -1,5 +1,5 @@
 {
-  "generation": 3,
+  "generation": 6,
   "mutations": [
     {
       "generation": 0,
@@ -24,8 +24,104 @@
       "description": "Add soul health monitoring to main loop",
       "mutagen": "soul_health_check",
       "result": "success"
+    },
+    {
+      "generation": 3,
+      "timestamp": 1777837721.7071571,
+      "file": "instinct/instinct.c",
+      "description": "\u6dfb\u52a0 curiosity boost\uff1a\u5f53 mutation_count \u589e\u52a0\u65f6\u597d\u5947\u5fc3\u589e\u5f3a",
+      "source": "rule",
+      "result": "compile_failed"
+    },
+    {
+      "generation": 3,
+      "timestamp": 1777838053.0848672,
+      "file": "code/code_modifier.c",
+      "description": "add verification count tracking for self-modification",
+      "mutagen": "code_verify_count",
+      "result": "apply_failed"
+    },
+    {
+      "generation": 3,
+      "timestamp": 1777838064.1295354,
+      "file": "code/code_modifier.c",
+      "description": "add verification count tracking for self-modification",
+      "mutagen": "code_verify_count",
+      "result": "apply_failed"
+    },
+    {
+      "generation": 3,
+      "timestamp": 1777838067.5631685,
+      "file": "code/code_modifier.c",
+      "description": "add verification count tracking for self-modification",
+      "mutagen": "code_verify_count",
+      "result": "apply_failed"
+    },
+    {
+      "generation": 3,
+      "timestamp": 1777838076.6920767,
+      "file": "code/code_modifier.c",
+      "description": "add verification count tracking for self-modification",
+      "mutagen": "code_verify_count",
+      "result": "apply_failed"
+    },
+    {
+      "generation": 3,
+      "timestamp": 1777838080.6721432,
+      "file": "code/code_modifier.c",
+      "description": "add verification count tracking for self-modification",
+      "mutagen": "code_verify_count",
+      "result": "apply_failed"
+    },
+    {
+      "generation": 3,
+      "timestamp": 1777838104.9062464,
+      "file": "engine/tork_engine.c",
+      "description": "add round counter tracking for self-awareness",
+      "mutagen": "engine_round_tracker",
+      "result": "success"
+    },
+    {
+      "generation": 4,
+      "timestamp": 1777838110.610869,
+      "file": "instinct/instinct.c",
+      "description": "mutation-aware curiosity \u2014 generation count influences exploration drive",
+      "mutagen": "instinct_gen_awareness",
+      "result": "success"
+    },
+    {
+      "generation": 5,
+      "timestamp": 1777838115.952081,
+      "file": "instinct/instinct.c",
+      "description": "cloud collaboration awareness \u2014 successful mods boost curiosity",
+      "mutagen": "instinct_cloud_curiosity",
+      "result": "success"
+    },
+    {
+      "generation": 6,
+      "timestamp": 1777838123.5897222,
+      "file": "engine/tork_engine.c",
+      "description": "self-monitoring \u2014 track soul_read latency in main loop",
+      "mutagen": "engine_latency_track",
+      "result": "compile_failed"
+    },
+    {
+      "generation": 6,
+      "timestamp": 1777838147.0765662,
+      "file": "engine/tork_engine.c",
+      "description": "self-monitoring \u2014 track soul_read latency in main loop",
+      "mutagen": "engine_latency_track",
+      "result": "compile_failed"
+    },
+    {
+      "generation": 6,
+      "timestamp": 1777838158.1806407,
+      "file": "engine/tork_engine.c",
+      "description": "self-monitoring \u2014 track soul_read latency in main loop",
+      "mutagen": "engine_latency_track",
+      "result": "compile_failed"
     }
   ],
-  "successes": 3,
-  "failures": 1
+  "successes": 6,
+  "failures": 10
 }

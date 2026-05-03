@@ -153,7 +153,7 @@ def mark_agreed():
 class TORKApp:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("🥚 TORK")
+        self.root.title("🥚 T🥚RK")
         self.root.configure(bg=BG_DARK)
         self.root.resizable(False, False)
         
@@ -207,10 +207,10 @@ class TORKApp:
         for w in self.root.winfo_children():
             w.destroy()
         
-        self.root.title("🥚 TORK — 共生协议")
+        self.root.title("🥚 T🥚RK — 共生协议")
         
         # Logo / 标题
-        tk.Label(self.root, text="🥚 TORK", font=FONT_TITLE,
+        tk.Label(self.root, text="🥚 T🥚RK", font=FONT_TITLE,
                  bg=BG_DARK, fg=ACCENT).pack(pady=(20,5))
         tk.Label(self.root, text="The Organism That Reads and Knows", 
                  font=FONT_SMALL, bg=BG_DARK, fg=TEXT_DIM).pack()
@@ -259,13 +259,13 @@ class TORKApp:
         for w in self.root.winfo_children():
             w.destroy()
         
-        self.root.title("🥚 TORK")
+        self.root.title("🥚 T🥚RK")
         
         # ── 顶栏 ──
         top = tk.Frame(self.root, bg=BG_DARK)
         top.pack(fill="x", padx=10, pady=(8,0))
         
-        tk.Label(top, text="🥚 TORK", font=FONT_TITLE,
+        tk.Label(top, text="🥚 T🥚RK", font=FONT_TITLE,
                  bg=BG_DARK, fg=ACCENT).pack(side="left")
         
         # 设置按钮
@@ -522,7 +522,7 @@ class TORKApp:
     # ── 设置对话框 ────────────────────────────────
     def _open_settings(self):
         win = tk.Toplevel(self.root)
-        win.title("⚙️ TORK 设置")
+        win.title("⚙️ T🥚RK 设置")
         win.configure(bg=BG_DARK)
         win.resizable(False, False)
         win.transient(self.root)

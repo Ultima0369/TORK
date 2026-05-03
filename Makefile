@@ -9,6 +9,8 @@ CFLAGS = -Wall -Wextra -O2 -Iengine -Iinstinct -Icode -Icore -Iinstall -Isandbox
 .PHONY: all clean distclean run install
 
 all: build/tork_core build/tork_engine build/tork_sandbox
+	@mkdir -p build
+	$(CC) $(CFLAGS) -o build/probe_env install/probe_env.c -lrt
 
 # ── ASM core ────────────────────────────────────────────────────────
 
@@ -75,6 +77,10 @@ install: build/tork_engine build/tork_core build/tork_sandbox
 
 run: build/tork_engine build/tork_core
 	./build/tork_engine 10
+
+probe: build/probe_env
+	@echo "=== 环境探测 ==="
+	@./build/probe_env | python3 -m json.tool
 
 run100: build/tork_engine build/tork_core
 	./build/tork_engine 100

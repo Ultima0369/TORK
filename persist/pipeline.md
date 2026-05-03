@@ -223,3 +223,36 @@ TORK-x86_64.AppImage (自解压 shell + base64)
 ## 2026-05-04 清理逻辑
 - 窗口关闭时自动 杀引擎 → 杀core → 等待 → 补刀 → 退出
 - 不再留孤儿进程
+
+---
+
+## 阶段 5: 不再假设 — 环境探测优先 (2026-05-04)
+
+### 核心理念
+**不再假设本地环境。先摸清楚，再出手。**
+
+### 新增文件
+| 文件 | 作用 |
+|------|------|
+| `install/probe_env.c` | C 级硬件/OS/工具链深度探测,输出JSON |
+| `floating/probe_wrapper.py` | Python封装,供仪表盘/云端消费 |
+| `build/probe_env` | 编译产物 |
+
+### 探测内容
+- CPU: 厂商,品牌,核心数,频率,指令集(AVX/AVX2/FMA/RDRAND...),安全特性(IBRS/MD_CLEAR)
+- OS: 发行版,版本,内核,架构
+- 内存: 总量/空闲
+- 磁盘: 总量/空闲/已用比例
+- 工具链: GCC/Python3/AS/Make 版本
+
+### 使用方式
+```bash
+./build/probe_env                    # 完整JSON
+python3 floating/probe_wrapper.py --human  # 人类可读摘要
+```
+
+### 对架构的影响
+所有未来的代码生成管线必须:
+1. 先运行 `probe_env` 获取环境画像
+2. 根据画像参数化代码生成 (如: 有AVX2则用向量化, 无则用标量回退)
+3. 生成完成后, 在目标环境编译/验证

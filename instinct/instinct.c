@@ -78,6 +78,14 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
     if (in->save_success)
         inst.desire += 0.05f;     /* successful save boosts desire */
 
+    /* ── idle microadjustments ──────────────────────────── */
+    if (in->idle_discoveries > 0) {
+        inst.curiosity += 0.2f;   /* idle discoveries feed curiosity */
+        inst.desire -= 0.05f;     /* idle is rest, not ambition */
+    } else if (in->idle_discoveries == -1) {
+        inst.desire -= 0.05f;     /* idle ended with no discoveries */
+    }
+
     return inst;
 }
 

@@ -8,6 +8,7 @@
 #include "calibrator.h"
 #include "inductor.h"
 #include "persistor.h"
+#include "idler.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -121,8 +122,12 @@ int main(int argc, char **argv) {
     int mod_attempted = 0;
     int opt_attempted = 0;
     int nop_attempted = 0;
+    int rounds_since_mod = 0;
+    uint32_t last_bb_tick = 1;  /* non-zero to avoid (tick-0)<200 always true */
+    int idle_discoveries = 0;
 
     for (int i = 0; i < rounds; i++) {
+        rounds_since_mod++;
         int rc = soul_read(&soul);
         if (rc != 0) {
             fprintf(stderr, "[%4d] soul_read failed (rc=%d) — core died?\n", i, rc);
@@ -148,9 +153,14 @@ int main(int argc, char **argv) {
             .rule_applied     = 0,
             .restored_files   = restored_files,
             .save_success     = 0,
+            .idle_discoveries = idle_discoveries,
         };
 
         bb_set_tick(inp.tick);
+
+        /* Track blackboard activity for idle detection */
+        uint32_t prev_bb_opt = inp.bb_global_opts;
+        uint32_t prev_bb_fis = bb_global_fissions();
 
         const struct tork_params *cp = cal_params();
         int mod_cycle = cp->conservative_cycle * 10;
@@ -220,6 +230,8 @@ int main(int argc, char **argv) {
                         inp.code_mod_success = 1;
                         bb_write(BB_TYPE_OPT_SUCCESS, 1, (uint32_t)i);
                         bb_inc_optimizations();
+                        rounds_since_mod = 0;
+                        last_bb_tick = inp.tick;
                     } else {
                         asm_rollback(asm_buf, sizeof(asm_buf), backup, backup_len);
                         printf("[%4d] tick=%-6u MODIFY FAILED: je→jz rejected\n", i, inp.tick);
@@ -451,10 +463,45 @@ int main(int argc, char **argv) {
 
         /* re-evaluate instinct after all modifications */
         inst = instinct_evaluate(&inp);
+        idle_discoveries = 0;  /* one-shot: clear after instinct consumes it */
         drive = (int)((inst.desire - inst.fear + inst.curiosity) * 100.0f);
         if (drive > 127) drive = 127;
         if (drive < -128) drive = -128;
         soul_set_drive(&soul, (int8_t)drive);
+
+        /* Update last_bb_tick if blackboard changed this round */
+        {
+            uint32_t cur_bb_opt = bb_global_optimizations();
+            uint32_t cur_bb_fis = bb_global_fissions();
+            if (cur_bb_opt != prev_bb_opt || cur_bb_fis != prev_bb_fis)
+                last_bb_tick = inp.tick;
+        }
+
+        /* every 100 rounds: idle check */
+        if (i % 100 == 0 && i > 0) {
+            if (idler_should_enter(inp.hw_stress, inst.fear, inst.desire,
+                                   rounds_since_mod, inp.tick, last_bb_tick)) {
+                if (!idler_active()) {
+                    printf("[%4d] tick=%-6u IDLE: entering idle (stress=%d fear=%.1f desire=%.1f)\n",
+                           i, inp.tick, inp.hw_stress, inst.fear, inst.desire);
+                    uint8_t mode_idle = 1;
+                    soul_write_buf(&soul, S_MODE, &mode_idle, 1);
+                    idler_set_active(1);
+                    int disc = idler_cycle();
+                    if (disc > 0) idle_discoveries += disc;
+                    else idle_discoveries = -1; /* signal: idle ended with no discoveries */
+                    printf("[%4d] tick=%-6u IDLE: exiting idle (discoveries=%d)\n", i, inp.tick, disc);
+                    uint8_t mode_busy = 0;
+                    soul_write_buf(&soul, S_MODE, &mode_busy, 1);
+                    idler_set_active(0);
+                }
+            } else if (idler_active()) {
+                printf("[%4d] tick=%-6u IDLE: conditions changed, forced exit\n", i, inp.tick);
+                uint8_t mode_busy = 0;
+                soul_write_buf(&soul, S_MODE, &mode_busy, 1);
+                idler_set_active(0);
+            }
+        }
 
         /* every 100 rounds: blackboard summary */
         if (i % 100 == 0) {

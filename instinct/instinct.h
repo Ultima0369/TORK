@@ -30,6 +30,7 @@ typedef struct {
     int rule_applied;                  /* 1 if a rule was just applied successfully */
     int restored_files;                /* count of files restored by ps_restore_all */
     int save_success;                  /* 1 if ps_save_all just succeeded */
+    int idle_discoveries;              /* count of idle discoveries in last cycle */
 } instinct_input_t;
 
 tork_instinct_t instinct_evaluate(const instinct_input_t *in);

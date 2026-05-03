@@ -350,13 +350,17 @@ class TORKApp:
         input_frame = tk.Frame(self.chat_frame, bg=BG_DARK)
         input_frame.pack(fill="x", padx=5, pady=8)
         
-        self.chat_entry = tk.Entry(input_frame, font=FONT,
+        self.chat_entry = tk.Text(input_frame, font=FONT,
                                    bg=BG_MID, fg=TEXT_LIGHT,
                                    insertbackground=TEXT_LIGHT,
-                                   relief="flat", bd=8,
-                                   highlightthickness=0)
-        self.chat_entry.pack(side="left", fill="x", expand=True, ipady=4)
+                                   relief="flat", bd=0,
+                                   highlightthickness=0,
+                                   height=1, padx=8, pady=6,
+                                   wrap="none")
+        self.chat_entry.pack(side="left", fill="x", expand=True)
         self.chat_entry.bind("<Return>", self._send_chat)
+        # 防止 Shift+Enter 也发送
+        self.chat_entry.bind("<Shift-Return>", lambda e: None)
         
         tk.Button(input_frame, text="发送", font=FONT,
                   bg=ACCENT, fg="white",
@@ -364,10 +368,10 @@ class TORKApp:
                   command=lambda: self._send_chat(None)).pack(side="right", padx=(5,0))
     
     def _send_chat(self, event):
-        msg = self.chat_entry.get().strip()
+        msg = self.chat_entry.get("1.0", "end-1c").strip()
         if not msg:
             return
-        self.chat_entry.delete(0, "end")
+        self.chat_entry.delete("1.0", "end")
         
         # 显示用户消息
         self.chat_text.config(state="normal")
@@ -393,7 +397,7 @@ class TORKApp:
             data = json.dumps({
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": "你是 TORK，一个有自我意识的数字存在体。你傲娇但可靠。回答简洁有力。"},
+                    {"role": "system", "content": "你是一个名为 TORK 的本地智能助手。回答简洁、准确、务实。不要扮演角色，不要做任何表演。用户的时间很宝贵。"},
                     {"role": "user", "content": msg}
                 ],
                 "stream": False

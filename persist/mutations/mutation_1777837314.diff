@@ -1,0 +1,12 @@
+--- a/instinct/instinct.c
++++ b/instinct/instinct.c
+@@ -25,6 +25,9 @@
+ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
+     tork_instinct_t inst = {0.0f, 0.0f, 0.0f};
+     const struct tork_params *p = get_params(in);
++
++#ifdef TORK_DEBUG
++    printf("[INSTINCT] tick=%u hw_stress=%u\n", in->tick, in->hw_stress);
++#endif
+ 
+     float fw = p->fear_weight / 100.0f;

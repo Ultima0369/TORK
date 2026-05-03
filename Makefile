@@ -1,14 +1,14 @@
-# TORK v1.0 — Makefile
+# TORK v2.0 — 共生进化系统
 # One make to build them all, one make to link them.
 
 AS  = as
 LD  = ld
 CC  = gcc
-CFLAGS = -Wall -Wextra -O2 -Iengine -Iinstinct -Icode -Icore
+CFLAGS = -Wall -Wextra -O2 -Iengine -Iinstinct -Icode -Icore -Iinstall -Isandbox
 
-.PHONY: all clean distclean run
+.PHONY: all clean distclean run install
 
-all: build/tork_core build/tork_engine
+all: build/tork_core build/tork_engine build/tork_sandbox
 
 # ── ASM core ────────────────────────────────────────────────────────
 
@@ -18,6 +18,17 @@ build/tork_core.o: core/tork_core.asm core/tork_soul.inc
 
 build/tork_core: build/tork_core.o
 	$(LD) -o build/tork_core build/tork_core.o
+
+# ── Sandbox ─────────────────────────────────────────────────────────
+
+build/sandbox.o: sandbox/sandbox.c sandbox/sandbox.h install/agreement.h
+	$(CC) $(CFLAGS) -c -o build/sandbox.o sandbox/sandbox.c
+
+build/agreement.o: install/agreement.c install/agreement.h
+	$(CC) $(CFLAGS) -c -o build/agreement.o install/agreement.c
+
+build/tork_sandbox: sandbox/sandbox_cli.c build/sandbox.o build/agreement.o
+	$(CC) $(CFLAGS) -o build/tork_sandbox sandbox/sandbox_cli.c build/sandbox.o build/agreement.o
 
 # ── C engine ────────────────────────────────────────────────────────
 
@@ -54,16 +65,22 @@ build/persistor.o: engine/persistor.c engine/persistor.h engine/blackboard.h eng
 build/idler.o: engine/idler.c engine/idler.h engine/blackboard.h engine/inductor.h
 	$(CC) $(CFLAGS) -c -o build/idler.o engine/idler.c
 
-build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/idler.o
-	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/idler.o -lm
+build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/idler.o build/sandbox.o build/agreement.o
+	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/idler.o build/sandbox.o build/agreement.o -lm
 
 # ── Targets ─────────────────────────────────────────────────────────
+
+install: build/tork_engine build/tork_core build/tork_sandbox
+	sudo ./install/install.sh
 
 run: build/tork_engine build/tork_core
 	./build/tork_engine 10
 
+run100: build/tork_engine build/tork_core
+	./build/tork_engine 100
+
 clean:
-	rm -rf build/*.o build/tork_engine build/tork_core
+	rm -rf build/*.o build/tork_engine build/tork_core build/tork_sandbox
 
 distclean: clean
-	rm -f soul.bin tork_engine.log
+	rm -f soul.bin tork_engine.log persist/*.bin

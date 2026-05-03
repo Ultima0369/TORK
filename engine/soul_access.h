@@ -13,7 +13,7 @@
 #define SOUL_SIZE      96
 #define SOUL_PAGE      4096
 
-/* Soul field offsets — must match tork_core.asm exactly (v0.9) */
+/* Soul field offsets — must match tork_soul.inc exactly (v2.0) */
 #define S_TICK        0x00  /* uint32 */
 #define S_LAST_TSC    0x04  /* uint64 */
 #define S_CUR_TSC     0x0C  /* uint64 */
@@ -32,17 +32,26 @@
 #define S_CODE_ARITH  0x38  /* uint16 */
 #define S_CODE_CTRL   0x3A  /* uint16 */
 #define S_CODE_OTHER  0x3C  /* uint16 */
-#define S_CODE_MOD_SUCCESS 0x3E  /* uint8: 0=none, 1=success, 2=failed */
-#define S_CODE_OPT_SAVED  0x3F  /* uint8: cumulative lines saved by optimization */
-#define S_CODE_NOP_COUNT 0x40  /* uint8: nop insns found in last scan */
-#define S_FISSION_COUNT 0x41  /* uint8: fission count */
-#define S_CHILD_PID     0x42  /* uint16: child instance PID */
-#define S_FISSION_TICK  0x44  /* uint16: tick at last fission */
-#define S_WINS          0x46  /* uint16: sovereignty wins */
+#define S_CODE_MOD_SUCCESS 0x3E  /* uint8 */
+#define S_CODE_OPT_SAVED  0x3F  /* uint8 */
+#define S_CODE_NOP_COUNT 0x40  /* uint8 */
+#define S_FISSION_COUNT 0x41  /* uint8 */
+#define S_CHILD_PID     0x42  /* uint16 */
+#define S_FISSION_TICK  0x44  /* uint16 */
+#define S_WINS          0x46  /* uint16 */
 
-/* ── Soul reader/writer via /proc/PID/mem ─────────────────────
-   Writes require ptrace attach for permission.                    */
+/* v2.0 新字段 */
+#define S_AGREED            0x48  /* uint8 */
+#define S_SANDBOX_LEVEL     0x49  /* uint8 */
+#define S_CLOUD_CONNECTED   0x4A  /* uint8 */
+#define S_CLOUD_PROVIDER    0x4B  /* uint8 */
+#define S_LEARN_COUNT       0x4C  /* uint16 */
+#define S_MUTATION_COUNT    0x4E  /* uint16 */
+#define S_BEST_SCORE        0x50  /* uint32 */
+#define S_GEN_COUNT         0x54  /* uint32 */
+#define S_RESERVED3         0x58  /* uint8[8] */
 
+/* ── Soul reader/writer via /proc/PID/mem ───────────────────── */
 typedef struct {
     int    mem_fd;    /* fd for /proc/PID/mem (O_RDONLY) */
     int    wr_fd;     /* fd for /proc/PID/mem (O_RDWR) — needs ptrace */
@@ -50,30 +59,24 @@ typedef struct {
     uint8_t buf[SOUL_SIZE];
 } soul_t;
 
-/* Open /proc/pid/mem for reading and writing.
-   Uses ptrace attach briefly to open O_RDWR fd. */
+/* Open /proc/pid/mem for reading and writing */
 static inline int soul_open(soul_t *s, pid_t pid) {
     s->pid = pid;
     char path[64];
     snprintf(path, sizeof(path), "/proc/%d/mem", pid);
-
     s->mem_fd = open(path, O_RDONLY);
     s->wr_fd = -1;
     if (s->mem_fd < 0) return -1;
-
-    /* ptrace attach → open O_RDWR → detach */
     if (ptrace(PTRACE_ATTACH, pid, NULL, NULL) == 0) {
         waitpid(pid, NULL, 0);
         int wfd = open(path, O_RDWR);
         ptrace(PTRACE_DETACH, pid, NULL, NULL);
         if (wfd >= 0) s->wr_fd = wfd;
     }
-
     return 0;
 }
 
-/* Snapshot the full 96-byte soul into internal buffer.
-   Returns 0 on success, -1 on failure. */
+/* Snapshot the full 96-byte soul into internal buffer */
 static inline int soul_read(soul_t *s) {
     if (lseek(s->mem_fd, SOUL_ADDR_VAL, SEEK_SET) == (off_t)-1)
         return -1;
@@ -88,12 +91,9 @@ static inline void soul_close(soul_t *s) {
     s->wr_fd = -1;
 }
 
-/* Write a single byte to soul at given offset via /proc/PID/mem.
-   Briefly ptrace-attaches to gain write permission. */
 static inline int soul_write_byte(soul_t *s, uint32_t offset, uint8_t val) {
     if (s->wr_fd < 0) return -1;
-    if (ptrace(PTRACE_ATTACH, s->pid, NULL, NULL) != 0)
-        return -1;
+    if (ptrace(PTRACE_ATTACH, s->pid, NULL, NULL) != 0) return -1;
     waitpid(s->pid, NULL, 0);
     if (lseek(s->wr_fd, SOUL_ADDR_VAL + offset, SEEK_SET) == (off_t)-1) {
         ptrace(PTRACE_DETACH, s->pid, NULL, NULL);
@@ -104,11 +104,9 @@ static inline int soul_write_byte(soul_t *s, uint32_t offset, uint8_t val) {
     return (w == 1) ? 0 : -1;
 }
 
-/* Write N bytes at given offset. Returns 0 on success. */
 static inline int soul_write_buf(soul_t *s, uint32_t offset, const void *data, size_t len) {
     if (s->wr_fd < 0) return -1;
-    if (ptrace(PTRACE_ATTACH, s->pid, NULL, NULL) != 0)
-        return -1;
+    if (ptrace(PTRACE_ATTACH, s->pid, NULL, NULL) != 0) return -1;
     waitpid(s->pid, NULL, 0);
     if (lseek(s->wr_fd, SOUL_ADDR_VAL + offset, SEEK_SET) == (off_t)-1) {
         ptrace(PTRACE_DETACH, s->pid, NULL, NULL);
@@ -123,37 +121,47 @@ static inline int soul_set_drive(soul_t *s, int8_t drive) {
     return soul_write_byte(s, S_DRIVE, (uint8_t)drive);
 }
 
-/* Accessor macros — operate on the internal buffer */
+/* Accessor macros */
 #define SOUL_U32(s, off)  (*(uint32_t*)((s)->buf + (off)))
 #define SOUL_U64(s, off)  (*(uint64_t*)((s)->buf + (off)))
 #define SOUL_U16(s, off)  (*(uint16_t*)((s)->buf + (off)))
 #define SOUL_U8(s, off)   ((s)->buf[(off)])
 
-static inline uint32_t  soul_tick(soul_t *s)      { return SOUL_U32(s, S_TICK); }
-static inline uint64_t  soul_last_tsc(soul_t *s)  { return SOUL_U64(s, S_LAST_TSC); }
-static inline uint64_t  soul_cur_tsc(soul_t *s)   { return SOUL_U64(s, S_CUR_TSC); }
-static inline uint64_t  soul_elapsed(soul_t *s)   { return SOUL_U64(s, S_ELAPSED); }
-static inline uint64_t  soul_expected(soul_t *s)   { return SOUL_U64(s, S_EXPECTED); }
-static inline uint8_t   soul_hw_stress(soul_t *s) { return SOUL_U8(s, S_HW_STRESS); }
-static inline uint8_t   soul_mode(soul_t *s)       { return SOUL_U8(s, S_MODE); }
-static inline uint32_t  soul_checksum(soul_t *s)   { return SOUL_U32(s, S_CRC); }
-static inline uint32_t  soul_self_pid(soul_t *s)   { return SOUL_U32(s, S_SELF_PID); }
-static inline int8_t    soul_drive(soul_t *s)      { return (int8_t)SOUL_U8(s, S_DRIVE); }
-static inline uint16_t  soul_ppid(soul_t *s)       { return SOUL_U16(s, S_PPID); }
-static inline uint16_t  soul_code_insns(soul_t *s) { return SOUL_U16(s, S_CODE_INSNS); }
-static inline uint16_t  soul_code_mov(soul_t *s)   { return SOUL_U16(s, S_CODE_MOV); }
-static inline uint16_t  soul_code_arith(soul_t *s) { return SOUL_U16(s, S_CODE_ARITH); }
-static inline uint16_t  soul_code_ctrl(soul_t *s)  { return SOUL_U16(s, S_CODE_CTRL); }
-static inline uint16_t  soul_code_other(soul_t *s) { return SOUL_U16(s, S_CODE_OTHER); }
-static inline uint8_t   soul_code_mod_success(soul_t *s) { return SOUL_U8(s, S_CODE_MOD_SUCCESS); }
-static inline uint8_t   soul_code_opt_saved(soul_t *s)   { return SOUL_U8(s, S_CODE_OPT_SAVED); }
-static inline uint8_t   soul_code_nop_count(soul_t *s)   { return SOUL_U8(s, S_CODE_NOP_COUNT); }
-static inline uint8_t   soul_fission_count(soul_t *s)    { return SOUL_U8(s, S_FISSION_COUNT); }
-static inline uint16_t  soul_child_pid(soul_t *s)        { return SOUL_U16(s, S_CHILD_PID); }
-static inline uint16_t  soul_fission_tick(soul_t *s)     { return SOUL_U16(s, S_FISSION_TICK); }
-static inline uint16_t  soul_wins(soul_t *s)             { return SOUL_U16(s, S_WINS); }
+static inline uint32_t  soul_tick(soul_t *s)              { return SOUL_U32(s, S_TICK); }
+static inline uint64_t  soul_last_tsc(soul_t *s)          { return SOUL_U64(s, S_LAST_TSC); }
+static inline uint64_t  soul_cur_tsc(soul_t *s)           { return SOUL_U64(s, S_CUR_TSC); }
+static inline uint64_t  soul_elapsed(soul_t *s)           { return SOUL_U64(s, S_ELAPSED); }
+static inline uint64_t  soul_expected(soul_t *s)           { return SOUL_U64(s, S_EXPECTED); }
+static inline uint8_t   soul_hw_stress(soul_t *s)         { return SOUL_U8(s, S_HW_STRESS); }
+static inline uint8_t   soul_mode(soul_t *s)               { return SOUL_U8(s, S_MODE); }
+static inline uint32_t  soul_checksum(soul_t *s)           { return SOUL_U32(s, S_CRC); }
+static inline uint32_t  soul_self_pid(soul_t *s)           { return SOUL_U32(s, S_SELF_PID); }
+static inline int8_t    soul_drive(soul_t *s)              { return (int8_t)SOUL_U8(s, S_DRIVE); }
+static inline uint16_t  soul_ppid(soul_t *s)               { return SOUL_U16(s, S_PPID); }
+static inline uint16_t  soul_code_insns(soul_t *s)         { return SOUL_U16(s, S_CODE_INSNS); }
+static inline uint16_t  soul_code_mov(soul_t *s)           { return SOUL_U16(s, S_CODE_MOV); }
+static inline uint16_t  soul_code_arith(soul_t *s)         { return SOUL_U16(s, S_CODE_ARITH); }
+static inline uint16_t  soul_code_ctrl(soul_t *s)          { return SOUL_U16(s, S_CODE_CTRL); }
+static inline uint16_t  soul_code_other(soul_t *s)         { return SOUL_U16(s, S_CODE_OTHER); }
+static inline uint8_t   soul_code_mod_success(soul_t *s)   { return SOUL_U8(s, S_CODE_MOD_SUCCESS); }
+static inline uint8_t   soul_code_opt_saved(soul_t *s)     { return SOUL_U8(s, S_CODE_OPT_SAVED); }
+static inline uint8_t   soul_code_nop_count(soul_t *s)     { return SOUL_U8(s, S_CODE_NOP_COUNT); }
+static inline uint8_t   soul_fission_count(soul_t *s)      { return SOUL_U8(s, S_FISSION_COUNT); }
+static inline uint16_t  soul_child_pid(soul_t *s)          { return SOUL_U16(s, S_CHILD_PID); }
+static inline uint16_t  soul_fission_tick(soul_t *s)       { return SOUL_U16(s, S_FISSION_TICK); }
+static inline uint16_t  soul_wins(soul_t *s)               { return SOUL_U16(s, S_WINS); }
+
+/* v2.0 新字段访问器 */
+static inline uint8_t   soul_agreed(soul_t *s)             { return SOUL_U8(s, S_AGREED); }
+static inline uint8_t   soul_sandbox_level(soul_t *s)      { return SOUL_U8(s, S_SANDBOX_LEVEL); }
+static inline uint8_t   soul_cloud_connected(soul_t *s)    { return SOUL_U8(s, S_CLOUD_CONNECTED); }
+static inline uint8_t   soul_cloud_provider(soul_t *s)     { return SOUL_U8(s, S_CLOUD_PROVIDER); }
+static inline uint16_t  soul_learn_count(soul_t *s)        { return SOUL_U16(s, S_LEARN_COUNT); }
+static inline uint16_t  soul_mutation_count(soul_t *s)     { return SOUL_U16(s, S_MUTATION_COUNT); }
+static inline uint32_t  soul_best_score(soul_t *s)         { return SOUL_U32(s, S_BEST_SCORE); }
+static inline uint32_t  soul_gen_count(soul_t *s)          { return SOUL_U32(s, S_GEN_COUNT); }
 
 /* CRC32 verification of the snapshot */
 int soul_verify(soul_t *s);
 
-#endif
+#endif /* SOUL_ACCESS_H */

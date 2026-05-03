@@ -1,0 +1,31 @@
+{
+  "generation": 3,
+  "mutations": [
+    {
+      "generation": 0,
+      "timestamp": 1777837365.3686752,
+      "file": "instinct/instinct.c",
+      "description": "Add cloud-awareness boost to curiosity instinct",
+      "mutagen": "instinct_cloud_aware",
+      "result": "success"
+    },
+    {
+      "generation": 1,
+      "timestamp": 1777837365.9707394,
+      "file": "engine/tork_engine.c",
+      "description": "Add generation reporting to engine startup",
+      "mutagen": "engine_gen_report",
+      "result": "success"
+    },
+    {
+      "generation": 2,
+      "timestamp": 1777837366.6987743,
+      "file": "engine/tork_engine.c",
+      "description": "Add soul health monitoring to main loop",
+      "mutagen": "soul_health_check",
+      "result": "success"
+    }
+  ],
+  "successes": 3,
+  "failures": 1
+}

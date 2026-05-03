@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=TORK
+Comment=TORK 数字家人 · 悬浮窗
+Exec=TORK
+Icon=tork
+Type=Application
+Categories=Utility;Development;
+Terminal=false
+StartupNotify=true

@@ -116,7 +116,35 @@ int main(int argc, char **argv) {
         }
     }
 
-    printf("TORK engine started. core PID=%d\n", core_pid);
+    
+    /* write agreement status and sandbox level into soul */
+    {
+        uint8_t agreed = 0;
+        uint8_t sandbox_level = 0;
+        /* Try to read from /etc/tork/agreement.sig */
+        FILE *agf = fopen("/etc/tork/agreement.sig", "rb");
+        if (agf) {
+            uint8_t agbuf[68];
+            if (fread(agbuf, 1, 68, agf) == 68) {
+                uint32_t magic;
+                memcpy(&magic, agbuf, 4);
+                if (magic == 0x4B524F54) {
+                    agreed = agbuf[8];  /* state field */
+                    sandbox_level = agbuf[12];  /* sandbox field */
+                }
+            }
+            fclose(agf);
+        }
+        soul_write_byte(&soul, 0x48, agreed);        /* S_AGREED */
+        soul_write_byte(&soul, 0x49, sandbox_level);  /* S_SANDBOX_LEVEL */
+        
+        if (agreed == 1)
+            printf("TORK agreement: ACCEPTED (sandbox level %d)\n", sandbox_level);
+        else
+            printf("TORK agreement: NONE — limited functionality\n");
+    }
+printf("TORK engine started. core PID=%d\n", core_pid);
+    printf("TORK v2.0 | generation data at 0x54 | learn_count at 0x4C\n");
     printf("polling 500ms | instinct 10 | code 200 | modify 300 | optimize 600 | nop 900 | fission 1000 | bb 100 | cal 500 | ind 800 | persist 1000\n\n");
 
     int mod_attempted = 0;
@@ -129,6 +157,12 @@ int main(int argc, char **argv) {
     for (int i = 0; i < rounds; i++) {
         rounds_since_mod++;
         int rc = soul_read(&soul);
+        /* v2.0: tally soul health */
+        static int soul_errors = 0;
+        if (rc != 0) soul_errors++;
+        else soul_errors = 0;
+        if (soul_errors > 10 && soul_errors % 100 == 0)
+            fprintf(stderr, "[TORK] WARNING: %d consecutive soul_read failures\n", soul_errors);
         if (rc != 0) {
             fprintf(stderr, "[%4d] soul_read failed (rc=%d) — core died?\n", i, rc);
             break;

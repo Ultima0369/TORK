@@ -20,7 +20,7 @@ class TorkFloating:
         self._messages = []
         self._generating = False
 
-        self.root.overrideredirect(True)
+        self.root.wm_attributes("-type", "splash")
         self.root.attributes('-topmost', True)
         self.root.attributes('-alpha', 0.95)
         self.root.configure(bg=C['bg'])

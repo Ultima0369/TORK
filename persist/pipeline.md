@@ -158,3 +158,46 @@ gen_count:  0   ✅ (新建运行，尚未进化)
 驱动:     45  ✅ (正向)
 API已配置: True ✅
 ```
+
+## 会话002 — 产品化：TORK-x86_64.AppImage
+
+### 关键决策
+- 用户指出：不应让用户操作终端，TORK 应是**双击即用**的产品
+- 从开发者工具转向用户产品：单文件自解压安装包
+
+### 产出
+| 文件 | 说明 |
+|------|------|
+| `app/tork_app.py` | 主应用窗口：协议 → 设置 → 对话 + 状态 + 进化 |
+| `build-installer.sh` | 构建脚本：编译 → 打包 → 生成 AppImage |
+| `dist/TORK-x86_64.AppImage` | 🎯 用户安装包 (201KB, 单文件) |
+| `Makefile` | 新增 `make appimage` target |
+
+### 用户使用流程
+```
+1. 下载 TORK-x86_64.AppImage
+2. 双击 → 显示共生协议
+3. 同意 → 弹出 API Key 设置
+4. 配置完成 → 进入主界面
+   ├─ 💬 对话 — 通过 DeepSeek 云端聊天
+   ├─ 📊 状态 — 查看 Soul 实时数据
+   └─ 🧬 进化 — 一键自我变异
+5. 关闭窗口 → TORK 后台继续运行
+```
+
+### 技术架构
+```
+TORK-x86_64.AppImage (自解压 shell + base64)
+  └─ ~/.local/share/tork/
+       ├─ build/tork_engine   (C 引擎)
+       ├─ build/tork_core     (asm 核心)
+       ├─ app/tork_app.py     (用户入口)
+       ├─ cloud/              (云端协议 + 进化)
+       ├─ core/engine/...     (源码，供进化引擎使用)
+       └─ run.sh              (启动器)
+```
+
+### 待办
+- [ ] 测试：在有图形界面的机器上双击运行
+- [ ] 优化：AppImage 大小（目前 201KB，含完整源码）
+- [ ] 分发：放到什么地方让用户下载

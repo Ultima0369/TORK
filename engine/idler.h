@@ -3,21 +3,44 @@
 
 #include <stdint.h>
 
-/* Check whether idle conditions are met. Returns 1 if should enter idle. */
-int idler_should_enter(uint8_t hw_stress, float fear, float desire,
-                       int rounds_since_mod, uint32_t current_tick,
-                       uint32_t last_bb_tick);
+/* ── Idle Learning Cycle ─────────────────────────────────────
+ *  TORK's "rest and digest" mode. When the main loop is quiet,
+ *  idler runs MCTS-based decision search, records experiences,
+ *  and returns recommended actions for the engine to apply.
+ * ──────────────────────────────────────────────────────────── */
 
-/* Run one idle cycle: replay → associate → discover. Returns discoveries count. */
-int idler_cycle(void);
+/* State snapshot passed from engine to idler */
+typedef struct {
+    uint8_t  hw_stress;
+    int8_t   drive;
+    uint16_t gen_count;
+    uint32_t tick;
+    uint32_t last_bb_tick;
+    int      rounds_since_mod;
+} idler_input_t;
 
-/* Returns 1 if currently in idle mode. */
+/* Decision output from idler back to engine */
+typedef struct {
+    uint8_t  action_type;    /* 0=adjust_fear, 1=curiosity, 2=heartbeat,
+                                3=modify, 4=optimize, 5=pattern_analyze, 6=call_cloud */
+    int8_t   action_param;
+    float    expected_value;
+    int      discoveries;    /* Patterns / improvements found */
+} idler_output_t;
+
+/* Check whether idle conditions are met */
+int idler_should_enter(const idler_input_t *in);
+
+/* Run one full idle cycle: MCTS → simulate → record → output */
+idler_output_t idler_cycle(const idler_input_t *in);
+
+/* Returns 1 if currently in idle mode */
 int idler_active(void);
 
-/* Set idle state (called by engine on enter/exit). */
+/* Set idle state */
 void idler_set_active(int active);
 
-/* Get count of idle discoveries in last cycle. */
-int idler_last_discoveries(void);
+/* Total number of idle cycles completed */
+int idler_cycle_count(void);
 
-#endif
+#endif /* IDLER_H */

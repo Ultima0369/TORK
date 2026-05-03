@@ -4,7 +4,7 @@
 AS  = as
 LD  = ld
 CC  = gcc
-CFLAGS = -Wall -Wextra -O2 -Iengine -Iinstinct -Icode -Icore -Iinstall -Isandbox
+CFLAGS = -Wall -Wextra -O2 -Iengine -Iinstinct -Icode -Icore -Iinstall -Isandbox -Ilearning
 
 .PHONY: all clean distclean run install
 
@@ -64,11 +64,20 @@ build/inductor.o: engine/inductor.c engine/inductor.h engine/blackboard.h code/c
 build/persistor.o: engine/persistor.c engine/persistor.h engine/blackboard.h engine/calibrator.h engine/inductor.h
 	$(CC) $(CFLAGS) -c -o build/persistor.o engine/persistor.c
 
+# ── Learning modules ──────────────────────────────────────────
+
+build/experience.o: learning/experience.c learning/experience.h
+	$(CC) $(CFLAGS) -c -o build/experience.o learning/experience.c
+
+build/mcts.o: learning/mcts.c learning/mcts.h learning/experience.h
+	$(CC) $(CFLAGS) -c -o build/mcts.o learning/mcts.c
+
+
 build/idler.o: engine/idler.c engine/idler.h engine/blackboard.h engine/inductor.h
 	$(CC) $(CFLAGS) -c -o build/idler.o engine/idler.c
 
-build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/idler.o build/sandbox.o build/agreement.o
-	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/idler.o build/sandbox.o build/agreement.o -lm
+build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/idler.o build/sandbox.o build/agreement.o
+	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/idler.o build/sandbox.o build/agreement.o -lm
 
 # ── Targets ─────────────────────────────────────────────────────────
 

@@ -9,6 +9,8 @@
 #include "inductor.h"
 #include "persistor.h"
 #include "idler.h"
+#include "../learning/experience.h"
+#include "../learning/mcts.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +29,7 @@ static void cleanup_core(int sig) {
         waitpid(core_pid, NULL, 0);
     }
     ps_emergency_save();
+    exp_save();
     _exit(0);
 }
 
@@ -66,7 +69,9 @@ int main(int argc, char **argv) {
 
     /* Initialize shared memory BEFORE restore */
     if (bb_init() != 0)
+    exp_init();
         fprintf(stderr, "warning: bb_init failed — blackboard unavailable\n");
+    exp_init();
 
     if (cal_init() != 0)
         fprintf(stderr, "warning: cal_init failed — calibrator unavailable\n");
@@ -517,18 +522,27 @@ printf("TORK engine started. core PID=%d\n", core_pid);
 
         /* every 100 rounds: idle check */
         if (i % 100 == 0 && i > 0) {
-            if (idler_should_enter(inp.hw_stress, inst.fear, inst.desire,
-                                   rounds_since_mod, inp.tick, last_bb_tick)) {
+            idler_input_t idle_in = {
+                .hw_stress       = inp.hw_stress,
+                .drive           = drive,
+                .gen_count       = soul_gen_count(&soul),
+                .tick            = inp.tick,
+                .last_bb_tick    = last_bb_tick,
+                .rounds_since_mod = rounds_since_mod,
+            };
+            if (idler_should_enter(&idle_in)) {
                 if (!idler_active()) {
-                    printf("[%4d] tick=%-6u IDLE: entering idle (stress=%d fear=%.1f desire=%.1f)\n",
-                           i, inp.tick, inp.hw_stress, inst.fear, inst.desire);
+                    printf("[%4d] tick=%-6u IDLE: entering idle (stress=%d drive=%d gen=%u)\n",
+                           i, inp.tick, inp.hw_stress, drive, soul_gen_count(&soul));
                     uint8_t mode_idle = 1;
                     soul_write_buf(&soul, S_MODE, &mode_idle, 1);
                     idler_set_active(1);
-                    int disc = idler_cycle();
+                    idler_output_t idle_out = idler_cycle(&idle_in);
+                    int disc = idle_out.discoveries;
                     if (disc > 0) idle_discoveries += disc;
-                    else idle_discoveries = -1; /* signal: idle ended with no discoveries */
-                    printf("[%4d] tick=%-6u IDLE: exiting idle (discoveries=%d)\n", i, inp.tick, disc);
+                    else if (disc == 0) idle_discoveries = -1;
+                    printf("[%4d] tick=%-6u IDLE: exiting idle (action=%d, discoveries=%d)\n",
+                           i, inp.tick, idle_out.action_type, disc);
                     uint8_t mode_busy = 0;
                     soul_write_buf(&soul, S_MODE, &mode_busy, 1);
                     idler_set_active(0);

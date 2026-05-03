@@ -90,6 +90,10 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
     if (in->code_opt_saved > 3 && in->active_rules > 0)
         inst.curiosity += 0.08f * cw;  /* accumulated knowledge fuels exploration */
 
+    /* ── v2.2: cloud collaboration awareness ── */
+    if (in->code_mod_success == 1)
+        inst.curiosity += 0.12f * cw;
+
     return inst;
 }
 

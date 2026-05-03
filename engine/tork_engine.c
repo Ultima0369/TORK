@@ -151,6 +151,8 @@ printf("TORK engine started. core PID=%d\n", core_pid);
     int opt_attempted = 0;
     int nop_attempted = 0;
     int rounds_since_mod = 0;
+            /* v2.2: self-awareness counter */
+            static int total_rounds = 0; total_rounds++;
     uint32_t last_bb_tick = 1;  /* non-zero to avoid (tick-0)<200 always true */
     int idle_discoveries = 0;
 
@@ -265,6 +267,8 @@ printf("TORK engine started. core PID=%d\n", core_pid);
                         bb_write(BB_TYPE_OPT_SUCCESS, 1, (uint32_t)i);
                         bb_inc_optimizations();
                         rounds_since_mod = 0;
+            /* v2.2: self-awareness counter */
+            static int total_rounds = 0; total_rounds++;
                         last_bb_tick = inp.tick;
                     } else {
                         asm_rollback(asm_buf, sizeof(asm_buf), backup, backup_len);

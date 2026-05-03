@@ -132,3 +132,29 @@ gen_count:  0   ✅ (新建运行，尚未进化)
 - 仪表盘目前通过 subprocess 调用 cloud_protocol.py 获取状态，可优化为直接 import
 - 对话功能通过 `ask_deepseek` 工具，但需要等待 API 响应（异步已实现）
 - 悬浮窗 (`tork_floating.py`) 仍独立存在，功能与仪表盘有重叠，可考虑合并
+
+---
+
+## 会话 002 — 2026-05-04 (续·修复)
+
+### 修复
+| 问题 | 根因 | 修复 |
+|------|------|------|
+| 对话输入无反应 | `_send_chat_cmd` 通过 `cloud_protocol.py ask` CLI 参数调用，但协议仅支持 stdin JSON | 改为直接 `import TorkAPI` 调用，不走 subprocess |
+| 缺少设置按钮 | 界面未设计配置入口 | 新增 `SettingsDialog`：三个字段 (base_url/model/api_key) + 测试连接功能 |
+
+### 新增
+- `SettingsDialog` 类：API 配置对话框，含「测试连接」按钮
+- 设置按钮 ⚙️ 在标题栏右上角
+- 快捷键 `Ctrl+=` 打开设置
+- 对话支持多行回复自动截断
+- 输入框自动聚焦，点击输入框可获取焦点
+
+### 验证
+```
+心跳:     51  ✅
+协议:     1   ✅ (已签署)
+沙箱:     3   ✅ (normal)
+驱动:     45  ✅ (正向)
+API已配置: True ✅
+```

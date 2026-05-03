@@ -48,8 +48,11 @@ build/calibrator.o: engine/calibrator.c engine/calibrator.h engine/blackboard.h
 build/inductor.o: engine/inductor.c engine/inductor.h engine/blackboard.h code/code_reader.h code/code_modifier.h
 	$(CC) $(CFLAGS) -c -o build/inductor.o engine/inductor.c
 
-build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o
-	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o -lm
+build/persistor.o: engine/persistor.c engine/persistor.h engine/blackboard.h engine/calibrator.h engine/inductor.h
+	$(CC) $(CFLAGS) -c -o build/persistor.o engine/persistor.c
+
+build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o
+	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o -lm
 
 # ── Targets ─────────────────────────────────────────────────────────
 

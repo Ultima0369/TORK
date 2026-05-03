@@ -71,6 +71,13 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
     if (in->rule_applied)
         inst.desire += 0.2f;       /* rule generalization success = positive feedback */
 
+    /* ── persistence microadjustments ─────────────────────── */
+    if (in->restored_files > 0)
+        inst.fear *= 0.9f;        /* memory continuity reduces fear */
+
+    if (in->save_success)
+        inst.desire += 0.05f;     /* successful save boosts desire */
+
     return inst;
 }
 

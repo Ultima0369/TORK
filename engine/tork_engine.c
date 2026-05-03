@@ -7,6 +7,7 @@
 #include "blackboard.h"
 #include "calibrator.h"
 #include "inductor.h"
+#include "persistor.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +16,8 @@
 #include <sys/wait.h>
 
 static pid_t core_pid = 0;
+static int do_restore = 0;
+static int restored_files = 0;
 
 static void cleanup_core(int sig) {
     (void)sig;
@@ -22,6 +25,7 @@ static void cleanup_core(int sig) {
         kill(core_pid, SIGTERM);
         waitpid(core_pid, NULL, 0);
     }
+    ps_emergency_save();
     _exit(0);
 }
 
@@ -40,8 +44,16 @@ static int start_core(void) {
 
 int main(int argc, char **argv) {
     int rounds = 100;
-    if (argc > 1) rounds = atoi(argv[1]);
-    if (rounds < 1) rounds = 100;
+    for (int a = 1; a < argc; a++) {
+        if (strcmp(argv[a], "--restore") == 0)
+            do_restore = 1;
+        else if (strcmp(argv[a], "--fresh") == 0)
+            do_restore = 0;
+        else {
+            int v = atoi(argv[a]);
+            if (v > 0) rounds = v;
+        }
+    }
 
     if (start_core() != 0) {
         fprintf(stderr, "start_core failed\n");
@@ -51,11 +63,43 @@ int main(int argc, char **argv) {
     signal(SIGINT, cleanup_core);
     signal(SIGTERM, cleanup_core);
 
+    /* Initialize shared memory BEFORE restore */
+    if (bb_init() != 0)
+        fprintf(stderr, "warning: bb_init failed — blackboard unavailable\n");
+
+    if (cal_init() != 0)
+        fprintf(stderr, "warning: cal_init failed — calibrator unavailable\n");
+
+    if (ind_init() != 0)
+        fprintf(stderr, "warning: ind_init failed — inductor unavailable\n");
+
+    if (do_restore) {
+        restored_files = ps_restore_all();
+        if (restored_files > 0)
+            printf("TORK restored from disk (%d files recovered)\n", restored_files);
+        else
+            printf("TORK restore: no data found, fresh start\n");
+    }
+
     soul_t soul;
     if (soul_open(&soul, core_pid) != 0) {
         fprintf(stderr, "soul_open failed — cannot read /proc/%d/mem\n", core_pid);
         kill(core_pid, SIGTERM);
         return 1;
+    }
+
+    /* Restore soul data into live process if available */
+    if (do_restore) {
+        uint8_t soul_saved[SOUL_SIZE];
+        size_t soul_got = ps_restore_soul(soul_saved, SOUL_SIZE);
+        if (soul_got == SOUL_SIZE) {
+            /* Write tick + drive back into core so it resumes where it left off */
+            uint32_t saved_tick;
+            memcpy(&saved_tick, soul_saved, 4);
+            soul_write_buf(&soul, S_TICK, &saved_tick, 4);
+            restored_files++;
+            printf("TORK restored soul: resuming from tick %u\n", saved_tick);
+        }
     }
 
     /* write self_pid and ppid once */
@@ -71,17 +115,8 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (bb_init() != 0)
-        fprintf(stderr, "warning: bb_init failed — blackboard unavailable\n");
-
-    if (cal_init() != 0)
-        fprintf(stderr, "warning: cal_init failed — calibrator unavailable\n");
-
-    if (ind_init() != 0)
-        fprintf(stderr, "warning: ind_init failed — inductor unavailable\n");
-
     printf("TORK engine started. core PID=%d\n", core_pid);
-    printf("polling 500ms | instinct 10 | code 200 | modify 300 | optimize 600 | nop 900 | fission 1000 | bb 100 | cal 500 | ind 800\n\n");
+    printf("polling 500ms | instinct 10 | code 200 | modify 300 | optimize 600 | nop 900 | fission 1000 | bb 100 | cal 500 | ind 800 | persist 1000\n\n");
 
     int mod_attempted = 0;
     int opt_attempted = 0;
@@ -111,6 +146,8 @@ int main(int argc, char **argv) {
             .params           = cal_params(),
             .active_rules     = ind_active_count(),
             .rule_applied     = 0,
+            .restored_files   = restored_files,
+            .save_success     = 0,
         };
 
         bb_set_tick(inp.tick);
@@ -390,6 +427,28 @@ int main(int argc, char **argv) {
             }
         }
 
+        /* every 1000 rounds: persist soul + blackboard */
+        if (i % 1000 == 0 && i > 0) {
+            if (ps_save_all(soul.buf, SOUL_SIZE) == 0) {
+                inp.save_success = 1;
+                printf("[%4d] tick=%-6u PERSIST: state saved to disk\n", i, inp.tick);
+            }
+        }
+
+        /* every 5000 rounds: persist params + rules (full save) + decay */
+        if (i % 5000 == 0 && i > 0) {
+            if (ps_save_all(soul.buf, SOUL_SIZE) == 0) {
+                inp.save_success = 1;
+                printf("[%4d] tick=%-6u PERSIST: full save (params+rules)\n", i, inp.tick);
+            }
+            ps_decay_memory();
+        }
+
+        /* every 10000 rounds: deep decay */
+        if (i % 10000 == 0 && i > 0) {
+            ps_decay_memory();
+        }
+
         /* re-evaluate instinct after all modifications */
         inst = instinct_evaluate(&inp);
         drive = (int)((inst.desire - inst.fear + inst.curiosity) * 100.0f);
@@ -424,6 +483,8 @@ int main(int argc, char **argv) {
     waitpid(core_pid, &st, 0);
     printf("core exited.\n");
 
+    ps_save_all(soul.buf, SOUL_SIZE);
+    ps_cleanup_baks();
     fission_cleanup();
     bb_cleanup();
     cal_cleanup();

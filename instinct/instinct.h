@@ -28,6 +28,8 @@ typedef struct {
     const struct tork_params *params;  /* calibrator params, may be NULL */
     int active_rules;                  /* count of active inductive rules */
     int rule_applied;                  /* 1 if a rule was just applied successfully */
+    int restored_files;                /* count of files restored by ps_restore_all */
+    int save_success;                  /* 1 if ps_save_all just succeeded */
 } instinct_input_t;
 
 tork_instinct_t instinct_evaluate(const instinct_input_t *in);

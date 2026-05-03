@@ -6,6 +6,7 @@
 #include "fission.h"
 #include "blackboard.h"
 #include "calibrator.h"
+#include "inductor.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -76,8 +77,11 @@ int main(int argc, char **argv) {
     if (cal_init() != 0)
         fprintf(stderr, "warning: cal_init failed — calibrator unavailable\n");
 
+    if (ind_init() != 0)
+        fprintf(stderr, "warning: ind_init failed — inductor unavailable\n");
+
     printf("TORK engine started. core PID=%d\n", core_pid);
-    printf("polling 500ms | instinct 10 | code 200 | modify 300 | optimize 600 | nop 900 | fission 1000 | bb 100 | cal 500\n\n");
+    printf("polling 500ms | instinct 10 | code 200 | modify 300 | optimize 600 | nop 900 | fission 1000 | bb 100 | cal 500 | ind 800\n\n");
 
     int mod_attempted = 0;
     int opt_attempted = 0;
@@ -105,6 +109,8 @@ int main(int argc, char **argv) {
             .wins             = soul_wins(&soul),
             .bb_global_opts   = bb_global_optimizations(),
             .params           = cal_params(),
+            .active_rules     = ind_active_count(),
+            .rule_applied     = 0,
         };
 
         bb_set_tick(inp.tick);
@@ -274,6 +280,30 @@ int main(int argc, char **argv) {
             }
         }
 
+        /* every 1200 rounds: phase 4 — apply an active inductive rule */
+        if (i % 1200 == 0 && i > 0) {
+            int slot = ind_find_active();
+            if (slot >= 0) {
+                struct tork_rule all[32];
+                ind_load_rules(all, 32);
+                struct tork_rule rule = all[slot];
+
+                printf("[%4d] tick=%-6u RULE: applying active rule slot %d "
+                       "'%.32s' → '%.32s'\n",
+                       i, inp.tick, slot, rule.premise, rule.conclusion);
+
+                int result = ind_test_rule(&rule, "benchmark/memcpy/ref.s");
+                ind_update_rule(slot, &rule);
+
+                if (result == 0) {
+                    inp.rule_applied = 1;
+                    printf("[%4d] tick=%-6u RULE: application PASSED\n", i, inp.tick);
+                } else {
+                    printf("[%4d] tick=%-6u RULE: application FAILED or not applicable\n", i, inp.tick);
+                }
+            }
+        }
+
         /* every 1000 rounds: fission check (instinct-driven) */
         if (i % 1000 == 0 && i > 0) {
             if (fission_decide(&soul) && inst.curiosity > 0.6f) {
@@ -321,6 +351,45 @@ int main(int argc, char **argv) {
             }
         }
 
+        /* every 800 rounds: inductive learning — extract & generalize */
+        if (i % 800 == 0 && i > 0) {
+            struct tork_rule experiences[8];
+            int n = ind_extract_experiences(experiences, 8);
+            if (n >= 2) {
+                struct tork_rule generalized;
+                if (ind_generalize(experiences, n, &generalized) == 0) {
+                    int slot = ind_save_rule(&generalized);
+                    printf("[%4d] IND: generalized rule from %d experiences → slot %d "
+                           "premise='%.32s' confidence=%d%%\n",
+                           i, n, slot, generalized.premise, generalized.confidence);
+                }
+            } else if (n == 1) {
+                /* Single experience — save as candidate rule */
+                int slot = ind_save_rule(&experiences[0]);
+                if (slot >= 0)
+                    printf("[%4d] IND: extracted 1 experience → slot %d\n", i, slot);
+            }
+        }
+
+        /* every 1000 rounds: test a pending rule */
+        if (i % 1000 == 0 && i > 0) {
+            int slot = ind_find_pending();
+            if (slot >= 0) {
+                struct tork_rule rule;
+                ind_load_rules(&rule, 1);  /* load just this one */
+                /* Read the correct slot */
+                struct tork_rule all[32];
+                ind_load_rules(all, 32);
+                rule = all[slot];
+
+                int result = ind_test_rule(&rule, "benchmark/memcpy/ref.s");
+                ind_update_rule(slot, &rule);
+                printf("[%4d] IND: tested rule slot %d → %s confidence=%d%% active=%d\n",
+                       i, slot, result == 0 ? "PASS" : "FAIL",
+                       rule.confidence, rule.active);
+            }
+        }
+
         /* re-evaluate instinct after all modifications */
         inst = instinct_evaluate(&inp);
         drive = (int)((inst.desire - inst.fear + inst.curiosity) * 100.0f);
@@ -358,6 +427,7 @@ int main(int argc, char **argv) {
     fission_cleanup();
     bb_cleanup();
     cal_cleanup();
+    ind_cleanup();
     soul_close(&soul);
     return 0;
 }

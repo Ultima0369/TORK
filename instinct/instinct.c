@@ -64,6 +64,13 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
     if (in->bb_global_opts > 0)
         inst.curiosity += 0.1f;
 
+    /* ── inductive rule awareness ─────────────────────────── */
+    if (in->active_rules > 0)
+        inst.curiosity += 0.3f;    /* new abstract knowledge is worth exploring */
+
+    if (in->rule_applied)
+        inst.desire += 0.2f;       /* rule generalization success = positive feedback */
+
     return inst;
 }
 

@@ -26,6 +26,8 @@ typedef struct {
     uint16_t wins;
     uint32_t bb_global_opts;
     const struct tork_params *params;  /* calibrator params, may be NULL */
+    int active_rules;                  /* count of active inductive rules */
+    int rule_applied;                  /* 1 if a rule was just applied successfully */
 } instinct_input_t;
 
 tork_instinct_t instinct_evaluate(const instinct_input_t *in);

@@ -21,7 +21,7 @@ build/tork_core: build/tork_core.o
 
 # ── C engine ────────────────────────────────────────────────────────
 
-build/tork_engine.o: engine/tork_engine.c engine/soul_access.h engine/monitor.h engine/fission.h engine/blackboard.h engine/calibrator.h
+build/tork_engine.o: engine/tork_engine.c engine/soul_access.h engine/monitor.h engine/fission.h engine/blackboard.h engine/calibrator.h engine/inductor.h
 	$(CC) $(CFLAGS) -c -o build/tork_engine.o engine/tork_engine.c
 
 build/monitor.o: engine/monitor.c engine/monitor.h
@@ -45,8 +45,11 @@ build/blackboard.o: engine/blackboard.c engine/blackboard.h engine/soul_access.h
 build/calibrator.o: engine/calibrator.c engine/calibrator.h engine/blackboard.h
 	$(CC) $(CFLAGS) -c -o build/calibrator.o engine/calibrator.c
 
-build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o
-	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o -lm
+build/inductor.o: engine/inductor.c engine/inductor.h engine/blackboard.h code/code_reader.h code/code_modifier.h
+	$(CC) $(CFLAGS) -c -o build/inductor.o engine/inductor.c
+
+build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o
+	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o -lm
 
 # ── Targets ─────────────────────────────────────────────────────────
 

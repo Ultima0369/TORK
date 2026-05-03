@@ -110,3 +110,10 @@ stop:
 
 status:
 	@./tork.sh status
+
+# ── AppImage (用户分发) ──────────────────────────────
+.PHONY: appimage
+
+appimage: all
+	@echo "📦 构建 TORK-x86_64.AppImage..."
+	@bash build-installer.sh

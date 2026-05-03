@@ -86,6 +86,10 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
         inst.desire -= 0.05f;     /* idle ended with no discoveries */
     }
 
+    /* ── v2.2: generation-aware curiosity ── */
+    if (in->code_opt_saved > 3 && in->active_rules > 0)
+        inst.curiosity += 0.08f * cw;  /* accumulated knowledge fuels exploration */
+
     return inst;
 }
 

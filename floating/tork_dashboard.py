@@ -669,7 +669,8 @@ class TORKDashboard:
         self.root.bind("<Escape>", lambda e: self.on_close())
         self.root.bind("<Control-r>", lambda e: self._manual_refresh())
         self.root.bind("<Control-q>", lambda e: self.on_close())
-        self.root.bind("<Control-=>", lambda e: self._open_settings())
+        self.root.bind("<Control-comma>", lambda e: self._open_settings())
+        self.root.bind("<Control-greater>", lambda e: self._open_settings())
 
     def _start_refresh(self):
         def loop():

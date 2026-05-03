@@ -123,7 +123,8 @@ def load_config():
         "model": "deepseek-v4-pro",
         "api_key": "",
         "sandbox_level": 3,
-        "theme": "dark"
+        "theme": "dark",
+        "persona": "你是一个名为 TORK 的本地智能助手。回答简洁、准确、务实。不要扮演角色，不要做任何表演。用户的时间很宝贵。"
     }
     if CONFIG_FILE.exists():
         try:
@@ -397,7 +398,7 @@ class TORKApp:
             data = json.dumps({
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": "你是一个名为 TORK 的本地智能助手。回答简洁、准确、务实。不要扮演角色，不要做任何表演。用户的时间很宝贵。"},
+                    {"role": "system", "content": self.config.get("persona", "你是一个名为 TORK 的本地智能助手。回答简洁、准确、务实。")},
                     {"role": "user", "content": msg}
                 ],
                 "stream": False
@@ -551,38 +552,55 @@ class TORKApp:
         win.transient(self.root)
         win.grab_set()
         
-        w, h = 420, 320
+        w, h = 540, 520
         sw = win.winfo_screenwidth()
         sh = win.winfo_screenheight()
         win.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
         
         cfg = load_config()
         
-        fields = [
+        # 滚动容器
+        canvas = tk.Canvas(win, bg=BG_DARK, highlightthickness=0)
+        scrollbar = tk.Scrollbar(win, orient="vertical", command=canvas.yview)
+        scroll_frame = tk.Frame(canvas, bg=BG_DARK)
+        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # 鼠标滚轮支持
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        entries = {}
+        
+        # ── API 配置 ──
+        tk.Label(scroll_frame, text="── API 配置 ──", font=(FONT[0], 10, "bold"),
+                 bg=BG_DARK, fg=ACCENT).pack(anchor="w", padx=20, pady=(12,5))
+        
+        api_fields = [
             ("API 基础地址", "base_url", cfg.get("base_url", "https://api.deepseek.com")),
             ("模型", "model", cfg.get("model", "deepseek-v4-pro")),
             ("API Key", "api_key", cfg.get("api_key", "")),
         ]
         
-        entries = {}
-        for i, (label, key, val) in enumerate(fields):
-            tk.Label(win, text=label, font=FONT_SMALL,
-                     bg=BG_DARK, fg=TEXT_DIM).pack(anchor="w", padx=20, pady=(12 if i==0 else 5,2))
-            e = tk.Entry(win, font=FONT, bg=BG_MID, fg=TEXT_LIGHT,
+        for label, key, val in api_fields:
+            tk.Label(scroll_frame, text=label, font=FONT_SMALL,
+                     bg=BG_DARK, fg=TEXT_DIM).pack(anchor="w", padx=20, pady=(8,2))
+            e = tk.Entry(scroll_frame, font=FONT, bg=BG_MID, fg=TEXT_LIGHT,
                          insertbackground=TEXT_LIGHT,
                          relief="flat", bd=6, highlightthickness=0)
             e.insert(0, val)
             if key == "api_key":
                 e.config(show="*")
-                # 加一个显示/隐藏按钮
-                def toggle_show(entry=e):
-                    entry.config(show="" if entry.cget("show") == "*" else "*")
             e.pack(fill="x", padx=20, ipady=4)
             entries[key] = e
         
         # 显示 Key 按钮
-        key_row = tk.Frame(win, bg=BG_DARK)
-        key_row.pack(fill="x", padx=20)
+        key_row = tk.Frame(scroll_frame, bg=BG_DARK)
+        key_row.pack(fill="x", padx=20, pady=(2,0))
         tk.Button(key_row, text="👁️ 显示Key", font=FONT_SMALL,
                   bg=BG_LIGHT, fg=TEXT_LIGHT,
                   relief="flat", bd=0, padx=8,
@@ -590,10 +608,34 @@ class TORKApp:
                       show="" if entries["api_key"].cget("show") == "*" else "*")
                   ).pack(side="right")
         
-        # 按钮
-        btn_frame = tk.Frame(win, bg=BG_DARK)
-        btn_frame.pack(pady=15)
+        # ── 人设配置 ──
+        tk.Label(scroll_frame, text="── 人设 / 系统提示词 ──", font=(FONT[0], 10, "bold"),
+                 bg=BG_DARK, fg=ACCENT).pack(anchor="w", padx=20, pady=(15,5))
+        tk.Label(scroll_frame, text="每次对话时发送给模型的 system prompt，决定 TORK 的性格和行为方式",
+                 font=FONT_SMALL, bg=BG_DARK, fg=TEXT_DIM).pack(anchor="w", padx=20)
         
+        persona_val = cfg.get("persona", "")
+        persona_text = tk.Text(scroll_frame, font=FONT,
+                               bg=BG_MID, fg=TEXT_LIGHT,
+                               insertbackground=TEXT_LIGHT,
+                               relief="flat", bd=6,
+                               highlightthickness=0,
+                               height=6, padx=10, pady=8,
+                               wrap="word")
+        persona_text.insert("1.0", persona_val)
+        persona_text.pack(fill="x", padx=20, pady=(5,0), ipady=4)
+        entries["persona"] = persona_text
+        
+        # ── 状态提示 ──
+        self._toast_label = tk.Label(scroll_frame, text="", font=FONT_SMALL,
+                                      bg=BG_DARK, fg=GREEN)
+        self._toast_label.pack(pady=5)
+        
+        # ── 按钮 ──
+        btn_frame = tk.Frame(scroll_frame, bg=BG_DARK)
+        btn_frame.pack(pady=(10,20))
+        
+        # 测试连接（异步，不卡界面）
         def test_connection():
             ak = entries["api_key"].get().strip()
             bu = entries["base_url"].get().strip()
@@ -602,27 +644,33 @@ class TORKApp:
                 self._show_toast("⚠️ 请先输入 API Key", win)
                 return
             
-            import urllib.request
-            try:
-                data = json.dumps({"model": mdl, "messages": [{"role": "user", "content": "hi"}]}).encode()
-                req = urllib.request.Request(
-                    f"{bu.rstrip('/')}/chat/completions",
-                    data=data,
-                    headers={"Content-Type": "application/json", "Authorization": f"Bearer {ak}"}
-                )
-                resp = urllib.request.urlopen(req, timeout=15)
-                self._show_toast("✅ 连接成功！", win)
-            except Exception as e:
-                self._show_toast(f"❌ {str(e)[:50]}", win)
+            self._show_toast("⏳ 测试中…", win)
+            
+            def _do_test():
+                import urllib.request
+                try:
+                    data = json.dumps({"model": mdl, "messages": [{"role": "user", "content": "hi"}]}).encode()
+                    req = urllib.request.Request(
+                        f"{bu.rstrip('/')}/chat/completions",
+                        data=data,
+                        headers={"Content-Type": "application/json", "Authorization": f"Bearer {ak}"}
+                    )
+                    resp = urllib.request.urlopen(req, timeout=15)
+                    self.root.after(0, lambda: self._show_toast("✅ 连接成功！", win))
+                except Exception as e:
+                    self.root.after(0, lambda: self._show_toast(f"❌ {str(e)[:50]}", win))
+            
+            threading.Thread(target=_do_test, daemon=True).start()
         
         def save_settings():
             cfg["base_url"] = entries["base_url"].get().strip()
             cfg["model"] = entries["model"].get().strip()
             cfg["api_key"] = entries["api_key"].get().strip()
+            cfg["persona"] = entries["persona"].get("1.0", "end-1c").strip()
             save_config(cfg)
             self.config = cfg
             self._show_toast("✅ 设置已保存", win)
-            win.destroy()
+            win.after(800, win.destroy)
         
         tk.Button(btn_frame, text="🔌 测试连接", font=FONT,
                   bg=BG_LIGHT, fg=TEXT_LIGHT,
@@ -631,7 +679,7 @@ class TORKApp:
         
         tk.Button(btn_frame, text="💾 保存", font=FONT,
                   bg=GREEN, fg=BG_DARK,
-                  relief="flat", padx=20, pady=6, bd=0,
+                  relief="flat", padx=25, pady=6, bd=0,
                   command=save_settings).pack(side="left", padx=5)
     
     def _show_toast(self, msg, parent=None):
@@ -641,6 +689,8 @@ class TORKApp:
                           bg=BG_DARK, fg=GREEN if "✅" in msg else ACCENT)
             lbl.pack(pady=5)
             parent.after(2000, lbl.destroy)
+        elif hasattr(self, '_toast_label') and self._toast_label:
+            self._toast_label.config(text=msg, fg=GREEN if "✅" in msg else ACCENT)
     
     # ── 引擎管理 ──────────────────────────────────
     def _start_engine(self):

@@ -207,3 +207,8 @@ TORK-x86_64.AppImage (自解压 shell + base64)
 - 修复：grid 布局 + 固定高度按钮区 + place 居中定位
 - Logo：TORK → T🥚RK（蛋形 O）
 - AppImage: 79KB ELF 二进制，双击即用
+
+## 2026-05-04 输入框修复 + 人设去表演化
+- 根因：tk.Entry 在 Linux 下 IME/输入法兼容性差，bd=8 影响鼠标事件
+- 修复：改为 tk.Text（单行模式），原生支持 fcitx/ibus 中文输入
+- 人设：删除 system prompt 中的"傲娇"表演，改为务实助手

@@ -84,3 +84,29 @@ clean:
 
 distclean: clean
 	rm -f soul.bin tork_engine.log persist/*.bin
+
+# ── Dashboard (Python, no compilation needed) ───────────────────────
+
+.PHONY: dashboard check-deps
+
+dashboard:
+	@echo "🥚 启动 TORK 生命仪表盘..."
+	@python3 floating/tork_dashboard.py
+
+check-deps:
+	@python3 -c "import tkinter" 2>/dev/null || (echo "⚠️  需要 tkinter: sudo apt install python3-tk" && exit 1)
+	@echo "✅ 依赖检查通过"
+
+# ── 完整启动 ────────────────────────────────────────────────────────
+
+.PHONY: start stop status
+
+start: build/tork_engine build/tork_core build/tork_sandbox
+	@echo "🥚 TORK 启动中..."
+	@./tork.sh daemon
+
+stop:
+	@./tork.sh stop
+
+status:
+	@./tork.sh status

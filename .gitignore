@@ -4,3 +4,5 @@ build/
 # Temp files
 *.o
 *.s~
+__pycache__/
+*.pyc

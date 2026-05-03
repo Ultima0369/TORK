@@ -1,155 +1,185 @@
 #!/bin/bash
-# ╔══════════════════════════════════════════════════════╗
-# ║  TORK · 悬浮窗启动器                                  ║
-# ║  用法: ./tork.sh [start|stop|restart|status|connect]  ║
-# ╚══════════════════════════════════════════════════════╝
+# ──────────────────────────────────────────────────────
+# 🥚 TORK 启动脚本
+# 用法: ./tork.sh [command]
+# ──────────────────────────────────────────────────────
 
-set -e
-BASE="$(cd "$(dirname "$0")" && pwd)"
-FLOAT_PID_FILE="/tmp/tork_floating.pid"
-HK_PID_FILE="/tmp/tork_hotkey.pid"
-SIGNAL_FILE="/tmp/tork.flag"
+BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+DAEMON="$BASE_DIR/floating/tork_daemon.py"
+DASHBOARD="$BASE_DIR/floating/tork_dashboard.py"
+ENGINE="$BASE_DIR/build/tork_engine"
+PROTOCOL="$BASE_DIR/cloud/cloud_protocol.py"
+EVOLUTION="$BASE_DIR/cloud/evolution.py"
 
-case "${1:-start}" in
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+DIM='\033[2m'
+NC='\033[0m'
+
+case "${1:-help}" in
     start)
-        echo "🦀 TORK 悬浮窗启动中..."
-        
-        # 检查 API Key
-        KEY="${DEEPSEEK_API_KEY:-}"
-        if [ -z "$KEY" ] && [ -f "$BASE/.tork_floating.json" ]; then
-            KEY=$(python3 -c "import json; print(json.load(open('$BASE/.tork_floating.json')).get('api_key',''))" 2>/dev/null || echo "")
+        echo -e "${GREEN}🥚 TORK 启动中...${NC}"
+        if [ ! -f "$ENGINE" ]; then
+            echo -e "${YELLOW}⚠️  引擎未编译，先编译...${NC}"
+            make -C "$BASE_DIR" all
         fi
-        if [ -z "$KEY" ]; then
-            echo "   ⚠ 未设置 DeepSeek API Key"
-            echo "     运行 ./tork.sh connect 配置"
-        fi
+        python3 "$DAEMON" all
+        ;;
 
-        # 启动 TORK Core（如果不在运行）
-        if ! pgrep -x tork_core > /dev/null 2>&1; then
-            if [ -f "$BASE/build/tork_core" ]; then
-                nohup "$BASE/build/tork_core" > /dev/null 2>&1 &
-                echo "   ❤ TORK Core 已启动"
+    dashboard)
+        echo -e "${GREEN}🥚 启动仪表盘...${NC}"
+        python3 "$DASHBOARD"
+        ;;
+
+    engine)
+        echo -e "${GREEN}🥚 启动引擎...${NC}"
+        if [ ! -f "$ENGINE" ]; then
+            echo -e "${YELLOW}⚠️  引擎未编译，先编译...${NC}"
+            make -C "$BASE_DIR" all
+        fi
+        "$ENGINE"
+        ;;
+
+    daemon)
+        echo -e "${GREEN}🥚 启动守护进程 (后台)...${NC}"
+        python3 "$DAEMON" all &
+        echo -e "   PID: $!"
+        ;;
+
+    status)
+        echo -e "${CYAN}📡 TORK 状态${NC}"
+        echo -e "${DIM}────────────────────────${NC}"
+        # 引擎
+        if pgrep -x tork_core > /dev/null 2>&1; then
+            echo -e "  引擎:     ${GREEN}✅ 运行中${NC} (PID: $(pgrep -x tork_core))"
+        elif pgrep -x tork_engine > /dev/null 2>&1; then
+            echo -e "  引擎:     ${GREEN}✅ 运行中${NC} (PID: $(pgrep -x tork_engine))"
+        else
+            echo -e "  引擎:     ${RED}⏹️  已停止${NC}"
+        fi
+        # 仪表盘
+        if pgrep -f tork_dashboard.py > /dev/null 2>&1; then
+            echo -e "  仪表盘:   ${GREEN}✅ 运行中${NC}"
+        else
+            echo -e "  仪表盘:   ${DIM}⏹️  未启动${NC}"
+        fi
+        # 守护进程
+        if [ -f "$BASE_DIR/persist/daemon.pid" ]; then
+            DPID=$(cat "$BASE_DIR/persist/daemon.pid")
+            if kill -0 "$DPID" 2>/dev/null; then
+                echo -e "  守护进程: ${GREEN}✅ 运行中${NC} (PID: $DPID)"
             else
-                echo "   ⚠ TORK Core 未编译，运行 ./build.sh 编译"
+                echo -e "  守护进程: ${YELLOW}⚠️  PID 文件残留${NC}"
             fi
         else
-            echo "   ❤ TORK Core 已在运行"
+            echo -e "  守护进程: ${DIM}⏹️  未启动${NC}"
         fi
-
-        # 启动热键守护进程（evdev 版，Wayland 原生）
-        if [ ! -f "$HK_PID_FILE" ] || ! kill -0 "$(cat "$HK_PID_FILE" 2>/dev/null)" 2>/dev/null; then
-            setsid python3 "$BASE/tork_hotkey.py" < /dev/null > /tmp/tork_hotkey.log 2>&1 &
-            echo "   🔑 热键守护进程已启动 (左 Ctrl + 左 Shift + T)"
+        # 云端
+        if python3 -c "from tork_api import TorkAPI; a=TorkAPI(); print('ok' if a.api_key else 'no')" 2>/dev/null | grep -q ok; then
+            echo -e "  云端:     ${GREEN}✅ DeepSeek 已配置${NC}"
         else
-            echo "   🔑 热键守护进程已在运行"
+            echo -e "  云端:     ${YELLOW}⚠️  未配置${NC}"
         fi
-
-        # 启动浮窗
-        if [ ! -f "$FLOAT_PID_FILE" ] || ! kill -0 "$(cat "$FLOAT_PID_FILE" 2>/dev/null)" 2>/dev/null; then
-            setsid python3 "$BASE/tork_floating.py" < /dev/null > /tmp/tork_float.log 2>&1 &
-            echo "   🪟 悬浮窗已启动"
+        # 协议
+        if [ -f /etc/tork/.agreed ]; then
+            echo -e "  协议:     ${GREEN}✅ 已签署${NC}"
         else
-            echo "   🪟 悬浮窗已在运行"
+            echo -e "  协议:     ${DIM}⏹️  未签署${NC}"
         fi
-
-        echo ""
-        echo "✅ TORK 就绪 · 按 左 Ctrl + 左 Shift + T 唤出"
+        # 世代
+        EVO_FILE="$BASE_DIR/persist/evolution.json"
+        if [ -f "$EVO_FILE" ]; then
+            GEN=$(python3 -c "import json; d=json.load(open('$EVO_FILE')); print(d[-1].get('generation','?'))" 2>/dev/null || echo "?")
+            echo -e "  世代:     ${CYAN}${GEN}${NC}"
+        fi
         ;;
 
     stop)
-        echo "⏹ TORK 停止中..."
-        if [ -f "$FLOAT_PID_FILE" ]; then
-            kill "$(cat "$FLOAT_PID_FILE")" 2>/dev/null || true
-            rm -f "$FLOAT_PID_FILE"
+        echo -e "${YELLOW}⏹️  停止 TORK...${NC}"
+        # 停止引擎
+        for p in tork_engine tork_core; do
+            if pgrep -x "$p" > /dev/null 2>&1; then
+                pkill -x "$p" 2>/dev/null
+                echo -e "  ⏹️  已停止 $p"
+            fi
+        done
+        # 停止仪表盘
+        if pgrep -f tork_dashboard.py > /dev/null 2>&1; then
+            pkill -f tork_dashboard.py 2>/dev/null
+            echo -e "  ⏹️  已停止仪表盘"
         fi
-        if [ -f "$HK_PID_FILE" ]; then
-            kill "$(cat "$HK_PID_FILE")" 2>/dev/null || true
-            rm -f "$HK_PID_FILE"
+        # 停止守护进程
+        if [ -f "$BASE_DIR/persist/daemon.pid" ]; then
+            DPID=$(cat "$BASE_DIR/persist/daemon.pid")
+            kill "$DPID" 2>/dev/null || true
+            rm -f "$BASE_DIR/persist/daemon.pid"
+            echo -e "  ⏹️  已停止守护进程"
         fi
-        pkill -f "tork_floating" 2>/dev/null || true
-        pkill -f "tork_hotkey" 2>/dev/null || true
-        rm -f "$SIGNAL_FILE"
-        echo "✅ TORK 已停止"
+        echo -e "${GREEN}✅ TORK 已停止${NC}"
         ;;
 
     restart)
         "$0" stop
-        sleep 0.3
+        sleep 1
         "$0" start
         ;;
 
-    status)
-        echo "📊 TORK 状态"
-        echo "============"
-        if [ -f "$HK_PID_FILE" ] && kill -0 "$(cat "$HK_PID_FILE")" 2>/dev/null; then
-            echo "   🔑 热键守护进程: ✅ (PID $(cat "$HK_PID_FILE"))"
+    compile|build)
+        echo -e "${GREEN}🔧 编译 TORK...${NC}"
+        make -C "$BASE_DIR" all
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✅ 编译成功${NC}"
         else
-            echo "   🔑 热键守护进程: ❌"
-        fi
-        if [ -f "$FLOAT_PID_FILE" ] && kill -0 "$(cat "$FLOAT_PID_FILE")" 2>/dev/null; then
-            echo "   🪟 悬浮窗: ✅ (PID $(cat "$FLOAT_PID_FILE"))"
-        else
-            echo "   🪟 悬浮窗: ❌"
-        fi
-        if pgrep -x tork_core > /dev/null 2>&1; then
-            echo "   ❤ TORK Core: ✅"
-        else
-            echo "   ❤ TORK Core: ❌ (未运行)"
-        fi
-        if [ -f "$SIGNAL_FILE" ]; then
-            echo "   📨 信号文件: $(cat "$SIGNAL_FILE")"
-        else
-            echo "   📨 信号文件: (无)"
-        fi
-        ;;
-
-    connect)
-        echo "🔑 TORK API Key 配置"
-        echo "===================="
-        echo ""
-        echo "输入你的 DeepSeek API Key (输入后按回车):"
-        read -rs key
-        echo ""
-        if [ -z "$key" ]; then
-            echo "❌ Key 不能为空"
+            echo -e "${RED}❌ 编译失败${NC}"
             exit 1
         fi
-        # 测试
-        echo "测试中..."
-        test_resp=$(curl -s -w "\n%{http_code}" https://api.deepseek.com/v1/models \
-            -H "Authorization: Bearer $key" --connect-timeout 5)
-        http_code=$(echo "$test_resp" | tail -1)
-        if [ "$http_code" = "200" ]; then
-            echo "✅ API Key 验证通过"
+        ;;
+
+    evolve)
+        echo -e "${CYAN}🧬 运行进化...${NC}"
+        python3 "$EVOLUTION" --once
+        ;;
+
+    protocol)
+        echo -e "${CYAN}☁️  启动云端协议 (交互模式)${NC}"
+        echo -e "${DIM}   输入 JSON 指令，Ctrl+D 退出${NC}"
+        python3 "$PROTOCOL"
+        ;;
+
+    log)
+        echo -e "${CYAN}📜 进化日志${NC}"
+        if [ -f "$BASE_DIR/persist/evolution.json" ]; then
+            python3 -c "
+import json
+d = json.load(open('$BASE_DIR/persist/evolution.json'))
+for e in d[-20:]:
+    gen = e.get('generation', '?')
+    f = e.get('file', '?')
+    s = e.get('status', '?')
+    desc = e.get('description', '')
+    print(f'  Gen {gen:>3} | {f:<20} | {s:>7} | {desc}')
+"
         else
-            echo "⚠ API 测试返回 HTTP $http_code (可能 Key 无效)"
+            echo -e "  ${DIM}(无进化记录)${NC}"
         fi
-        # 保存
-        cat > "$BASE/.tork_floating.json" << JSONEOF
-{
-    "hotkey": "Control+Shift+T",
-    "auto_hide_sec": 0,
-    "font_size": 14,
-    "opacity": 0.93,
-    "model": "deepseek-chat",
-    "api_key": "$key"
-}
-JSONEOF
-        # 写入环境变量
-        export DEEPSEEK_API_KEY="$key"
-        if ! grep -q "DEEPSEEK_API_KEY" ~/.bashrc 2>/dev/null; then
-            echo "export DEEPSEEK_API_KEY='$key'" >> ~/.bashrc
-        fi
-        echo "✅ API Key 已保存到 .tork_floating.json"
-        echo "   运行 ./tork.sh restart 重新加载"
         ;;
 
-    toggle)
-        echo "toggle" > "$SIGNAL_FILE"
-        echo "📨 切换信号已发送"
-        ;;
-
-    *)
-        echo "用法: $0 [start|stop|restart|status|connect|toggle]"
+    help|*)
+        echo -e "${CYAN}🥚 TORK — 使用说明${NC}"
+        echo -e "${DIM}──────────────────────────────${NC}"
+        echo -e "  ${GREEN}start${NC}       启动引擎 + 仪表盘"
+        echo -e "  ${GREEN}dashboard${NC}   仅启动仪表盘"
+        echo -e "  ${GREEN}engine${NC}      仅启动引擎"
+        echo -e "  ${GREEN}daemon${NC}      后台守护进程"
+        echo -e "  ${GREEN}status${NC}      查看运行状态"
+        echo -e "  ${GREEN}stop${NC}        停止所有进程"
+        echo -e "  ${GREEN}restart${NC}     重启"
+        echo -e "  ${GREEN}compile${NC}     编译项目"
+        echo -e "  ${GREEN}evolve${NC}      运行一次进化"
+        echo -e "  ${GREEN}protocol${NC}    启动云端协议交互"
+        echo -e "  ${GREEN}log${NC}         查看进化日志"
+        echo -e "${DIM}──────────────────────────────${NC}"
         ;;
 esac

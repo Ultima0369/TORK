@@ -89,3 +89,46 @@ Chatbox ──→ DeepSeek 云端 (我)
 ---
 
 *下一会话从 此处 继续。*
+
+---
+
+## 会话 002 — 2026-05-04 (续)
+
+### 本轮目标
+创建 TORK 生命仪表盘 — 让 TORK 能「看见自己」，用户能「感知 TORK」。
+
+### 新建的文件
+| 文件 | 行数 | 说明 |
+|------|------|------|
+| `floating/tork_dashboard.py` | ~300 | Tkinter 生命仪表盘：本能条、Soul 状态、进化日志、对话区 |
+| `floating/tork_daemon.py` | ~180 | 后台守护进程：管理引擎 + 仪表盘生命周期 |
+| `tork.sh` | ~180 | 统一启动脚本（start/stop/status/evolve/protocol/log） |
+
+### 修改的文件
+| 文件 | 改动 |
+|------|------|
+| `cloud/cloud_protocol.py` | v2.2: 新增 `dashboard_status` 工具 + 修复 Soul 解析对齐 v2.0 layout |
+| `floating/tork_dashboard.py` | 修复 Soul 字段映射到正确的 v2.0 布局 |
+| `Makefile` | 新增 dashboard/start/stop/status targets |
+
+### 技术亮点
+1. **一次性拉取** — `dashboard_status` 工具在单次调用中返回引擎状态、Soul 完整字段、进化日志、Git 信息、API 配置
+2. **Soul 完整解析** — 从原始 96 字节 hex 解析全部 30+ 字段，与 `tork_soul.inc` 完全对齐
+3. **本能推导** — 从 `drive` (int8) 推导恐惧/欲望/好奇心：负值=恐惧，正值=欲望，绝对值=好奇心
+4. **网络分离** — 引擎/仪表盘/守护进程三者独立，可分别启停
+5. **进化按钮** — 仪表盘内可直接触发进化
+
+### 验证结果
+```
+tick:       51  ✅ (心跳计数器，运行时递增)
+hw_stress:  0   ✅ (无温度压力)
+drive:      45  ✅ (正向驱动 = 欲望)
+agreed:     1   ✅ (协议已签署)
+sandbox:    3   ✅ (normal 级别)
+gen_count:  0   ✅ (新建运行，尚未进化)
+```
+
+### 技术债务
+- 仪表盘目前通过 subprocess 调用 cloud_protocol.py 获取状态，可优化为直接 import
+- 对话功能通过 `ask_deepseek` 工具，但需要等待 API 响应（异步已实现）
+- 悬浮窗 (`tork_floating.py`) 仍独立存在，功能与仪表盘有重叠，可考虑合并

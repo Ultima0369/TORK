@@ -196,6 +196,42 @@ class TORKApp:
     
     def _on_close(self):
         self.running = False
+        
+        # 1. 杀引擎 → 引擎会杀 core (SIGTERM handler)
+        if self.engine_pid:
+            try:
+                os.kill(self.engine_pid, signal.SIGTERM)
+                os.waitpid(self.engine_pid, 0)
+            except:
+                pass
+        
+        # 2. 扫荡孤儿 core 进程
+        try:
+            import subprocess
+            out = subprocess.check_output(["pgrep", "-x", "tork_core"], timeout=3)
+            for pid in out.strip().split():
+                pid = int(pid)
+                if pid > 0:
+                    os.kill(pid, signal.SIGTERM)
+        except:
+            pass
+        
+        # 3. 等待 0.5s 让它们自己死透
+        try:
+            time.sleep(0.5)
+        except:
+            pass
+        
+        # 4. 补刀：还没死的直接 kill -9
+        try:
+            out = subprocess.check_output(["pgrep", "-x", "tork_core"], timeout=2)
+            for pid in out.strip().split():
+                pid = int(pid)
+                if pid > 0:
+                    os.kill(pid, signal.SIGKILL)
+        except:
+            pass
+        
         try:
             self.root.quit()
             self.root.destroy()

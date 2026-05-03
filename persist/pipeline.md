@@ -219,3 +219,7 @@ TORK-x86_64.AppImage (自解压 shell + base64)
 - 根因2：system prompt 硬编码在代码里
 - 修复：设置对话框加入设编辑区（Text 6行），保存到 config.json
 - 对话时从 self.config.get("persona") 读取，用户可随意修改
+
+## 2026-05-04 清理逻辑
+- 窗口关闭时自动 杀引擎 → 杀core → 等待 → 补刀 → 退出
+- 不再留孤儿进程

@@ -236,15 +236,11 @@ int ps_decay_memory(void) {
         }
     }
 
-    /* Log params */
-    const struct tork_params *p = cal_params();
+    /* Log params (default values, old calibrator removed) */
     FILE *log = fopen(PATH_PARAMS_LOG, "a");
     if (log) {
-        fprintf(log, "%ld tw=%d tm=%d tc=%d fw=%d dw=%d cw=%d cc=%d ac=%d nc=%d\n",
-                (long)time(NULL),
-                p->temp_warn, p->temp_moderate, p->temp_critical,
-                p->fear_weight, p->desire_weight, p->curiosity_weight,
-                p->conservative_cycle, p->aggressive_cycle, p->nop_cycle);
+        fprintf(log, "%ld tw=35 tm=50 tc=65 fw=10 dw=20 cw=30 cc=10 ac=30 nc=50\n",
+                (long)time(NULL));
         fclose(log);
     }
 

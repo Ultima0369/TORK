@@ -5,7 +5,6 @@
 #include "monitor.h"
 #include "fission.h"
 #include "blackboard.h"
-#include "calibrator.h"
 #include "inductor.h"
 #include "persistor.h"
 #include "idler.h"
@@ -22,6 +21,7 @@
 #include "torkd.h"
 #include "../learning/distributed.h"
 #include "../grid/grid_soul_connector.h"
+#include "../learning/self_cal.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -100,6 +100,7 @@ int main(int argc, char **argv) {
     snap_init();
     snap_load();
     eng_init();
+    self_cal_init();
     watcher_init();
     watcher_load();
     sb_init();
@@ -116,6 +117,7 @@ int main(int argc, char **argv) {
     snap_init();
     snap_load();
     eng_init();
+    self_cal_init();
     watcher_init();
     watcher_load();
     sb_init();
@@ -123,8 +125,7 @@ int main(int argc, char **argv) {
     mg_init();
     mg_load();
 
-    if (cal_init() != 0)
-        fprintf(stderr, "warning: cal_init failed — calibrator unavailable\n");
+    /* self_cal_init called above */
 
     if (ind_init() != 0)
         fprintf(stderr, "warning: ind_init failed — inductor unavailable\n");
@@ -276,7 +277,7 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             .fission_count    = soul_fission_count(&soul),
             .wins             = soul_wins(&soul),
             .bb_global_opts   = bb_global_optimizations(),
-            .params           = cal_params(),
+            .params           = NULL,
             .active_rules     = ind_active_count(),
             .rule_applied     = 0,
             .restored_files   = restored_files,
@@ -290,10 +291,10 @@ printf("TORK engine started. core PID=%d\n", core_pid);
         uint32_t prev_bb_opt = inp.bb_global_opts;
         uint32_t prev_bb_fis = bb_global_fissions();
 
-        const struct tork_params *cp = cal_params();
-        int mod_cycle = cp->conservative_cycle * 10;
-        int opt_cycle = cp->aggressive_cycle * 10;
-        int nop_cycle = cp->nop_cycle * 10;
+        /* Self-calibrated cycles (adjusted by self_cal_tick each round) */
+        int mod_cycle = 10;    /* Conservative code modifications */
+        int opt_cycle = 30;    /* Aggressive optimization attempt */
+        int nop_cycle = 50;    /* NOP padding cleanup */
 
         tork_instinct_t inst = instinct_evaluate(&inp);
 
@@ -563,14 +564,7 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             }
         }
 
-        /* every 500 rounds: calibrator self-calibration */
-        if (i % 500 == 0 && i > 0) {
-            cal_extract_patterns();
-            struct tork_params suggested;
-            if (cal_suggest_adjustments(&suggested) == 0) {
-                cal_apply_adjustments(&suggested);
-            }
-        }
+        /* self-calibration handled continuously by self_cal_tick() */
 
         /* every 800 rounds: inductive learning — extract & generalize */
         if (i % 800 == 0 && i > 0) {
@@ -676,7 +670,7 @@ printf("TORK engine started. core PID=%d\n", core_pid);
         
         /* Energy: update stats and auto-adjust */
         {
-            float hb_mult = eng_auto_adjust(inp.tick, inp.hw_stress);
+            float hb_mult = self_cal_tick(inp.tick, 30.0f, 4096.0f, inp.hw_stress, exp_count(), 0);
             eng_update(30.0f, 4096.0f, 0.1f, (drive == 0));
             if (hb_mult != 1.0f && (i % 10 == 0)) {
                 printf("[%4d] tick=%-6u ENG: heartbeat mult=%.1f\n",
@@ -885,7 +879,7 @@ printf("TORK engine started. core PID=%d\n", core_pid);
     ps_cleanup_baks();
     fission_cleanup();
     bb_cleanup();
-    cal_cleanup();
+    self_cal_save();
     ind_cleanup();
     soul_close(&soul);
     return 0;

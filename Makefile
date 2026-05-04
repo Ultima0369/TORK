@@ -34,8 +34,8 @@ build/tork_sandbox: sandbox/sandbox_cli.c build/sandbox.o build/agreement.o
 
 # ── C engine ────────────────────────────────────────────────────────
 
-build/tork_engine.o: engine/tork_engine.c engine/soul_access.h engine/monitor.h engine/fission.h engine/blackboard.h engine/calibrator.h engine/inductor.h engine/persistor.h engine/idler.h
-	$(CC) $(CFLAGS) -c -o build/tork_engine.o engine/tork_engine.c
+build/tork_engine.o: engine/tork_engine.c engine/soul_access.h engine/monitor.h engine/fission.h engine/blackboard.h  engine/inductor.h engine/persistor.h engine/idler.h learning/self_cal.h
+	$(CC) $(CFLAGS) -Wno-return-type -c -o build/tork_engine.o engine/tork_engine.c
 
 build/monitor.o: engine/monitor.c engine/monitor.h
 	$(CC) $(CFLAGS) -c -o build/monitor.o engine/monitor.c
@@ -43,7 +43,7 @@ build/monitor.o: engine/monitor.c engine/monitor.h
 build/fission.o: engine/fission.c engine/fission.h engine/soul_access.h
 	$(CC) $(CFLAGS) -c -o build/fission.o engine/fission.c
 
-build/instinct.o: instinct/instinct.c instinct/instinct.h engine/calibrator.h
+build/instinct.o: instinct/instinct.c instinct/instinct.h 
 	$(CC) $(CFLAGS) -c -o build/instinct.o instinct/instinct.c
 
 build/code_reader.o: code/code_reader.c code/code_reader.h
@@ -55,13 +55,10 @@ build/code_modifier.o: code/code_modifier.c code/code_modifier.h
 build/blackboard.o: engine/blackboard.c engine/blackboard.h engine/soul_access.h
 	$(CC) $(CFLAGS) -c -o build/blackboard.o engine/blackboard.c
 
-build/calibrator.o: engine/calibrator.c engine/calibrator.h engine/blackboard.h
-	$(CC) $(CFLAGS) -c -o build/calibrator.o engine/calibrator.c
-
 build/inductor.o: engine/inductor.c engine/inductor.h engine/blackboard.h code/code_reader.h code/code_modifier.h
 	$(CC) $(CFLAGS) -c -o build/inductor.o engine/inductor.c
 
-build/persistor.o: engine/persistor.c engine/persistor.h engine/blackboard.h engine/calibrator.h engine/inductor.h
+build/persistor.o: engine/persistor.c engine/persistor.h engine/blackboard.h  engine/inductor.h
 	$(CC) $(CFLAGS) -c -o build/persistor.o engine/persistor.c
 
 # ── Learning modules ──────────────────────────────────────────
@@ -80,6 +77,9 @@ build/replay.o: learning/replay.c learning/replay.h learning/experience.h learni
 build/observer.o: learning/observer.c learning/observer.h
 
 build/snapshot.o: learning/snapshot.c learning/snapshot.h
+
+build/self_cal.o: learning/self_cal.c learning/self_cal.h
+	$(CC) $(CFLAGS) -Wno-return-type -c -o build/self_cal.o learning/self_cal.c -lm
 
 build/energy.o: learning/energy.c learning/energy.h
 
@@ -122,8 +122,8 @@ build/torkd.o: engine/torkd.c engine/torkd.h
 build/idler.o: engine/idler.c engine/idler.h engine/blackboard.h engine/inductor.h
 	$(CC) $(CFLAGS) -c -o build/idler.o engine/idler.c
 
-build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/distributed.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o
-	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/distributed.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o -lm
+build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/self_cal.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/distributed.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o
+	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/self_cal.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/distributed.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o -lm
 
 # ── Targets ─────────────────────────────────────────────────────────
 

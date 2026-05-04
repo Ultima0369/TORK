@@ -143,5 +143,3 @@ void instinct_print(int round, uint32_t tick, const tork_instinct_t *inst) {
     printf("[%4d] tick=%-6u fear=%.2f desire=%.2f curiosity=%.2f\n",
            round, tick, inst->fear, inst->desire, inst->curiosity);
 }
-
-/* TORK EVO 20260504_1109: instinct_params */

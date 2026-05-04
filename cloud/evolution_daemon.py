@@ -123,8 +123,9 @@ def log_evolution(strategy, success, advice, output):
     history = []
     if os.path.exists(EVOLUTION_LOG):
         try:
-            with open(EVOLUTION_LOG) as f:
-                history = json.load(f)
+            loaded = json.load(open(EVOLUTION_LOG))
+            if isinstance(loaded, list):
+                history = loaded
         except: pass
     history.append(log_entry)
     if len(history) > 100:

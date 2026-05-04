@@ -27,6 +27,8 @@ cp "$BASE_DIR/build/tork_core"     "$PKG_DIR/build/"
 cp "$BASE_DIR/build/tork_sandbox"  "$PKG_DIR/build/"
 cp "$BASE_DIR/build/tork_grid"     "$PKG_DIR/build/"
 cp "$BASE_DIR/build/tork_ask"      "$PKG_DIR/build/"
+cp "$BASE_DIR/build/tork"      "$PKG_DIR/build/"
+cp "$BASE_DIR/build/torkd_start"      "$PKG_DIR/build/"
 
 # Python 应用层
 cp "$BASE_DIR/app/tork_app.py"          "$PKG_DIR/app/"

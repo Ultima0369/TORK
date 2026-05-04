@@ -190,7 +190,57 @@ class TorkEvolution:
                 "mutagen": "instinct_gen_awareness",
                 "apply": self._mutate_instinct_gen,
             },
-        ]
+        
+        {
+            "name": "instinct_curiosity_up",
+            "file": "instinct/instinct.c",
+            "description": "Boost curiosity_weight by +15 to encourage exploration",
+            "mutagen": "curiosity",
+            "apply": self._apply_curiosity_up
+        },
+        {
+            "name": "instinct_curiosity_down",
+            "file": "instinct/instinct.c",
+            "description": "Reduce curiosity_weight by -15 to favor caution",
+            "mutagen": "curiosity",
+            "apply": self._apply_curiosity_down
+        },
+        {
+            "name": "instinct_fear_up",
+            "file": "instinct/instinct.c",
+            "description": "Boost fear_weight by +15 for more cautious behavior",
+            "mutagen": "fear",
+            "apply": self._apply_fear_up
+        },
+        {
+            "name": "instinct_fear_down",
+            "file": "instinct/instinct.c",
+            "description": "Reduce fear_weight by -15 for more daring behavior",
+            "mutagen": "fear",
+            "apply": self._apply_fear_down
+        },
+        {
+            "name": "instinct_desire_up",
+            "file": "instinct/instinct.c",
+            "description": "Boost desire_weight by +15 for higher ambition",
+            "mutagen": "desire",
+            "apply": self._apply_desire_up
+        },
+        {
+            "name": "instinct_cycle_faster",
+            "file": "instinct/instinct.c",
+            "description": "Reduce conservative_cycle by -5 for faster exploration",
+            "mutagen": "cycle",
+            "apply": self._apply_cycle_faster
+        },
+        {
+            "name": "instinct_cycle_slower",
+            "file": "instinct/instinct.c",
+            "description": "Increase conservative_cycle by +5 for slower, more stable cycles",
+            "mutagen": "cycle",
+            "apply": self._apply_cycle_slower
+        },
+]
 
         # 适应度反馈：优先选择历史上成功率高的策略
         idx = gen % len(strategies)  # 基础轮换
@@ -307,6 +357,83 @@ class TorkEvolution:
                 f.write(content)
             return True
         return False
+
+
+    def modulate_param(self, target_file, param_name, new_value):
+        """Actually modify a numeric parameter in source code instead of adding markers."""
+        full_path = os.path.join(self.project_root, target_file)
+        if not os.path.exists(full_path):
+            # Try with ./ prefix
+            full_path = os.path.join(self.project_root, target_file.lstrip('./'))
+            if not os.path.exists(full_path):
+                print(f"  [EVO] File not found: {full_path}")
+                return False
+        
+        with open(full_path, 'r') as f:
+            content = f.read()
+        
+        # Try different patterns for the parameter
+        patterns = [
+            rf'#define\s+{param_name}\s+([\d.]+)',           # #define PARAM value
+            rf'#define\s+{param_name}\s*\(([\d.]+)\)',       # #define PARAM (value)
+            rf'static\s+(int|float|double)\s+{param_name}\s*=\s*([\d.]+)',  # static type PARAM = value
+            rf'(int|float|double)\s+{param_name}\s*=\s*([\d.]+)',           # type PARAM = value
+            rf'#define\s+{param_name}',                     # fallback: just the #define line
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, content)
+            if match:
+                old_val = match.group(1) if len(match.groups()) == 1 else match.group(2)
+                old_str = match.group(0)
+                new_str = old_str.replace(old_val, str(new_value))
+                content = content.replace(old_str, new_str, 1)
+                with open(full_path, 'w') as f:
+                    f.write(content)
+                print(f"  [EVO] ✓ Modulated {param_name}: {old_val} → {new_value} in {target_file}")
+                return True
+        
+        # If no pattern matched, try line-based approach for instinct.c constants
+        if 'instinct' in target_file:
+            lines = content.split('\n')
+            for i, line in enumerate(lines):
+                if param_name.lower() in line.lower() and '=' in line and ('float' in line or 'int' in line or '#' in line):
+                    # Found the line, try to replace the number
+                    nums = re.findall(r'[\d.]+', line)
+                    if nums:
+                        old_val = nums[-1]  # Last number in the line is usually the value
+                        lines[i] = line.replace(old_val, str(new_value))
+                        with open(full_path, 'w') as f:
+                            f.write('\n'.join(lines))
+                        print(f"  [EVO] ✓ Line-modulated {param_name} in {target_file}: → {new_value}")
+                        return True
+        
+        print(f"  [EVO] ✗ Could not find parameter {param_name} in {target_file}")
+        return False
+
+
+    def _modulate_struct_value(self, filepath, field, delta):
+        """Modulate a C struct initializer field by delta. Returns True if changed."""
+        with open(filepath, 'r') as f:
+            content = f.read()
+            original = content
+        
+        # Match: .field_name = VALUE,
+        pattern = rf'(\.{re.escape(field)}\s*=\s*)(\d+)(,)'
+        match = re.search(pattern, content)
+        if not match:
+            print(f"  [EVO] ✗ Field '{field}' not found in {os.path.basename(filepath)}")
+            return False
+        
+        old_val = int(match.group(2))
+        content = re.sub(pattern, lambda m: m.group(1) + str(new_val) + m.group(3), content, count=1)
+        
+        with open(filepath, 'w') as f:
+            f.write(content)
+        
+        direction = "↑" if delta > 0 else "↓"
+        print(f"  [EVO] ✓ {field}: {old_val} {direction} {new_val} ({os.path.basename(filepath)})")
+        return True
 
     def apply_mutation(self, strategy):
         """应用变异并测试"""

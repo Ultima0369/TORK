@@ -1,0 +1,15 @@
+{
+  "evolutions": [
+    {
+      "gen": 1,
+      "timestamp": "2026-05-04T11:12:27.602352",
+      "param": "desire_weight",
+      "old_val": 100,
+      "new_val": 85,
+      "result": "success",
+      "message": "smoke OK"
+    }
+  ],
+  "successes": 1,
+  "failures": 0
+}

@@ -8,8 +8,17 @@
       "new_val": 85,
       "result": "success",
       "message": "smoke OK"
+    },
+    {
+      "gen": 2,
+      "timestamp": "2026-05-04T11:12:34.130860",
+      "param": "conservative_cycle",
+      "old_val": 30,
+      "new_val": 25,
+      "result": "success",
+      "message": "smoke OK"
     }
   ],
-  "successes": 1,
+  "successes": 2,
   "failures": 0
 }

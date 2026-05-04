@@ -26,8 +26,17 @@
       "new_val": 70,
       "result": "success",
       "message": "smoke OK"
+    },
+    {
+      "gen": 4,
+      "timestamp": "2026-05-04T11:12:40.392125",
+      "param": "curiosity_weight",
+      "old_val": 100,
+      "new_val": 115,
+      "result": "success",
+      "message": "smoke OK"
     }
   ],
-  "successes": 3,
+  "successes": 4,
   "failures": 0
 }

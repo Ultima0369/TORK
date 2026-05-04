@@ -153,3 +153,26 @@ float exp_success_rate(uint8_t action_type) {
     
     return (total > 0) ? ((float)successes / total) : -1.0f;
 }
+
+/* ── Update last experience outcome ────────────────────────── */
+void exp_update_last(int8_t outcome, uint8_t crash, uint8_t compile_ok,
+                     uint8_t hw_stress_post, int8_t drive_post) {
+    if (!g_initialized || g_buf.count == 0) return;
+    
+    /* Find the most recent (last written) experience */
+    int last_idx = (g_buf.head - 1 + EXP_MAX_EXPERIENCES) % EXP_MAX_EXPERIENCES;
+    experience_t *e = &g_buf.slots[last_idx];
+    
+    e->outcome = outcome;
+    e->crash_occurred = crash;
+    e->compile_ok = compile_ok;
+    e->hw_stress_post = hw_stress_post;
+    e->drive_post = drive_post;
+}
+
+/* ── Get last experience ───────────────────────────────────── */
+const experience_t *exp_last(void) {
+    if (!g_initialized || g_buf.count == 0) return NULL;
+    int last_idx = (g_buf.head - 1 + EXP_MAX_EXPERIENCES) % EXP_MAX_EXPERIENCES;
+    return &g_buf.slots[last_idx];
+}

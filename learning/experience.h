@@ -82,3 +82,12 @@ uint32_t exp_count(void);
 float exp_success_rate(uint8_t action_type);
 
 #endif /* EXPERIENCE_H */
+
+/* ── Experience update API ─────────────────────────────────── */
+
+/* Update the outcome of the most recent experience (written by engine after action) */
+void exp_update_last(int8_t outcome, uint8_t crash, uint8_t compile_ok,
+                     uint8_t hw_stress_post, int8_t drive_post);
+
+/* Get a pointer to the most recent experience (read-only) */
+const experience_t *exp_last(void);

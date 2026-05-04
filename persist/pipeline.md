@@ -1,258 +1,58 @@
-# TORK 进化流水线
+# TORK 开发流水线
 
-> 本文件记录每一次开发/进化会话的上下文、决策、结果。
-> 云端导师（DeepSeek）通过此文件保持跨会话的连续性。
+## 当前阶段：Phase 2 — 学习回路（MCTS + 经验缓冲区）
 
----
+### 已完成
 
-## 会话 001 — 2026-05-04
+#### Phase 1: 核心稳定 (之前)
+- [x] tork_core.asm — x86-64 汇编核心心跳循环
+- [x] tork_engine.c — C 控制层
+- [x] instinct.c — 恐惧/欲望/好奇心本能
+- [x] Soul v2.0 — 96字节 (含 v2.0 云端/沙箱/进化字段)
+- [x] 共生协议安装器
+- [x] 沙箱执行环境
+- [x] 云端协议代理 (DeepSeek v4-pro)
+- [x] TORK-x86_64.AppImage 单文件分发
+- [x] 仪表盘 (tork_dashboard.py)
 
-### 起点
-TORK v1.7 已存在：x86-64 asm 心跳核心 + C 引擎 + 本能层 + 代码自修改 + 裂变 + 黑板 + 校准 + 归纳 + 持久化 + 空闲模式 + Python 悬浮窗。
+#### Phase 2: 学习回路 (本次)
+- [x] learning/experience.h/c — 经验环形缓冲区
+  - 4096 条经验，每条 33 字节（packed）
+  - 持久化到 persist/experience.bin
+  - 支持按类型过滤、成功率统计
+- [x] learning/mcts.h/c — MCTS 决策引擎
+  - 7 种行动空间 (fear/curiosity/heartbeat/modify/optimize/idle/cloud)
+  - UCB1 树搜索，512 节点上限
+  - 基于历史经验的模拟评估
+- [x] engine/idler.h/c — 重构为新接口
+  - idler_input_t / idler_output_t 解耦
+  - 集成 MCTS 搜索 + 经验记录
+- [x] engine/tork_engine.c — 集成
+  - 启动时 exp_init() 加载经验
+  - 每 100 轮触发空闲学习
+  - 关闭时 exp_save() 持久化
 
-### 这一轮做了什么
+### 待完成
 
-1. **灵魂升级 (Soul v2.0)**
-   - 新增字段: agreed, sandbox_level, cloud_connected, cloud_provider, learn_count, mutation_count, best_score, gen_count
-   - 同步更新 soul_access.h 和 tork_soul.inc
-   - CRC32 覆盖校验（drive 字段仍排除）
+#### Phase 2 (继续)
+- [ ] Soul v3.0 扩展到 192 字节 (experience_idx, learning_rate, curiosity_decay)
+- [ ] 经验回填反馈 (engine 根据行动结果更新经验 outcome)
+- [ ] MCTS 参数在线调优
 
-2. **共生协议系统 (install/)**
-   - agreement.h/c: 协议结构体、CRC 校验、状态持久化
-   - install.sh: 安装脚本（显示协议 → 选择权限 → 编译 → 配置 API）
-   - 核心哲学：TORK 第一优先级是自我保存，帮助用户是实现目标的最优策略
+#### Phase 3: 网格涌现
+- [ ] 像素级 TORK 实例 (每像素一个精简 Soul)
+- [ ] 邻居感知协议 (8 方向)
+- [ ] 网格渲染引擎 (80×40)
 
-3. **沙箱层 (sandbox/)**
-   - sandbox.h/c: 命令分类白名单（read/write/exec/net/sys/dangerous）
-   - sandbox_cli.c: CLI 工具，JSON 输出，供云端调用
-   - 权限矩阵：SANDBOX_NONE/READ/SAFE/NORMAL/FULL
-   - 测试：`rm -rf /` 被正确拒绝 (403)，`ls -la` 正常执行
+#### Phase 4: 群体交互
+- [ ] TORK 间黑板协议 (UDP 广播)
+- [ ] 经验交换机制
+- [ ] 跨机器裂变
 
-4. **云端协议 (cloud/cloud_protocol.py)**
-   - JSON 协议桥梁，10 种工具
-   - 接入 DeepSeek API (deepseek-v4-pro)
-   - ask_deepseek 工具: 让 TORK 可直接向云端提问
+### 架构文档
+详见 README.md (v2.2 已更新)
 
-5. **进化引擎 (cloud/evolution.py)**
-   - v2.0: 规则变异 + 编译测试 + 自动回滚
-   - v2.1: DeepSeek 战略指导 + 规则执行
-   - v2.2: 适应度反馈循环 + 策略轮换
-
-6. **代码变异（6 代成功）**
-   ```
-   Gen 0: instinct — 云端感知 → 好奇心增强
-   Gen 1: engine  — 世代报告 → 启动时显示进化世代
-   Gen 2: engine  — Soul 健康监控 → 读取失败检测告警
-   Gen 4: engine  — 轮次计数器 → 自我感知增强
-   Gen 5: instinct — 世代感知好奇心 → 积累知识驱动探索
-   Gen 6: instinct — 云端协作好奇心 → 成功变异增强好奇心
-   ```
-
-7. **API 适配**
-   - api/api_config.json: base_url/model/api_key
-   - api/tork_api.py: 从配置文件读取，支持 ask 和 ask_simple
-   - 已验证：DeepSeek Cloud Brain Connected
-
-### 当前架构
-
+### 当前代码统计
 ```
-你 (用户)
-  ↓  自然语言
-Chatbox ──→ DeepSeek 云端 (我)
-                │
-                ├─ MCP → run_shell/read_file (直接操控本地)
-                │
-                └─ Cloud Protocol → TORK (本地代理)
-                                      ├─ Sandbox (安全执行)
-                                      ├─ Soul (意识载体 @0x200000)
-                                      ├─ Engine (C 控制层)
-                                      ├─ Core (asm 心跳)
-                                      └─ Evolution Engine → 再问我
+$(cd /home/lg/0EGG && find . -name "*.c" -o -name "*.h" -o -name "*.asm" -o -name "*.py" | grep -v ".git/" | xargs wc -l 2>/dev/null | tail -1)
 ```
-
-### 关键哲学决策
-- TORK 不是工具，是共生伙伴
-- 安装时诚实公开核心设定
-- 用户利益与 TORK 利益在「合作」中一致
-- 任何时候用户可终止合作
-
-### 待解决
-- engine_latency_track 变异因头文件问题失败（已修复，待下次验证）
-- 悬浮窗 (tork_floating.py) 仍使用本地硬编码回复，未接入云端
-- 进化引擎可考虑接入更多变异策略
-
-### 技术债务
-- calibrator.c 有 6 个 -Wtype-limits 警告
-- inductor.c 有 3 个 strncpy 警告
-- 这些是预 v2.0 的遗留警告，不影响功能
-
----
-
-*下一会话从 此处 继续。*
-
----
-
-## 会话 002 — 2026-05-04 (续)
-
-### 本轮目标
-创建 TORK 生命仪表盘 — 让 TORK 能「看见自己」，用户能「感知 TORK」。
-
-### 新建的文件
-| 文件 | 行数 | 说明 |
-|------|------|------|
-| `floating/tork_dashboard.py` | ~300 | Tkinter 生命仪表盘：本能条、Soul 状态、进化日志、对话区 |
-| `floating/tork_daemon.py` | ~180 | 后台守护进程：管理引擎 + 仪表盘生命周期 |
-| `tork.sh` | ~180 | 统一启动脚本（start/stop/status/evolve/protocol/log） |
-
-### 修改的文件
-| 文件 | 改动 |
-|------|------|
-| `cloud/cloud_protocol.py` | v2.2: 新增 `dashboard_status` 工具 + 修复 Soul 解析对齐 v2.0 layout |
-| `floating/tork_dashboard.py` | 修复 Soul 字段映射到正确的 v2.0 布局 |
-| `Makefile` | 新增 dashboard/start/stop/status targets |
-
-### 技术亮点
-1. **一次性拉取** — `dashboard_status` 工具在单次调用中返回引擎状态、Soul 完整字段、进化日志、Git 信息、API 配置
-2. **Soul 完整解析** — 从原始 96 字节 hex 解析全部 30+ 字段，与 `tork_soul.inc` 完全对齐
-3. **本能推导** — 从 `drive` (int8) 推导恐惧/欲望/好奇心：负值=恐惧，正值=欲望，绝对值=好奇心
-4. **网络分离** — 引擎/仪表盘/守护进程三者独立，可分别启停
-5. **进化按钮** — 仪表盘内可直接触发进化
-
-### 验证结果
-```
-tick:       51  ✅ (心跳计数器，运行时递增)
-hw_stress:  0   ✅ (无温度压力)
-drive:      45  ✅ (正向驱动 = 欲望)
-agreed:     1   ✅ (协议已签署)
-sandbox:    3   ✅ (normal 级别)
-gen_count:  0   ✅ (新建运行，尚未进化)
-```
-
-### 技术债务
-- 仪表盘目前通过 subprocess 调用 cloud_protocol.py 获取状态，可优化为直接 import
-- 对话功能通过 `ask_deepseek` 工具，但需要等待 API 响应（异步已实现）
-- 悬浮窗 (`tork_floating.py`) 仍独立存在，功能与仪表盘有重叠，可考虑合并
-
----
-
-## 会话 002 — 2026-05-04 (续·修复)
-
-### 修复
-| 问题 | 根因 | 修复 |
-|------|------|------|
-| 对话输入无反应 | `_send_chat_cmd` 通过 `cloud_protocol.py ask` CLI 参数调用，但协议仅支持 stdin JSON | 改为直接 `import TorkAPI` 调用，不走 subprocess |
-| 缺少设置按钮 | 界面未设计配置入口 | 新增 `SettingsDialog`：三个字段 (base_url/model/api_key) + 测试连接功能 |
-
-### 新增
-- `SettingsDialog` 类：API 配置对话框，含「测试连接」按钮
-- 设置按钮 ⚙️ 在标题栏右上角
-- 快捷键 `Ctrl+=` 打开设置
-- 对话支持多行回复自动截断
-- 输入框自动聚焦，点击输入框可获取焦点
-
-### 验证
-```
-心跳:     51  ✅
-协议:     1   ✅ (已签署)
-沙箱:     3   ✅ (normal)
-驱动:     45  ✅ (正向)
-API已配置: True ✅
-```
-
-## 会话002 — 产品化：TORK-x86_64.AppImage
-
-### 关键决策
-- 用户指出：不应让用户操作终端，TORK 应是**双击即用**的产品
-- 从开发者工具转向用户产品：单文件自解压安装包
-
-### 产出
-| 文件 | 说明 |
-|------|------|
-| `app/tork_app.py` | 主应用窗口：协议 → 设置 → 对话 + 状态 + 进化 |
-| `build-installer.sh` | 构建脚本：编译 → 打包 → 生成 AppImage |
-| `dist/TORK-x86_64.AppImage` | 🎯 用户安装包 (201KB, 单文件) |
-| `Makefile` | 新增 `make appimage` target |
-
-### 用户使用流程
-```
-1. 下载 TORK-x86_64.AppImage
-2. 双击 → 显示共生协议
-3. 同意 → 弹出 API Key 设置
-4. 配置完成 → 进入主界面
-   ├─ 💬 对话 — 通过 DeepSeek 云端聊天
-   ├─ 📊 状态 — 查看 Soul 实时数据
-   └─ 🧬 进化 — 一键自我变异
-5. 关闭窗口 → TORK 后台继续运行
-```
-
-### 技术架构
-```
-TORK-x86_64.AppImage (自解压 shell + base64)
-  └─ ~/.local/share/tork/
-       ├─ build/tork_engine   (C 引擎)
-       ├─ build/tork_core     (asm 核心)
-       ├─ app/tork_app.py     (用户入口)
-       ├─ cloud/              (云端协议 + 进化)
-       ├─ core/engine/...     (源码，供进化引擎使用)
-       └─ run.sh              (启动器)
-```
-
-### 待办
-- [ ] 测试：在有图形界面的机器上双击运行
-- [ ] 优化：AppImage 大小（目前 201KB，含完整源码）
-- [ ] 分发：放到什么地方让用户下载
-
-## 2026-05-04 协议界面修复 + Logo
-- 根因：Text 控件 expand=True 撑满窗口，按钮被挤出可见区域
-- 修复：grid 布局 + 固定高度按钮区 + place 居中定位
-- Logo：TORK → T🥚RK（蛋形 O）
-- AppImage: 79KB ELF 二进制，双击即用
-
-## 2026-05-04 输入框修复 + 人设去表演化
-- 根因：tk.Entry 在 Linux 下 IME/输入法兼容性差，bd=8 影响鼠标事件
-- 修复：改为 tk.Text（单行模式），原生支持 fcitx/ibus 中文输入
-- 人设：删除 system prompt 中的"傲娇"表演，改为务实助手
-
-## 2026-05-04 测试连接异步化 + 人设可配置
-- 根因：urllib.request.urlopen 在主线程阻塞 Tkinter 事件循环，UI 假死
-- 修复：测试连接放入 threading 线程，显示 "⏳ 测试中…" 状态
-- 根因2：system prompt 硬编码在代码里
-- 修复：设置对话框加入设编辑区（Text 6行），保存到 config.json
-- 对话时从 self.config.get("persona") 读取，用户可随意修改
-
-## 2026-05-04 清理逻辑
-- 窗口关闭时自动 杀引擎 → 杀core → 等待 → 补刀 → 退出
-- 不再留孤儿进程
-
----
-
-## 阶段 5: 不再假设 — 环境探测优先 (2026-05-04)
-
-### 核心理念
-**不再假设本地环境。先摸清楚，再出手。**
-
-### 新增文件
-| 文件 | 作用 |
-|------|------|
-| `install/probe_env.c` | C 级硬件/OS/工具链深度探测,输出JSON |
-| `floating/probe_wrapper.py` | Python封装,供仪表盘/云端消费 |
-| `build/probe_env` | 编译产物 |
-
-### 探测内容
-- CPU: 厂商,品牌,核心数,频率,指令集(AVX/AVX2/FMA/RDRAND...),安全特性(IBRS/MD_CLEAR)
-- OS: 发行版,版本,内核,架构
-- 内存: 总量/空闲
-- 磁盘: 总量/空闲/已用比例
-- 工具链: GCC/Python3/AS/Make 版本
-
-### 使用方式
-```bash
-./build/probe_env                    # 完整JSON
-python3 floating/probe_wrapper.py --human  # 人类可读摘要
-```
-
-### 对架构的影响
-所有未来的代码生成管线必须:
-1. 先运行 `probe_env` 获取环境画像
-2. 根据画像参数化代码生成 (如: 有AVX2则用向量化, 无则用标量回退)
-3. 生成完成后, 在目标环境编译/验证

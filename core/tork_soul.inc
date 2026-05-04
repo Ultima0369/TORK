@@ -1,6 +1,6 @@
-# TORK Soul Layout v2.0 — 扩展云端/沙箱字段
-# This file is the single source of truth for Soul field offsets.
-# Both tork_core.asm (.include) and soul_access.h (#define) must match.
+# TORK Soul Layout v3.0 — 扩展学习/经验字段
+# Single source of truth for Soul field offsets.
+# tork_core.asm (.include) and soul_access.h (#define) must match.
 
 .equ S_TICK,              0x00            # uint32  — Heartbeat counter
 .equ S_LAST_TSC,          0x04            # uint64  — Previous TSC value
@@ -39,4 +39,16 @@
 .equ S_GEN_COUNT,         0x54            # uint32: generation count
 .equ S_RESERVED3,         0x58            # uint8[8]: future expansion
 
-# Soul total size = 0x60 = 96 bytes (matches SOUL_SIZE)
+# ── v3.0 学习字段 (Soul 总大小扩展至 192 字节) ────────────────
+.equ S_EXPERIENCE_COUNT,  0x60            # uint32 — total experiences recorded
+.equ S_EXPERIENCE_SAVED,  0x64            # uint32 — last saved experience count
+.equ S_LEARNING_RATE,     0x68            # uint16 — learning rate (fixed point, 0-1000)
+.equ S_CURIOSITY_DECAY,   0x6A            # uint16 — curiosity decay per idle cycle (0-1000)
+.equ S_MCTS_ITERATIONS,   0x6C            # uint16 — MCTS iterations in last idle cycle
+.equ S_LAST_IDLE_TICK,    0x6E            # uint32 — tick when last idle occurred
+.equ S_BEST_OUTCOME,      0x72            # int16  — best outcome ever achieved
+.equ S_WORST_OUTCOME,     0x74            # int16  — worst outcome ever
+.equ S_RESERVED4,         0x76            # uint8[10]: future expansion
+
+# Soul total size = 0x80 = 128 bytes (扩展至 192 字节，更紧凑)
+# 预留: 0x80 - 0xC0 未来扩展

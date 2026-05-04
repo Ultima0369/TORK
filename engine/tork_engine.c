@@ -148,6 +148,16 @@ int main(int argc, char **argv) {
         else
             printf("TORK agreement: NONE — limited functionality\n");
     }
+    /* v3.0: initialize learning fields */
+    {
+        uint16_t lr = 500;    /* learning_rate = 0.5 */
+        soul_write_buf(&soul, S_LEARNING_RATE, &lr, 2);
+        uint16_t cd = 100;    /* curiosity_decay = 0.1 */
+        soul_write_buf(&soul, S_CURIOSITY_DECAY, &cd, 2);
+        uint32_t exp_count_init = exp_count();
+        soul_write_buf(&soul, S_EXPERIENCE_COUNT, &exp_count_init, 4);
+        soul_write_buf(&soul, S_EXPERIENCE_SAVED, &exp_count_init, 4);
+    }
 printf("TORK engine started. core PID=%d\n", core_pid);
     printf("TORK v2.0 | generation data at 0x54 | learn_count at 0x4C\n");
     printf("polling 500ms | instinct 10 | code 200 | modify 300 | optimize 600 | nop 900 | fission 1000 | bb 100 | cal 500 | ind 800 | persist 1000\n\n");
@@ -158,8 +168,14 @@ printf("TORK engine started. core PID=%d\n", core_pid);
     int rounds_since_mod = 0;
             /* v2.2: self-awareness counter */
             static int total_rounds = 0; total_rounds++;
-    uint32_t last_bb_tick = 1;  /* non-zero to avoid (tick-0)<200 always true */
+    uint32_t last_bb_tick = 1;
+    uint32_t prev_bb_opt_at_idle = 0;  /* non-zero to avoid (tick-0)<200 always true */
     int idle_discoveries = 0;
+    /* Experience feedback tracking */
+    int feedback_pending = 0;
+    int feedback_round = 0;
+    uint8_t feedback_hw_before = 0;
+    int8_t feedback_drive_before = 0;
 
     for (int i = 0; i < rounds; i++) {
         rounds_since_mod++;
@@ -267,6 +283,7 @@ printf("TORK engine started. core PID=%d\n", core_pid);
                         if (f) { fwrite(asm_buf, 1, alen, f); fclose(f); }
                         printf("[%4d] tick=%-6u MODIFY SUCCESS: replaced je with jz\n", i, inp.tick);
                         uint8_t ms = 1;
+                        exp_update_last(80, 0, 1, inp.hw_stress, drive);
                         soul_write_buf(&soul, S_CODE_MOD_SUCCESS, &ms, 1);
                         inp.code_mod_success = 1;
                         bb_write(BB_TYPE_OPT_SUCCESS, 1, (uint32_t)i);
@@ -279,6 +296,7 @@ printf("TORK engine started. core PID=%d\n", core_pid);
                         asm_rollback(asm_buf, sizeof(asm_buf), backup, backup_len);
                         printf("[%4d] tick=%-6u MODIFY FAILED: je→jz rejected\n", i, inp.tick);
                         uint8_t ms = 2;
+                        exp_update_last(-30, 0, 0, inp.hw_stress, drive);
                         soul_write_buf(&soul, S_CODE_MOD_SUCCESS, &ms, 1);
                         inp.code_mod_success = 2;
                         bb_write(BB_TYPE_OPT_FAIL, 1, (uint32_t)i);
@@ -312,6 +330,7 @@ printf("TORK engine started. core PID=%d\n", core_pid);
                                i, inp.tick, deleted);
                         printf("[%4d] tick=%-6u OPT: verification PASSED, writing to file\n",
                                i, inp.tick);
+                        exp_update_last(70, 0, 1, inp.hw_stress, drive);
                         uint8_t sv = (uint8_t)deleted;
                         soul_write_buf(&soul, S_CODE_OPT_SAVED, &sv, 1);
                         inp.code_opt_saved = sv;
@@ -321,6 +340,7 @@ printf("TORK engine started. core PID=%d\n", core_pid);
                         asm_rollback(asm_buf, sizeof(asm_buf), backup, backup_len);
                         printf("[%4d] tick=%-6u OPT: deleted %d but verification FAILED, rollback\n",
                                i, inp.tick, deleted);
+                        exp_update_last(-20, 1, 0, inp.hw_stress, drive);
                     }
                 } else {
                     printf("[%4d] tick=%-6u OPT: no dead code found\n", i, inp.tick);
@@ -361,6 +381,7 @@ printf("TORK engine started. core PID=%d\n", core_pid);
                         asm_rollback(asm_buf, sizeof(asm_buf), backup, backup_len);
                         printf("[%4d] tick=%-6u NOP: deleted %d but verification FAILED, rollback\n",
                                i, inp.tick, nops);
+                        exp_update_last(-20, 1, 0, inp.hw_stress, drive);
                     }
                 } else if (nops == 0) {
                     printf("[%4d] tick=%-6u NOP: no nop insns found in memcpy_tork\n", i, inp.tick);
@@ -519,6 +540,33 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             if (cur_bb_opt != prev_bb_opt || cur_bb_fis != prev_bb_fis)
                 last_bb_tick = inp.tick;
         }
+        
+        /* Experience feedback: evaluate outcome 50 rounds after idle */
+        if (feedback_pending && i - feedback_round >= 50) {
+            int8_t outcome = 0;
+            uint8_t hw_change = (inp.hw_stress < feedback_hw_before) ? 1 : 
+                                (inp.hw_stress > feedback_hw_before) ? 2 : 0;
+            int8_t drive_change = drive - feedback_drive_before;
+            
+            /* Positive: stress decreased or drive increased */
+            if (hw_change == 1) outcome += 20;
+            else if (hw_change == 2) outcome -= 15;
+            if (drive_change > 10) outcome += 30;
+            else if (drive_change > 0) outcome += 10;
+            else if (drive_change < -10) outcome -= 20;
+            else if (drive_change < 0) outcome -= 5;
+            
+            /* Check if any optimization happened */
+            uint32_t opt_delta = bb_global_optimizations() - prev_bb_opt_at_idle;
+            if (opt_delta > 0) outcome += 25;
+            
+            exp_update_last(outcome, 0, 0, inp.hw_stress, drive);
+            printf("[%4d] tick=%-6u FB: outcome=%d (hw=%d→%d, drive=%d→%d, opts=%u)\n",
+                   i, inp.tick, outcome, feedback_hw_before, inp.hw_stress,
+                   feedback_drive_before, drive, opt_delta);
+            
+            feedback_pending = 0;
+        }
 
         /* every 100 rounds: idle check */
         if (i % 100 == 0 && i > 0) {
@@ -545,6 +593,12 @@ printf("TORK engine started. core PID=%d\n", core_pid);
                            i, inp.tick, idle_out.action_type, disc);
                     uint8_t mode_busy = 0;
                     soul_write_buf(&soul, S_MODE, &mode_busy, 1);
+                    /* Mark feedback pending — will evaluate after 50 rounds */
+                    feedback_pending = 1;
+                    feedback_round = i;
+                    feedback_hw_before = inp.hw_stress;
+                    prev_bb_opt_at_idle = bb_global_optimizations();
+                    feedback_drive_before = drive;
                     idler_set_active(0);
                 }
             } else if (idler_active()) {

@@ -132,3 +132,16 @@ status:
 appimage: all
 	@echo "📦 构建 TORK-x86_64.AppImage..."
 	@bash build-installer.sh
+
+# ── Grid emergence ───────────────────────────────────────────────
+.PHONY: grid
+
+build/tork_grid.o: grid/tork_grid.c grid/tork_grid.h
+	$(CC) $(CFLAGS) -c -o build/tork_grid.o grid/tork_grid.c
+
+build/tork_grid: grid/grid_main.c build/tork_grid.o
+	$(CC) $(CFLAGS) -o build/tork_grid grid/grid_main.c build/tork_grid.o
+
+grid: build/tork_grid
+	@echo "🥚 启动 TORK 网格..."
+	@./build/tork_grid 1000

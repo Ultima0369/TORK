@@ -10,7 +10,7 @@
 #include <stdio.h>
 
 #define SOUL_ADDR_VAL  0x200000
-#define SOUL_SIZE      96
+#define SOUL_SIZE      128
 #define SOUL_PAGE      4096
 
 /* Soul field offsets — must match tork_soul.inc exactly (v2.0) */
@@ -50,6 +50,18 @@
 #define S_BEST_SCORE        0x50  /* uint32 */
 #define S_GEN_COUNT         0x54  /* uint32 */
 #define S_RESERVED3         0x58  /* uint8[8] */
+
+/* v3.0 学习字段 */
+#define S_EXPERIENCE_COUNT  0x60  /* uint32 */
+#define S_EXPERIENCE_SAVED  0x64  /* uint32 */
+#define S_LEARNING_RATE     0x68  /* uint16 */
+#define S_CURIOSITY_DECAY   0x6A  /* uint16 */
+#define S_MCTS_ITERATIONS   0x6C  /* uint16 */
+#define S_LAST_IDLE_TICK    0x6E  /* uint32 */
+#define S_BEST_OUTCOME      0x72  /* int16  */
+#define S_WORST_OUTCOME     0x74  /* int16  */
+#define S_RESERVED4         0x76  /* uint8[10] */
+
 
 /* ── Soul reader/writer via /proc/PID/mem ───────────────────── */
 typedef struct {
@@ -160,6 +172,17 @@ static inline uint16_t  soul_learn_count(soul_t *s)        { return SOUL_U16(s, 
 static inline uint16_t  soul_mutation_count(soul_t *s)     { return SOUL_U16(s, S_MUTATION_COUNT); }
 static inline uint32_t  soul_best_score(soul_t *s)         { return SOUL_U32(s, S_BEST_SCORE); }
 static inline uint32_t  soul_gen_count(soul_t *s)          { return SOUL_U32(s, S_GEN_COUNT); }
+
+/* v3.0 访问器 */
+static inline uint32_t  soul_experience_count(soul_t *s) { return SOUL_U32(s, S_EXPERIENCE_COUNT); }
+static inline uint32_t  soul_experience_saved(soul_t *s) { return SOUL_U32(s, S_EXPERIENCE_SAVED); }
+static inline uint16_t  soul_learning_rate(soul_t *s)    { return SOUL_U16(s, S_LEARNING_RATE); }
+static inline uint16_t  soul_curiosity_decay(soul_t *s)  { return SOUL_U16(s, S_CURIOSITY_DECAY); }
+static inline uint16_t  soul_mcts_iterations(soul_t *s)  { return SOUL_U16(s, S_MCTS_ITERATIONS); }
+static inline uint32_t  soul_last_idle_tick(soul_t *s)   { return SOUL_U32(s, S_LAST_IDLE_TICK); }
+static inline int16_t   soul_best_outcome(soul_t *s)     { return (int16_t)SOUL_U16(s, S_BEST_OUTCOME); }
+static inline int16_t   soul_worst_outcome(soul_t *s)    { return (int16_t)SOUL_U16(s, S_WORST_OUTCOME); }
+
 
 /* CRC32 verification of the snapshot */
 int soul_verify(soul_t *s);

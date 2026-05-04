@@ -118,7 +118,7 @@ def _evolution_stats():
 
 
 def _api_config():
-    return _read_json(API_CONFIG, {"model": "", "api_key": "", "configured": False})
+    return _read_json(API_CONFIG, {"model": "astron-code-latest", "api_key": "", "base_url": "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2", "configured": False})
 
 
 # ── Shared evolution runner ──────────────────────────────────

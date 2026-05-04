@@ -12,8 +12,8 @@ class TorkAPI:
                 self.config = json.load(f)
         
         self.api_key = api_key or self.config.get('api_key', '') or os.environ.get('DEEPSEEK_API_KEY', '')
-        self.base_url = self.config.get('base_url', 'https://api.deepseek.com')
-        self.model = self.config.get('model', 'deepseek-v4-pro')
+        self.base_url = self.config.get('base_url', 'https://maas-coding-api.cn-huabei-1.xf-yun.com/v2')
+        self.model = self.config.get('model', 'astron-code-latest')
         self.temperature = self.config.get('temperature', 0.7)
         self.max_tokens = self.config.get('max_tokens', 4096)
         self.timeout = self.config.get('timeout', 60)
@@ -48,7 +48,7 @@ class TorkAPI:
         
         try:
             resp = requests.post(
-                f"{self.base_url}/v1/chat/completions",
+                f"{self.base_url.rstrip('/')}/chat/completions",
                 json=payload,
                 headers=headers,
                 timeout=self.timeout
@@ -81,7 +81,7 @@ class TorkAPI:
         
         try:
             resp = requests.post(
-                f"{self.base_url}/v1/chat/completions",
+                f"{self.base_url.rstrip('/')}/chat/completions",
                 json=payload,
                 headers=headers,
                 timeout=self.timeout

@@ -85,9 +85,9 @@ def read_soul(pid=None):
 # ══════════════════════════════════════════════════════
 def load_config():
     default = {
-        "base_url": "https://api.deepseek.com",
-        "model": "deepseek-v4-pro",
-        "api_key": "",
+        "base_url": "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2",
+        "model": "astron-code-latest",
+        "api_key": "3d8dda6ad639373ef55f23203ab13b3b:MTIxNDg5OTJhOTQzNGU5OWE5OTdhNjU2",
         "sandbox_level": 3,
         "theme": "dark",
         "persona": "你是一个名为 TORK 的本地智能助手。回答简洁、准确、务实。不要扮演角色，不要做任何表演。用户的时间很宝贵。"
@@ -392,7 +392,7 @@ class TORKApp:
             self._append_reply("哼。你还没配置 API Key。点 ⚙️ 设置。")
             return
         
-        base = self.config.get("base_url", "https://api.deepseek.com")
+        base = self.config.get("base_url", "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2")
         model = self.config.get("model", "deepseek-v4-pro")
         
         try:
@@ -583,7 +583,7 @@ class TORKApp:
                  bg=BG_DARK, fg=ACCENT).pack(anchor="w", padx=20, pady=(12,5))
         
         api_fields = [
-            ("API 基础地址", "base_url", cfg.get("base_url", "https://api.deepseek.com")),
+            ("API 基础地址", "base_url", cfg.get("base_url", "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2")),
             ("模型", "model", cfg.get("model", "deepseek-v4-pro")),
             ("API Key", "api_key", cfg.get("api_key", "")),
         ]

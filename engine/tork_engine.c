@@ -283,6 +283,8 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             .restored_files   = restored_files,
             .save_success     = 0,
             .idle_discoveries = idle_discoveries,
+            .pattern_best_action = -1,
+            .pattern_confidence  = 0.0f,
         };
 
         bb_set_tick(inp.tick);
@@ -296,6 +298,18 @@ printf("TORK engine started. core PID=%d\n", core_pid);
         int opt_cycle = 30;    /* Aggressive optimization attempt */
         int nop_cycle = 50;    /* NOP padding cleanup */
 
+        /* ── Query pattern learner: feed learned patterns into instinct ── */
+        {
+            float pat_conf = 0.0f;
+            int pat_action = pat_query_best_action(inp.hw_stress, 
+                (int8_t)((int)((0.5f - (float)inp.hw_stress * 0.2f) * 100.0f)),  /* estimated drive */
+                inp.fission_count, &pat_conf);
+            if (pat_action >= 0 && pat_conf > 0.0f) {
+                inp.pattern_best_action = pat_action;
+                inp.pattern_confidence  = pat_conf;
+            }
+        }
+        
         tork_instinct_t inst = instinct_evaluate(&inp);
 
         int drive = (int)((inst.desire - inst.fear + inst.curiosity) * 100.0f);
@@ -303,6 +317,26 @@ printf("TORK engine started. core PID=%d\n", core_pid);
         if (drive < -128) drive = -128;
         soul_set_drive(&soul, (int8_t)drive);
 
+        /* ── Record experience every 5 ticks: accumulate learning data ── */
+        {
+            static int exp_tick_counter = 0;
+            exp_tick_counter++;
+            if (exp_tick_counter % 2 == 0) {
+                exp_record(inp.tick, inp.hw_stress, (int8_t)drive, inp.fission_count,
+                          (uint8_t)(drive > 50 ? 1 : 0), (int8_t)(drive > 50 ? 5 : -5),
+                          0, 0, 0, inp.hw_stress, (int8_t)drive);
+            }
+        }
+        
+        /* ── Periodically learn patterns from accumulated experience ── */
+        {
+            static int learn_counter = 0;
+            learn_counter++;
+            if (learn_counter % 20 == 0 && exp_count() > 5) {
+                pat_learn_from_experience();
+            }
+        }
+        
         /* ── 网格: 推送 Soul 数据 ── */
         {
             grid_soul_feed_t gs;

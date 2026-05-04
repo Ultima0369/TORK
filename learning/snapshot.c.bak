@@ -66,8 +66,6 @@ void snap_force(uint64_t tick, int64_t drive, uint8_t hw_stress,
 }
 
 /* ── 健康检查 ──────────────────────────────────────────────── */
-
-/* 修复：只在 drive 真正恶化时触发回滚，而不是从初始峰值正常回落 */
 health_check_t snap_health_check(uint64_t tick, int64_t drive,
                                   uint8_t hw_stress, int soul_crc_ok) {
     health_check_t result;
@@ -79,32 +77,25 @@ health_check_t snap_health_check(uint64_t tick, int64_t drive,
     int last_idx = (g_hist.head - 1 + SNAP_MAX_HISTORY) % SNAP_MAX_HISTORY;
     snapshot_t *last = &g_hist.slots[last_idx];
     
-    /* 检查 drive 是否大幅下降 — 但只在 drive 跌到负值时触发
-     * 正常从峰值(如+127)回落到稳定值(如+75)不是退化
-     * 从正值跌到负值或从正常值跌到远低于历史均值才是退化 */
-    if (drive < last->drive - 30 && drive < -20) {
+    /* 检查 drive 是否大幅下降 */
+    if (drive < last->drive - 30) {
         result.drive_drop = (float)(last->drive - drive);
         result.degraded = 1;
     }
-    /* 也检测：drive 持续为负且越来越差 */
-    if (drive < 0 && last->drive < 0 && drive < last->drive - 10) {
-        if (!result.degraded) result.drive_drop = (float)(last->drive - drive);
-        result.degraded = 1;
-    }
     
-    /* 检查 stress 是否飙升（保留，这是真正的硬件问题） */
-    if (hw_stress > last->hw_stress + 1 && hw_stress >= 3) {
+    /* 检查 stress 是否飙升 */
+    if (hw_stress > last->hw_stress + 1) {
         result.stress_spike = 1;
         result.degraded = 1;
     }
     
-    /* 检查 Soul CRC 是否失败（保留，这是数据损坏） */
+    /* 检查 Soul CRC 是否失败 */
     if (!soul_crc_ok) {
         result.soul_crc_fail = 1;
         result.degraded = 1;
     }
     
-    /* 找到最佳回滚目标：drive 最高的已提交快照优先，否则最高 drive */
+    /* 找到最佳回滚目标：drive 最高的快照 */
     if (result.degraded) {
         int64_t best_drive = -9999;
         result.best_snapshot_idx = 0;
@@ -116,15 +107,16 @@ health_check_t snap_health_check(uint64_t tick, int64_t drive,
             }
         }
         
-        printf("  SNAP: health DEGRADED (drive_drop=%.0f, stress=%d, crc=%d)\n",
+        printf("  SNAP: health DEGRADED (drive_drop=%.0f, stress=%d, crc=%d)\\n",
                result.drive_drop, result.stress_spike, result.soul_crc_fail);
-        printf("  SNAP: best snapshot at tick %lu (drive=%ld)\n",
+        printf("  SNAP: best snapshot at tick %lu (drive=%ld)\\n",
                g_hist.slots[result.best_snapshot_idx].tick,
                g_hist.slots[result.best_snapshot_idx].drive);
     }
     
     return result;
 }
+
 /* ── 回滚 ──────────────────────────────────────────────────── */
 int snap_rollback(uint8_t *soul_data, uint32_t *restore_tick) {
     if (!g_initialized || g_hist.count == 0) return 0;

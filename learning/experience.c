@@ -86,7 +86,7 @@ void exp_record(uint64_t tick, uint8_t hw_stress, int8_t drive_pre,
         g_buf.count++;
     
     /* Auto-save every 100 experiences */
-    if (g_buf.count % 100 == 0)
+    if (g_buf.count % 10 == 0)
         exp_save();
 }
 

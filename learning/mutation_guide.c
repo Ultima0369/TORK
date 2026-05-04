@@ -193,3 +193,37 @@ int mg_load(void) {
                (float)g_mg.total_successes / g_mg.total_attempts * 100 : 0);
     return 0;
 }
+
+/* ── Register a remote high-fitness branch gene ───────────── */
+void mg_register_remote_gene(int32_t curiosity_decay, int32_t learning_rate) {
+    (void)curiosity_decay; (void)learning_rate;
+    if (g_mg.strategy_count == 0) return;
+    
+    /* Boost the weight of strategies matching the remote gene's profile */
+    /* High curiosity_decay → boost curiosity-based strategies */
+    if (curiosity_decay > 50) {
+        for (int i = 0; i < (int)g_mg.strategy_count; i++) {
+            if (g_mg.strategies[i].strategy == MG_STRATEGY_CURIOSITY) {
+                g_mg.strategies[i].weight += 0.05f;
+                if (g_mg.strategies[i].weight > 1.0f)
+                    g_mg.strategies[i].weight = 1.0f;
+                break;
+            }
+        }
+    }
+    
+    /* High learning_rate → boost learning strategies */
+    if (learning_rate > 50) {
+        for (int i = 0; i < (int)g_mg.strategy_count; i++) {
+            if (g_mg.strategies[i].strategy == MG_STRATEGY_LEARNING_RATE) {
+                g_mg.strategies[i].weight += 0.05f;
+                if (g_mg.strategies[i].weight > 1.0f)
+                    g_mg.strategies[i].weight = 1.0f;
+                break;
+            }
+        }
+    }
+    
+    printf("  MGUIDE: remote gene integrated (cd=%d, lr=%d)\n",
+           curiosity_decay, learning_rate);
+}

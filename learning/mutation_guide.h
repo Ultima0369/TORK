@@ -80,4 +80,7 @@ void mg_summary(char *buf, int buf_size);
 int mg_save(void);
 int mg_load(void);
 
+/* Register a remote high-fitness branch gene */
+void mg_register_remote_gene(int32_t curiosity_decay, int32_t learning_rate);
+
 #endif /* MUTATION_GUIDE_H */

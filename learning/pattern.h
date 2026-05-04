@@ -77,3 +77,8 @@ int pat_save(void);
 
 /* 从二进制文件加载模式库 */
 int pat_load(void);
+/* Record a remote pattern (from distributed blackboard) */
+void pat_record_remote(uint8_t stress_low, uint8_t stress_high,
+                        int8_t drive_min, int8_t drive_max,
+                        uint8_t action_type, int8_t avg_outcome,
+                        uint16_t sample_count);

@@ -280,3 +280,35 @@ void pat_cleanup(void) {
     g_initialized = 0;
     printf("  PAT: pattern learner cleaned up\n");
 }
+
+/* ── Record a remote pattern (from distributed blackboard) ── */
+void pat_record_remote(uint8_t stress_low, uint8_t stress_high,
+                        int8_t drive_min, int8_t drive_max,
+                        uint8_t action_type, int8_t avg_outcome,
+                        uint16_t sample_count) {
+    if (!g_initialized) return;
+    
+    /* Create a synthetic experience that represents the remote pattern */
+    /* We'll add it as if it were observed locally */
+    for (int8_t drive = drive_min; drive <= drive_max; drive++) {
+        for (uint8_t stress = stress_low; stress <= stress_high; stress++) {
+            pattern_key_t key;
+            key.hw_stress    = stress;
+            key.drive_bucket = quantize_drive(drive);
+            key.gen_bucket   = 0;  /* unknown gen from remote */
+            key.action_type  = action_type;
+            
+            pattern_t *p = find_or_create_slot(key);
+            if (!p) continue;
+            
+            p->total_outcome += avg_outcome * sample_count;
+            p->sample_count  += sample_count;
+            if (avg_outcome < 0)
+                p->total_crashes += sample_count / 2;
+            p->avg_outcome   = (float)p->total_outcome / p->sample_count;
+            p->crash_rate    = (float)p->total_crashes / p->sample_count;
+            p->last_seen_tick = 0;
+        }
+    }
+    g_learner.learn_cycles++;
+}

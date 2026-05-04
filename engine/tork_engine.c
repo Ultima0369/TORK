@@ -20,6 +20,7 @@
 #include "../learning/self_build.h"
 #include "../learning/mutation_guide.h"
 #include "torkd.h"
+#include "../learning/distributed.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,6 +39,7 @@ static void cleanup_core(int sig) {
         waitpid(core_pid, NULL, 0);
     }
     torkd_shutdown();
+    dist_cleanup();
     ps_emergency_save();
     snap_save();
     watcher_save();
@@ -159,6 +161,13 @@ int main(int argc, char **argv) {
         printf("  TORKD: socket ready at %s\n", TORKD_SOCKET_PATH);
     } else {
         printf("  TORKD: socket init failed (non-fatal)\n");
+    }
+
+    /* ── 启动分布式黑板（UDP 多播） ── */
+    if (dist_init() == 0) {
+        /* success, message printed by dist_init */
+    } else {
+        printf("  DIST: network unavailable (non-fatal, running solo)\n");
     }
 
     /* write self_pid and ppid once */
@@ -286,6 +295,8 @@ printf("TORK engine started. core PID=%d\n", core_pid);
 
         /* ── torkd: 每 tick 处理 socket 客户端 ── */
         torkd_tick();
+        /* ── 分布式黑板: 接收/发送经验 ── */
+        dist_tick();
 
         /* every 200 rounds: code reading */
         if (i % 200 == 0) {

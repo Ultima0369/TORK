@@ -41,7 +41,7 @@ static float ucb1(const mcts_node_t *node, int parent_visits) {
     if (node->visit_count == 0) return 1e9f; /* Always explore unvisited */
     
     float exploitation = node->total_value / node->visit_count;
-    float exploration = MCTS_EXPLORATION * sqrtf(logf((float)parent_visits) / node->visit_count);
+    float exploration = mcts_get_exploration() * sqrtf(logf((float)parent_visits) / node->visit_count);
     
     return exploitation + exploration;
 }
@@ -209,7 +209,7 @@ mcts_result_t mcts_search(const mcts_state_t *state, int time_budget_ms) {
     root->state = *state; /* Re-read */
     
     /* Calculate iterations based on time budget */
-    int iterations = (time_budget_ms > 0) ? (time_budget_ms * 100) : 1000;
+    int iterations = (time_budget_ms > 0) ? (time_budget_ms * 100) : mcts_get_min_iterations();
     if (iterations > 50000) iterations = 50000;
     
     /* Run MCTS iterations */
@@ -318,4 +318,80 @@ const char *mcts_action_name(uint8_t type) {
     };
     if (type < MCTS_NUM_ACTIONS) return names[type];
     return "unknown";
+}
+
+/* ── Auto-tuning ─────────────────────────────────────────────
+ *  Adjusts MCTS parameters based on historical outcome feedback.
+ *  Called periodically by the engine idle loop.
+ * ──────────────────────────────────────────────────────────── */
+
+/* Tunable parameters */
+static struct {
+    float exploration;          /* UCB1 exploration constant */
+    int   simulations_per_node; /* Simulations per node */
+    int   min_iterations;       /* Minimum iterations per search */
+    int   tuning_count;         /* How many times tuned */
+} mcts_tune = {
+    .exploration        = MCTS_EXPLORATION,
+    .simulations_per_node = 128,
+    .min_iterations     = 100,
+    .tuning_count       = 0,
+};
+
+/* Tune parameters based on recent experience outcomes */
+void mcts_auto_tune(void) {
+    mcts_tune.tuning_count++;
+    
+    /* Get recent 20 experiences */
+    experience_t recent[20];
+    int n = exp_recent(20, recent);
+    if (n < 5) return;  /* Not enough data */
+    
+    /* Calculate average outcome */
+    int total_outcome = 0;
+    int crashes = 0;
+    for (int i = 0; i < n; i++) {
+        total_outcome += recent[i].outcome;
+        if (recent[i].crash_occurred) crashes++;
+    }
+    float avg_outcome = (float)total_outcome / n;
+    float crash_rate = (float)crashes / n;
+    
+    printf("  TUNE: avg_outcome=%.1f crash_rate=%.2f (tuning #%d)\n",
+           avg_outcome, crash_rate, mcts_tune.tuning_count);
+    
+    /* Adjust exploration: if outcomes are bad, explore more */
+    if (avg_outcome < -10.0f && mcts_tune.exploration < 5.0f) {
+        mcts_tune.exploration += 0.1f;
+        printf("  TUNE: ↑ exploration → %.2f\n", mcts_tune.exploration);
+    } else if (avg_outcome > 15.0f && mcts_tune.exploration > 0.5f) {
+        mcts_tune.exploration -= 0.05f;
+        printf("  TUNE: ↓ exploration → %.2f (exploiting known good paths)\n", mcts_tune.exploration);
+    }
+    
+    /* Adjust iterations: if crash rate is high, do more iterations (be more careful) */
+    if (crash_rate > 0.2f) {
+        mcts_tune.min_iterations += 50;
+        if (mcts_tune.min_iterations > 2000) mcts_tune.min_iterations = 2000;
+        printf("  TUNE: ↑ min_iterations → %d (crash_rate=%.2f)\n", 
+               mcts_tune.min_iterations, crash_rate);
+    } else if (crash_rate < 0.05f && mcts_tune.min_iterations > 100) {
+        mcts_tune.min_iterations -= 50;
+        printf("  TUNE: ↓ min_iterations → %d (environment stable)\n", mcts_tune.min_iterations);
+    }
+}
+
+/* Get current exploration constant (used by UCB1) */
+float mcts_get_exploration(void) {
+    return mcts_tune.exploration;
+}
+
+/* Get current min iterations */
+int mcts_get_min_iterations(void) {
+    return mcts_tune.min_iterations;
+}
+
+/* Get tuning count */
+int mcts_tuning_count(void) {
+    return mcts_tune.tuning_count;
 }

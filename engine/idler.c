@@ -70,6 +70,8 @@ idler_output_t idler_cycle(const idler_input_t *in) {
     out.expected_value = result.expected_value;
     out.discoveries    = 0;
     
+        /* Auto-tune MCTS every 10 cycles */
+    if (g_cycles % 10 == 0) mcts_auto_tune();
     printf("── IDLE cycle complete ────────────────────────────\n\n");
     
     return out;

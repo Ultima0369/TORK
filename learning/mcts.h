@@ -73,3 +73,17 @@ void mcts_print_result(const mcts_result_t *result);
 const char *mcts_action_name(uint8_t type);
 
 #endif /* MCTS_H */
+
+/* ── Auto-tuning API ──────────────────────────────────────── */
+
+/* Tune MCTS parameters based on recent experience outcomes */
+void mcts_auto_tune(void);
+
+/* Get current exploration constant */
+float mcts_get_exploration(void);
+
+/* Get current min iterations */
+int mcts_get_min_iterations(void);
+
+/* Get tuning count */
+int mcts_tuning_count(void);

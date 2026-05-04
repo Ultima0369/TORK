@@ -15,6 +15,7 @@
 #include "../learning/pattern.h"
 #include "../learning/observer.h"
 #include "../learning/snapshot.h"
+#include "../learning/energy.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -86,6 +87,7 @@ int main(int argc, char **argv) {
     obs_load_baseline();
     snap_init();
     snap_load();
+    eng_init();
         fprintf(stderr, "warning: bb_init failed — blackboard unavailable\n");
     exp_init();
     br_init();
@@ -95,6 +97,7 @@ int main(int argc, char **argv) {
     obs_load_baseline();
     snap_init();
     snap_load();
+    eng_init();
 
     if (cal_init() != 0)
         fprintf(stderr, "warning: cal_init failed — calibrator unavailable\n");
@@ -589,6 +592,20 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             }
         }
         
+        /* Energy: update stats and auto-adjust */
+        {
+            float hb_mult = eng_auto_adjust(inp.tick, inp.hw_stress);
+            eng_update(30.0f, 4096.0f, 0.1f, (drive == 0));
+            if (hb_mult != 1.0f && (i % 10 == 0)) {
+                printf("[%4d] tick=%-6u ENG: heartbeat mult=%.1f\n",
+                       i, inp.tick, hb_mult);
+            }
+            /* Limit branches if energy says so */
+            if (eng_should_limit_branches() && br_active_count() > 2) {
+                /* Don't fork new branches when system is loaded */
+            }
+        }
+        
         /* Snapshot: auto-save healthy state */
         {
             uint8_t soul_raw[SOUL_SIZE];
@@ -603,7 +620,6 @@ printf("TORK engine started. core PID=%d\n", core_pid);
         
         /* Health check: detect degradation, auto-rollback via /proc/PID/mem */
         {
-            int crc_ok = (soul_checksum(&soul) == 0);  /* 0=unchecked in engine */
             health_check_t hc = snap_health_check(inp.tick, (int64_t)drive,
                                                    inp.hw_stress, 1);
             /* Commit: if stable for a long time, mark state as good */

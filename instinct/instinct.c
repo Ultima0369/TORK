@@ -106,6 +106,22 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
         inst.curiosity += 0.1f * cw;   /* Recent fork keeps mind open */
     }
     
+    /* ── v3.3: energy awareness ── */
+    /* High throttle means conserve energy - reduce curiosity, increase caution */
+    if (in->energy_mode == 2 || in->energy_mode == 3) {
+        inst.curiosity *= 0.7f;         /* Save energy, less exploring */
+        inst.fear *= 1.2f;              /* More cautious when throttled */
+        inst.desire *= 0.8f;            /* Lower ambition */
+    } else if (in->energy_mode == 0) {
+        inst.curiosity *= 1.3f;         /* Performance mode: more curious */
+        inst.desire *= 1.2f;            /* More ambitious */
+    }
+    
+    /* Heavy throttle reduces heartbeat ambition */
+    if (in->energy_throttle > 0.5f) {
+        inst.curiosity *= 0.8f;
+    }
+    
     /* ── v3.2: pattern experience awareness ── */
     if (in->pattern_best_action >= 0 && in->pattern_confidence > 0.3f) {
         /* Pattern says there's a known-good action for this situation */

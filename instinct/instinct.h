@@ -36,6 +36,8 @@ typedef struct {
     int branch_reap_just_happened;       /* 1 if a branch was reaped this round */
     int pattern_best_action;             /* Pattern-recommended action (-1=none) */
     float pattern_confidence;            /* Confidence in pattern recommendation (0..1) */
+    int energy_mode;                     /* Current energy mode (0-3) */
+    float energy_throttle;               /* Energy throttle level (0.0-1.0) */
 } instinct_input_t;
 
 tork_instinct_t instinct_evaluate(const instinct_input_t *in);

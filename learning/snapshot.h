@@ -35,6 +35,9 @@ typedef struct {
     uint32_t   count;           /* 总快照数 */
     uint32_t   last_restore_tick; /* 上次回滚的 tick */
     uint32_t   restores;        /* 总回滚次数 */
+    uint32_t   commits;         /* 总提交次数 */
+    uint32_t   last_commit_tick;  /* 上次提交的tick */
+    uint32_t   commit_interval;   /* 当前提交间隔, 动态调整 */
 } snapshot_history_t;
 
 /* ── 退化检测结果 ───────────────────────────────────────────── */
@@ -79,7 +82,18 @@ int snap_save(void);
 /* 从磁盘加载快照历史 */
 int snap_load(void);
 
+/* 提交当前快照为"已确认健康"状态 */
+/* 这样未来的回滚会优先回到已提交的状态 */
+void snap_commit(uint64_t tick, int64_t drive, uint8_t hw_stress,
+                 uint64_t gen_count, const uint8_t *soul_data);
+
+/* 获取已提交的快照数 */
+uint32_t snap_committed_count(void);
+
 /* 打印快照状态 */
+void snap_commit(uint64_t tick, int64_t drive, uint8_t hw_stress,
+                 uint64_t gen_count, const uint8_t *soul_data);
+uint32_t snap_committed_count(void);
 void snap_print_status(void);
 
 #endif /* SNAPSHOT_H */

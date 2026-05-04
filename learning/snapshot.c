@@ -191,3 +191,20 @@ void snap_print_status(void) {
                g_hist.slots[i].hw_stress, g_hist.slots[i].gen_count);
     }
 }
+
+/* ── 提交当前快照为已确认健康 ──────────────────────────────── */
+void snap_commit(uint64_t tick, int64_t drive, uint8_t hw_stress,
+                 uint64_t gen_count, const uint8_t *soul_data) {
+    if (!g_initialized) return;
+    save_snapshot(tick, drive, hw_stress, gen_count, soul_data);
+    g_hist.commits++;
+    g_hist.last_commit_tick = (uint32_t)tick;
+    if (g_hist.commit_interval == 0) g_hist.commit_interval = 50;
+    else if (g_hist.commit_interval < 800) g_hist.commit_interval *= 2;
+    printf("  SNAP: COMMIT #%u at tick=%lu (drive=%ld, interval=%u)\n",
+           g_hist.commits, tick, drive, g_hist.commit_interval);
+}
+
+uint32_t snap_committed_count(void) {
+    return g_hist.commits;
+}

@@ -606,6 +606,16 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             int crc_ok = (soul_checksum(&soul) == 0);  /* 0=unchecked in engine */
             health_check_t hc = snap_health_check(inp.tick, (int64_t)drive,
                                                    inp.hw_stress, 1);
+            /* Commit: if stable for a long time, mark state as good */
+            if (!hc.degraded && inp.tick > 0 && 
+                inp.tick % (SNAP_AUTO_INTERVAL * 8) == 0) {
+                uint8_t soul_raw[SOUL_SIZE];
+                memset(soul_raw, 0, SOUL_SIZE);
+                memcpy(soul_raw, &soul, sizeof(soul));
+                snap_commit(inp.tick, (int64_t)drive, inp.hw_stress,
+                           soul_gen_count(&soul), soul_raw);
+            }
+            
             if (hc.degraded && core_pid > 0) {
                 printf("[%4d] tick=%-6u SNAP: DEGRADED (drive_drop=%.0f), ROLLING BACK\n",
                        i, inp.tick, hc.drive_drop);

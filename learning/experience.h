@@ -71,6 +71,7 @@ void exp_record(uint64_t tick, uint8_t hw_stress, int8_t drive_pre,
 
 /* Get the most recent N experiences. Returns actual count (may be < N). */
 int exp_recent(int n, experience_t *out);
+int exp_read(int idx, experience_t *out);      /* Read by index (mod buffer) */
 
 /* Get experiences matching a filter. Returns count. */
 int exp_filter(uint8_t action_type, int max_results, experience_t *out);

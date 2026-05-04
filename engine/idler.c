@@ -2,6 +2,7 @@
 #include "../learning/experience.h"
 #include "../learning/mcts.h"
 #include "../learning/pattern.h"
+#include "../learning/replay.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -76,6 +77,9 @@ idler_output_t idler_cycle(const idler_input_t *in) {
     
     /* Pattern learning: extract rules from experience */
     if (g_cycles % 3 == 0) pat_learn_from_experience();
+    
+    /* Deep replay: every ~5 cycles, replay past experiences with "what if" */
+    if (g_cycles % 5 == 0) replay_deep();
     printf("── IDLE cycle complete ────────────────────────────\n\n");
     
     return out;

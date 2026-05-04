@@ -106,6 +106,24 @@ int exp_recent(int n, experience_t *out) {
     return actual;
 }
 
+/* ── 按索引读取经验 ──
+ * idx=0 最旧, idx=count-1 最新
+ * ─────────────────────────────────────────── */
+int exp_read(int idx, experience_t *out) {
+    if (!g_initialized || !out) return -1;
+    if (idx < 0 || (uint32_t)idx >= g_buf.count) return -1;
+    
+    uint32_t phys_idx;
+    if (g_buf.count < EXP_MAX_EXPERIENCES) {
+        phys_idx = idx;
+    } else {
+        phys_idx = (g_buf.head + idx) % EXP_MAX_EXPERIENCES;
+    }
+    
+    memcpy(out, &g_buf.slots[phys_idx], sizeof(experience_t));
+    return 0;
+}
+
 /* ── Filter by action type ────────────────────────────────── */
 int exp_filter(uint8_t action_type, int max_results, experience_t *out) {
     if (!g_initialized || g_buf.count == 0 || max_results <= 0) return 0;

@@ -19,7 +19,7 @@ PERSIST_DIR = BASE / "persist"
 
 CORE_BIN = BASE / "build" / "tork_core"
 ENGINE_BIN = BASE / "build" / "tork_engine"
-SOUL_SIZE = 96
+SOUL_SIZE = 192
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(PERSIST_DIR, exist_ok=True)

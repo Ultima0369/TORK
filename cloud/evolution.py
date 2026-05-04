@@ -71,6 +71,32 @@ class TorkEvolution:
             "cloud/evolution.py",
         ]
 
+        # ── 读取本地变异引导推荐 ──
+        guide_rec = None
+        guide_file = os.path.join(BASE, "persist", "mutation_guide.bin")
+        if os.path.exists(guide_file):
+            import struct
+            try:
+                with open(guide_file, 'rb') as gf:
+                    data = gf.read()
+                    if len(data) > 400:
+                        # Read total_attempts and total_successes from struct
+                        mg_total = struct.unpack_from('I', data, 0x8F0)[0]  # rough offset
+                        # Try to read strategy names from the raw bytes
+                        strategies_text = data[0x8C0:0x8F0].decode('latin-1', errors='replace')
+                        guide_rec = {
+                            'strategies_raw': strategies_text[:48],
+                            'total_attempts': struct.unpack_from('I', data, 0x8F0)[0],
+                            'total_successes': struct.unpack_from('I', data, 0x8F4)[0],
+                        }
+            except:
+                pass
+        
+        if guide_rec:
+            prev_line = f"      变异引导: {guide_rec['total_attempts']}次尝试, {guide_rec['total_successes']}次成功\n"
+        else:
+            prev_line = ""
+        
         files_info = []
         total_lines = 0
         for fname in source_files:

@@ -17,6 +17,8 @@
 #include "../learning/snapshot.h"
 #include "../learning/energy.h"
 #include "../learning/watcher.h"
+#include "../learning/self_build.h"
+#include "../learning/mutation_guide.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,6 +39,8 @@ static void cleanup_core(int sig) {
     ps_emergency_save();
     snap_save();
     watcher_save();
+    sb_save();
+    mg_save();
     obs_save_baseline();
     pat_save();
     pat_cleanup();
@@ -92,6 +96,10 @@ int main(int argc, char **argv) {
     eng_init();
     watcher_init();
     watcher_load();
+    sb_init();
+    sb_load();
+    mg_init();
+    mg_load();
         fprintf(stderr, "warning: bb_init failed — blackboard unavailable\n");
     exp_init();
     br_init();
@@ -104,6 +112,10 @@ int main(int argc, char **argv) {
     eng_init();
     watcher_init();
     watcher_load();
+    sb_init();
+    sb_load();
+    mg_init();
+    mg_load();
 
     if (cal_init() != 0)
         fprintf(stderr, "warning: cal_init failed — calibrator unavailable\n");
@@ -622,6 +634,24 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             if (new_pats > 0) {
                 printf("[%4d] tick=%-6u WATCH: learned %d new patterns\n",
                        i, inp.tick, new_pats);
+            }
+        }
+        /* Self-build: check sources every 50 ticks */
+        if (i > 0 && i % 50 == 0) {
+            int changed = sb_check_sources();
+            if (changed > 0) {
+                printf("[%4d] tick=%-6u SELF: %d source files changed\n",
+                       i, inp.tick, changed);
+            }
+        }
+        /* Mutation guide: recommend evolution direction every 200 ticks */
+        if (i > 0 && i % 200 == 0 && drive > 0) {
+            char rec[128];
+            mg_strategy_type_t s = mg_recommend(rec, sizeof(rec));
+            (void)s;
+            if (i % 1000 == 0) {
+                printf("[%4d] tick=%-6u MGUIDE: recommend %s\n",
+                       i, inp.tick, rec);
             }
         }
         

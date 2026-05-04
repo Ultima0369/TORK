@@ -201,8 +201,8 @@ build/tork_ask: engine/tork_ask.c build/query.o build/watcher.o build/snapshot.o
 # ── TORK 守护进程 ─────────────────────────────────────────
 .PHONY: torkd
 
-build/torkd_start: engine/torkd_start.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/self_build.o build/mutation_guide.o build/mcts.o build/replay.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/self_build.o build/mutation_guide.o
-	$(CC) $(CFLAGS) -o build/torkd_start engine/torkd_start.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/self_build.o build/mutation_guide.o build/mcts.o build/replay.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/self_build.o build/mutation_guide.o -lm
+build/torkd_start: engine/torkd_start.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/self_build.o build/mutation_guide.o build/mcts.o build/replay.o
+	$(CC) $(CFLAGS) -o build/torkd_start engine/torkd_start.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/self_build.o build/mutation_guide.o build/mcts.o build/replay.o -lm
 
 build/tork: engine/tork_cli.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/self_build.o build/mutation_guide.o build/mcts.o build/replay.o
 	$(CC) $(CFLAGS) -o build/tork engine/tork_cli.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/self_build.o build/mutation_guide.o build/mcts.o build/replay.o -lm

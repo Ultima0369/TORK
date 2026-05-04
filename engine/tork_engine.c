@@ -19,6 +19,7 @@
 #include "../learning/watcher.h"
 #include "../learning/self_build.h"
 #include "../learning/mutation_guide.h"
+#include "torkd.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,6 +37,7 @@ static void cleanup_core(int sig) {
         kill(core_pid, SIGTERM);
         waitpid(core_pid, NULL, 0);
     }
+    torkd_shutdown();
     ps_emergency_save();
     snap_save();
     watcher_save();
@@ -138,7 +140,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    /* Restore soul data into live process if available */
+        /* Restore soul data into live process if available */
     if (do_restore) {
         uint8_t soul_saved[SOUL_SIZE];
         size_t soul_got = ps_restore_soul(soul_saved, SOUL_SIZE);
@@ -150,6 +152,13 @@ int main(int argc, char **argv) {
             restored_files++;
             printf("TORK restored soul: resuming from tick %u\n", saved_tick);
         }
+    }
+
+    /* ── 启动集成 Socket 服务 ── */
+    if (torkd_init(&soul) == 0) {
+        printf("  TORKD: socket ready at %s\n", TORKD_SOCKET_PATH);
+    } else {
+        printf("  TORKD: socket init failed (non-fatal)\n");
     }
 
     /* write self_pid and ppid once */
@@ -274,6 +283,9 @@ printf("TORK engine started. core PID=%d\n", core_pid);
         if (drive > 127) drive = 127;
         if (drive < -128) drive = -128;
         soul_set_drive(&soul, (int8_t)drive);
+
+        /* ── torkd: 每 tick 处理 socket 客户端 ── */
+        torkd_tick();
 
         /* every 200 rounds: code reading */
         if (i % 200 == 0) {

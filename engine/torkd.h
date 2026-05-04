@@ -1,32 +1,30 @@
 #ifndef TORKD_H
 #define TORKD_H
 
-/* ── TORK 后台守护进程服务 ─────────────────────────────────
- *  让 TORK 作为一个持久化后台服务运行, 通过 Unix Socket 接受查询。
- *  用户/仪表盘/云端 可以通过 socket 随时向 TORK 提问。
+/* ── TORK 集成 Socket 服务 ─────────────────────────────────
+ *  直接嵌入 tork_engine 主循环, 每 tick 非阻塞处理客户端。
+ *  外部程序通过 Unix Socket 随时向 TORK 提问。
  * ──────────────────────────────────────────────────────── */
+
+#include <stdint.h>
 
 #define TORKD_SOCKET_PATH  "/tmp/torkd.sock"
 #define TORKD_MAX_MSG      4096
 #define TORKD_BACKLOG      10
 
-/* ── torkd 请求/响应格式 (纯文本, 一行请求, 多行响应) ──── */
+/* 在 engine 启动时调用: 创建 socket 并开始监听 */
+int torkd_init(void *soul);
 
-/* 启动 torkd 服务 (fork到后台, 监听 socket) */
-/* 返回 0 成功, -1 失败 */
-int torkd_start(void);
+/* 每 tick 在 engine 主循环中调用: 非阻塞处理待决连接 */
+void torkd_tick(void);
 
-/* 停止 torkd 服务 */
-void torkd_stop(void);
+/* engine 退出时调用: 关闭 socket */
+void torkd_shutdown(void);
 
-/* torkd 服务主循环 (由子进程执行) */
-void torkd_serve(void);
-
-/* 向 torkd 发送一条查询, 获取响应 */
-/* 返回 0 成功, -1 失败 */
+/* 外部进程查询(连接已有 socket) */
 int torkd_query(const char *question, char *response, int max_len);
 
-/* 检查 torkd 是否在运行 */
+/* 检查 socket 是否在监听 */
 int torkd_is_running(void);
 
 #endif /* TORKD_H */

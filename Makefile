@@ -122,8 +122,8 @@ build/torkd.o: engine/torkd.c engine/torkd.h
 build/idler.o: engine/idler.c engine/idler.h engine/blackboard.h engine/inductor.h
 	$(CC) $(CFLAGS) -c -o build/idler.o engine/idler.c
 
-build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/distributed.o build/idler.o build/sandbox.o build/agreement.o
-	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/distributed.o build/idler.o build/sandbox.o build/agreement.o -lm
+build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/distributed.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o
+	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/distributed.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o -lm
 
 # ── Targets ─────────────────────────────────────────────────────────
 
@@ -192,7 +192,14 @@ build/tork_grid.o: grid/tork_grid.c grid/tork_grid.h
 build/grid_main.o: grid/grid_main.c grid/tork_grid.h
 	$(CC) $(CFLAGS) -Igrid -c -o build/grid_main.o grid/grid_main.c
 
-build/tork_grid: build/grid_main.o build/tork_grid.o
+
+build/grid_soul_connector.o: grid/grid_soul_connector.c grid/grid_soul_connector.h grid/tork_grid.h
+	$(CC) $(CFLAGS) -Igrid -c -o build/grid_soul_connector.o grid/grid_soul_connector.c
+
+build/tork_grid: build/grid_main.o build/tork_grid.o build/grid_soul_connector.o
+	$(CC) $(CFLAGS) -Igrid -o build/tork_grid build/grid_main.o build/tork_grid.o build/grid_soul_connector.o -lrt
+
+grid: build/tork_grid
 	$(CC) -o build/tork_grid build/grid_main.o build/tork_grid.o -lm
 
 grid: build/tork_grid

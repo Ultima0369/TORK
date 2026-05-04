@@ -21,6 +21,7 @@
 #include "../learning/mutation_guide.h"
 #include "torkd.h"
 #include "../learning/distributed.h"
+#include "../grid/grid_soul_connector.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,6 +41,7 @@ static void cleanup_core(int sig) {
     }
     torkd_shutdown();
     dist_cleanup();
+    grid_engine_cleanup();
     ps_emergency_save();
     snap_save();
     watcher_save();
@@ -170,6 +172,13 @@ int main(int argc, char **argv) {
         printf("  DIST: network unavailable (non-fatal, running solo)\n");
     }
 
+    /* ── 启动网格 Soul 共享内存 ── */
+    if (grid_engine_init() == 0) {
+        printf("  GRID: soul shared memory ready at /dev/shm/tork_soul.bin\n");
+    } else {
+        printf("  GRID: shared memory init failed (non-fatal)\n");
+    }
+
     /* write self_pid and ppid once */
     {
         uint32_t pid_val = (uint32_t)core_pid;
@@ -292,6 +301,38 @@ printf("TORK engine started. core PID=%d\n", core_pid);
         if (drive > 127) drive = 127;
         if (drive < -128) drive = -128;
         soul_set_drive(&soul, (int8_t)drive);
+
+        /* ── 网格: 推送 Soul 数据 ── */
+        {
+            grid_soul_feed_t gs;
+            memset(&gs, 0, sizeof(gs));
+            gs.tick = inp.tick;
+            gs.drive = (int8_t)drive;
+            gs.hw_stress = inp.hw_stress;
+            gs.gen_count = soul_gen_count ? inp.tick/1000 : 6;
+            gs.active_branches = br_active_count();
+            gs.experience_count = exp_count();
+            gs.energy_mode = 1;
+            gs.fear = (uint8_t)(inst.fear * 100);
+            gs.desire = (uint8_t)(inst.desire * 100);
+            gs.curiosity = (uint8_t)(inst.curiosity * 100);
+            
+            /* Read recent outcomes from experience */
+            gs.outcome_count = 0;
+            experience_t recent[16];
+            int n = exp_recent(16, recent);
+            for (int ei = 0; ei < n && ei < 16; ei++) {
+                gs.recent_outcomes[ei] = recent[ei].outcome;
+                gs.outcome_count++;
+            }
+            
+            /* Read branch data */
+            for (int bi = 0; bi < 8; bi++) {
+                gs.branch_drive[bi] = 0;
+            }
+            
+            grid_engine_write(&gs);
+        }
 
         /* ── torkd: 每 tick 处理 socket 客户端 ── */
         torkd_tick();

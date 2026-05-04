@@ -1,611 +1,620 @@
-# TORK Core v0.2 - Heartbeat + Temperature Sense
+# TORK Core v1.0 — 融合版: 自持 TOR 生存循环 + 温度感知
 # x86-64 Linux userspace, no libc
-# Assemble: as -o tork_core.o tork_core.asm
-# Link:     ld -o tork_core tork_core.o
+# 融合: 旧版 tork_kernel.s 的 TOR/heartbeat/stall-recovery
+#       + 新版 Soul v3.0 mmap + 温度感知
+# as -o tork_core.o tork_core.asm && ld -o tork_core tork_core.o
 
-# ── Constants ──────────────────────────────────────────────────────
 .equ SOUL_ADDR,      0x200000
-.equ SOUL_SIZE,      96
-.equ PAGE_SIZE,      4096
-.equ EXPECTED_TSC,   300000000
-
-# Soul layout — single source of truth in tork_soul.inc
-.include "tork_soul.inc"
 
 # syscalls
 .equ SYS_READ,       0
 .equ SYS_WRITE,      1
 .equ SYS_OPEN,       2
 .equ SYS_CLOSE,      3
-.equ SYS_LSEEK,      8
 .equ SYS_MMAP,       9
+.equ SYS_NANOSLEEP,  35
 .equ SYS_EXIT,       60
 
-# open flags
+# flags
 .equ O_RDONLY,       0
-.equ SEEK_SET,       0
-
-# mmap flags
 .equ PROT_RW,        0x03
-.equ MAP_FPA,        0x32             # MAP_FIXED|MAP_PRIVATE|MAP_ANONYMOUS
+.equ MAP_FPA,        0x32
 
-# temperature thresholds
+# thresholds
 .equ TEMP_70,        70
 .equ TEMP_80,        80
 .equ TEMP_85,        85
-.equ TEMP_50,        50
+.equ STALL_LIMIT,    200
 
-# cooling period
-.equ FAIL_LIMIT,     10
-.equ COOLDOWN_TICKS, 300
+# TOR state offsets within .bss (relative to state_base)
+.equ T_STACK,        0       # 8 bytes
+.equ T_SP,           8       # 1 byte
+.equ T_POS_STREAK,   9       # 1 byte
+.equ T_TOR_BIAS,     10      # 1 byte
+.equ T_PUSH_SRC,     11      # 1 byte
+.equ T_ERR_LOG,      12      # 8 bytes
+.equ STATE_SIZE,     20
 
-# ── Read-only Data ────────────────────────────────────────────────
+# Soul layout
+.include "tork_soul.inc"
+
 .section .rodata
-msr_path:     .ascii "/dev/cpu/0/msr\0"
-tz0_path:     .ascii "/sys/class/thermal/thermal_zone0/temp\0"
-tz1_path:     .ascii "/sys/class/thermal/thermal_zone1/temp\0"
-tz2_path:     .ascii "/sys/class/thermal/thermal_zone2/temp\0"
-prefix:       .ascii "tick "
-space_eq:     .ascii " temp="
-stress_lbl:   .ascii " stress="
-drive_lbl:    .ascii " drive="
-celsius:      .ascii "C\0"
+tz_path:      .ascii "/sys/class/thermal/thermal_zone0/temp\0"
+msg_boot:     .ascii "TORK CORE v1 (merged) booted\n"
+msg_boot_len = . - msg_boot
 
-# status characters
-ch_dot:       .byte '.'
-ch_colon:     .byte ':'
-ch_bang:      .byte '!'
-ch_hash:      .byte '#'
+# init seed path: copy seed index prefix
+lea     seed_path(%rip), %rdi
+movb    $0x30, seed_idx(%rip)   # 0
 
-# ── BSS ────────────────────────────────────────────────────────────
+msg_stall:    .ascii "!!! STALL\n"
+msg_stall_len = . - msg_stall
+
 .section .bss
-   .align 8
+    .align 8
+state:        .space STATE_SIZE    # TOR private state
+stall_cnt:    .space 8
+last_temp:    .space 8
 tbuf:         .space 64
-msr_buf:      .space 8
-temp_buf:     .space 16            # ascii temp digits
+temp_buf:     .space 16
 
-# persistent state across ticks
-fail_count:   .space 8            # consecutive open failures
-cooldown:     .space 8            # remaining cooldown ticks
-last_temp:    .space 8            # last valid temperature
-last_stress:  .space 1            # last valid hw_stress
-
-# ── Text ───────────────────────────────────────────────────────────
 .section .text
 .globl _start
 
 # ══════════════════════════════════════════════════════════════════
-# Entry
+# TOR(a,b,bias) → max(a,b)+bias, clamped [-1,1]
+# %dil=a, %sil=b, %dl=bias → %al
+# ══════════════════════════════════════════════════════════════════
+tor:
+    movsbq  %dil, %rdi
+    movsbq  %sil, %rsi
+    movsbq  %dl,  %rdx
+    cmp     %esi, %edi
+    cmovl   %esi, %edi
+    add     %edx, %edi
+    cmp     $1, %edi
+    jle     1f
+    mov     $1, %edi
+    jmp     2f
+1:  cmp     $-1, %edi
+    jge     2f
+    mov     $-1, %edi
+2:  mov     %edi, %eax
+    ret
+
+# ══════════════════════════════════════════════════════════════════
+# heartbeat(state_base, soul_base)
+# %rdi = state base (.bss), %rsi = soul base (0x200000)
+# ══════════════════════════════════════════════════════════════════
+heartbeat:
+    push    %rbx
+    push    %r12
+    push    %r13
+    mov     %rdi, %r12          # r12 = state base
+    mov     %rsi, %r13          # r13 = soul base
+
+    # tick++
+    movl    S_TICK(%r13), %eax
+    incl    %eax
+    movl    %eax, S_TICK(%r13)
+
+    # PUSH val = (tick % 3) - 1
+    xor     %edx, %edx
+    mov     $3, %ecx
+    div     %ecx
+    sub     $1, %edx
+    movsbq  %dl, %r8            # r8 = val
+
+    # DUP1
+    movzbq  T_SP(%r12), %rcx
+    test    %ecx, %ecx
+    jz      .push
+    cmp     $8, %ecx
+    jge     .push
+    movsbq  T_STACK-1(%r12,%rcx), %rax
+    movb    %al, T_STACK(%r12,%rcx)
+    incb    T_SP(%r12)
+
+.push:
+    movzbq  T_SP(%r12), %rcx
+    cmp     $8, %ecx
+    jl      1f
+    mov     $7, %ecx
+1:  movb    %r8b, T_STACK(%r12,%rcx)
+    cmpb    $8, T_SP(%r12)
+    jge     1f
+    incb    T_SP(%r12)
+1:
+
+    # TOR (if sp >= 2)
+    movzbq  T_SP(%r12), %rcx
+    cmp     $2, %ecx
+    jl      .dup2
+    movsbq  T_STACK-1(%r12,%rcx), %rdi
+    movsbq  T_STACK-2(%r12,%rcx), %rsi
+    movsbq  T_TOR_BIAS(%r12), %rdx
+    call    tor
+    movb    %al, T_STACK-2(%r12,%rcx)
+    decb    T_SP(%r12)
+
+.dup2:
+    movzbq  T_SP(%r12), %rcx
+    test    %ecx, %ecx
+    jz      .post
+    cmp     $8, %ecx
+    jge     .post
+    movsbq  T_STACK-1(%r12,%rcx), %rax
+    movb    %al, T_STACK(%r12,%rcx)
+    incb    T_SP(%r12)
+
+.post:
+    movzbq  T_SP(%r12), %rcx
+    test    %ecx, %ecx
+    jz      .pos_zero
+    movsbq  T_STACK-1(%r12,%rcx), %rax
+    cmp     $1, %eax
+    jne     .pos_zero
+    incb    T_POS_STREAK(%r12)
+    jmp     .done
+
+.pos_zero:
+    movb    $0, T_POS_STREAK(%r12)
+
+.done:
+    pop     %r13
+    pop     %r12
+    pop     %rbx
+    ret
+
+# ══════════════════════════════════════════════════════════════════
+# sense_temperature → rax = °C or -1
+# ══════════════════════════════════════════════════════════════════
+sense_temperature:
+    mov     $SYS_OPEN, %eax
+    lea     tz_path(%rip), %rdi
+    mov     $O_RDONLY, %esi
+    xor     %edx, %edx
+    syscall
+    cmp     $-1, %rax
+    je      .fail
+    mov     %eax, %ebx
+    mov     $SYS_READ, %eax
+    mov     %ebx, %edi
+    lea     temp_buf(%rip), %rsi
+    mov     $15, %edx
+    syscall
+    mov     $SYS_CLOSE, %eax
+    mov     %ebx, %edi
+    syscall
+    lea     temp_buf(%rip), %rsi
+    xor     %eax, %eax
+    xor     %ecx, %ecx
+1:  movsbq  (%rsi), %rdx
+    cmp     $0x0a, %dl
+    je      2f
+    cmp     $0, %dl
+    je      2f
+    sub     $'0', %dl
+    imul    $10, %eax
+    add     %edx, %eax
+    inc     %rsi
+    inc     %ecx
+    cmp     $6, %ecx
+    jl      1b
+2:  mov     $1000, %ecx
+    xor     %edx, %edx
+    div     %ecx
+    ret
+.fail:
+    mov     $-1, %rax
+    ret
+
+# ══════════════════════════════════════════════════════════════════
+# print_u32(eax=val, rdi=buf) → rax=len
+# ══════════════════════════════════════════════════════════════════
+print_u32:
+    push    %rbx
+    push    %r12
+    mov     %rdi, %r12
+    mov     %eax, %ebx
+    lea     10(%rdi), %rdi
+    movb    $0, (%rdi)
+    dec     %rdi
+    mov     %ebx, %eax
+    test    %eax, %eax
+    jnz     1f
+    movb    $'0', (%rdi)
+    dec     %rdi
+    jmp     2f
+1:  xor     %edx, %edx
+    mov     $10, %ecx
+    div     %ecx
+    add     $'0', %dl
+    mov     %dl, (%rdi)
+    dec     %rdi
+    test    %eax, %eax
+    jnz     1b
+2:  inc     %rdi
+    mov     %r12, %rsi
+    mov     %rdi, %rcx
+    mov     %r12, %rax
+    add     $10, %rax
+    sub     %rcx, %rax
+    mov     %rax, %rdx
+3:  mov     (%rcx), %bl
+    mov     %bl, (%rsi)
+    inc     %rcx
+    inc     %rsi
+    dec     %rax
+    jnz     3b
+    mov     %rdx, %rax
+    pop     %r12
+    pop     %rbx
+    ret
+
+# ══════════════════════════════════════════════════════════════════
+# print_s8(dil=val, rsi=buf) → rax=len
+# ══════════════════════════════════════════════════════════════════
+print_s8:
+    movsbq  %dil, %rax
+    test    %eax, %eax
+    jns     1f
+    movb    $'-', (%rsi)
+    neg     %eax
+    lea     1(%rsi), %rdi
+    call    print_u32
+    inc     %rax
+    ret
+1:  mov     %rsi, %rdi
+    call    print_u32
+    ret
+
+# ══════════════════════════════════════════════════════════════════
+# print_status(soul_base)
+# ══════════════════════════════════════════════════════════════════
+print_status:
+    push    %rbx
+    push    %r12
+    push    %r13
+    mov     %rdi, %r13          # soul base
+    lea     state(%rip), %r12   # state base
+
+    lea     tbuf(%rip), %rbx
+
+    movl    S_TICK(%r13), %eax
+    mov     %rbx, %rdi
+    call    print_u32
+    add     %rax, %rbx
+
+    movl    $0x3d727473, (%rbx)  # "str="
+    add     $4, %rbx
+    movzbl  S_HW_STRESS(%r13), %eax
+    mov     %rbx, %rdi
+    call    print_u32
+    add     %rax, %rbx
+
+    movl    $0x736f7020, (%rbx)  # " pos"
+    movb    $0x3d, 4(%rbx)
+    add     $5, %rbx
+    movzbl  T_POS_STREAK(%r12), %eax
+    mov     %rbx, %rdi
+    call    print_u32
+    add     %rax, %rbx
+
+    movl    $0x62742020, (%rbx)  # "  tb"
+    movb    $0x3d, 4(%rbx)
+    add     $5, %rbx
+    movsbq  T_TOR_BIAS(%r12), %rdi
+    mov     %rbx, %rsi
+    call    print_s8
+    add     %rax, %rbx
+
+    movl    $0x6b7420, (%rbx)    # " tk"
+    add     $3, %rbx
+    movsbq  T_STACK(%r12), %rdi
+    mov     %rbx, %rsi
+    call    print_s8
+    add     %rax, %rbx
+    movb    $0x2c, (%rbx)
+    inc     %rbx
+    movsbq  T_STACK+1(%r12), %rdi
+    mov     %rbx, %rsi
+    call    print_s8
+    add     %rax, %rbx
+    movb    $0x2c, (%rbx)
+    inc     %rbx
+    movsbq  T_STACK+2(%r12), %rdi
+    mov     %rbx, %rsi
+    call    print_s8
+    add     %rax, %rbx
+
+    movb    $0x0a, (%rbx)
+    inc     %rbx
+
+    mov     $SYS_WRITE, %eax
+    mov     $1, %edi
+    lea     tbuf(%rip), %rsi
+    mov     %rbx, %rdx
+    sub     %rsi, %rdx
+    syscall
+
+    pop     %r13
+    pop     %r12
+    pop     %rbx
+    ret
+
+# ══════════════════════════════════════════════════════════════════
+# _start
 # ══════════════════════════════════════════════════════════════════
 _start:
     # mmap soul at 0x200000
-    movq $SYS_MMAP, %rax
-    movq $SOUL_ADDR, %rdi
-    movq $PAGE_SIZE, %rsi
-    movq $PROT_RW, %rdx
-    movq $MAP_FPA, %r10
-    movq $-1, %r8
-    xorq %r9, %r9
+    mov     $SYS_MMAP, %eax
+    mov     $SOUL_ADDR, %rdi
+    mov     $4096, %esi
+    mov     $PROT_RW, %edx
+    mov     $MAP_FPA, %r10
+    mov     $-1, %r8
+    xor     %r9, %r9
     syscall
-    cmpq $-1, %rax
-    je .die
+    cmp     $-1, %rax
+    je      .die
 
     # zero soul
-    movq $SOUL_ADDR, %rdi
-    xorq %rax, %rax
-    movq $12, %rcx
-    rep stosq
+    mov     $SOUL_ADDR, %rdi
+    xor     %rax, %rax
+    mov     $24, %rcx
+    rep     stosq
 
-    movq $SOUL_ADDR, %rbx
-    movq $EXPECTED_TSC, S_EXPECTED(%rbx)
+    # init state
+    lea     state(%rip), %r12
+    movb    $0, T_SP(%r12)
+    movb    $0, T_POS_STREAK(%r12)
+    movb    $0, T_TOR_BIAS(%r12)
+    movb    $0, T_PUSH_SRC(%r12)
+    movq    $0, stall_cnt(%rip)
 
-    rdtscp
-    shlq $32, %rdx
-    orq  %rdx, %rax
-    movq %rax, S_LAST_TSC(%rbx)
-    movq %rax, S_CUR_TSC(%rbx)
-    call crc_store
+    # init soul
+    mov     $SOUL_ADDR, %r13
+    movb    $1, S_AGREED(%r13)
 
-    # init persistent state
-    movq $0, fail_count(%rip)
-    movq $0, cooldown(%rip)
-    movq $0, last_temp(%rip)
-    movb $0, last_stress(%rip)
-
-    xorq %r12, %r12                 # tick counter
-
-# ══════════════════════════════════════════════════════════════════
-# Heartbeat
-# ══════════════════════════════════════════════════════════════════
-.tick:
-    # ── Sense ─────────────────────────────────────────────────────
-    incq %r12
-    movq $SOUL_ADDR, %rbx
-    movl %r12d, S_TICK(%rbx)
-
-    rdtscp
-    shlq $32, %rdx
-    orq  %rdx, %rax
-    movq %rax, S_CUR_TSC(%rbx)
-
-    movq S_LAST_TSC(%rbx), %rcx
-    subq %rcx, %rax
-    movq %rax, S_ELAPSED(%rbx)
-
-    # ── Compare (temperature-driven hw_stress) ────────────────────
-    call sense_temperature          # → rax = degrees C, or -1
-
-    cmpq $-1, %rax
-    je  .cmp_keep                   # all paths failed → keep last
-
-    # update last_temp
-    movq %rax, last_temp(%rip)
-
-    # classify hw_stress by temperature
-    cmpq $TEMP_85, %rax
-    jg  .cmp_s3
-    cmpq $TEMP_80, %rax
-    jge .cmp_s2
-    cmpq $TEMP_70, %rax
-    jge .cmp_s1
-    xorq %rax, %rax                # stress 0
-    jmp .cmp_set
-.cmp_s1: movq $1, %rax; jmp .cmp_set
-.cmp_s2: movq $2, %rax; jmp .cmp_set
-.cmp_s3: movq $3, %rax
-.cmp_set:
-    movb %al, S_HW_STRESS(%rbx)
-    movb %al, last_stress(%rip)
-    jmp .cmp_done
-
-.cmp_keep:
-    # restore last known stress
-    movzbq last_stress(%rip), %rax
-    movb %al, S_HW_STRESS(%rbx)
-
-.cmp_done:
-
-    # ── React ─────────────────────────────────────────────────────
-    movq S_CUR_TSC(%rbx), %rax
-    movq %rax, S_LAST_TSC(%rbx)
-
-    # ── Compute drive-adjusted expected_tsc ────────────────────────
-    # base interval from hw_stress: 0→100ms, 1→250ms, 2→500ms, 3→1000ms
-    movq $SOUL_ADDR, %rbx
-    movzbq S_HW_STRESS(%rbx), %rax
-    cmpq $3, %rax
-    je   .base_1000
-    cmpq $2, %rax
-    je   .base_500
-    cmpq $1, %rax
-    je   .base_250
-    movq $300000000, %rax            # 100ms @ 3GHz
-    jmp  .base_set
-.base_250:
-    movq $750000000, %rax            # 250ms
-    jmp  .base_set
-.base_500:
-    movq $1500000000, %rax           # 500ms
-    jmp  .base_set
-.base_1000:
-    movq $3000000000, %rax           # 1000ms
-.base_set:
-    movq %rax, %r13                  # r13 = base_interval
-
-    # drive_factor = (100 - drive) / 100
-    # drive is int8 at S_DRIVE: positive → faster (factor < 1), negative → slower (factor > 1)
-    # We compute: adjusted = base * (100 - drive) / 100
-    movsbl S_DRIVE(%rbx), %eax      # sign-extend int8 to int64
-    movq $100, %rcx
-    subq %rax, %rcx                 # rcx = 100 - drive
-    # clamp: if 100-drive < 50, use 50 (min 50ms); if > 200, use 200 (max 2000ms)
-    cmpq $50, %rcx
-    jge  .dfloor_ok
-    movq $50, %rcx
-.dfloor_ok:
-    cmpq $200, %rcx
-    jle  .dceil_ok
-    movq $200, %rcx
-.dceil_ok:
-    # adjusted = base * (100 - drive) / 100
-    movq %r13, %rax
-    imulq %rcx, %rax                # rax = base * factor_numerator
-    xorq %rdx, %rdx
-    movq $100, %rcx
-    divq %rcx                        # rax = adjusted interval
-    movq %rax, S_EXPECTED(%rbx)
-
-    # ── Record ────────────────────────────────────────────────────
-    call crc_store
-
-    # ── Verify ────────────────────────────────────────────────────
-    call crc_check
-    testq %rax, %rax
-    jnz  .vfy_ok
-
-    movq $SOUL_ADDR, %rdi
-    xorq %rax, %rax
-    movq $12, %rcx
-    rep stosq
-    movq $SOUL_ADDR, %rbx
-    movq $EXPECTED_TSC, S_EXPECTED(%rbx)
-    xorq %r12, %r12
-    rdtscp
-    shlq $32, %rdx
-    orq  %rdx, %rax
-    movq %rax, S_LAST_TSC(%rbx)
-    movq %rax, S_CUR_TSC(%rbx)
-    call crc_store
-    jmp  .tick
-.vfy_ok:
-
-    # ── Output: status character ──────────────────────────────────
-    movq $SOUL_ADDR, %rbx
-    movzbq S_HW_STRESS(%rbx), %rcx
-
-    # pick char based on stress and temp
-    cmpq $3, %rcx
-    je   .out_hash
-    cmpq $1, %rcx
-    jge  .out_bang
-    # stress 0: check temp
-    movq last_temp(%rip), %rax
-    cmpq $TEMP_50, %rax
-    jge  .out_colon
-    leaq ch_dot(%rip), %rsi
-    jmp  .out_char
-.out_colon:
-    leaq ch_colon(%rip), %rsi
-    jmp  .out_char
-.out_bang:
-    leaq ch_bang(%rip), %rsi
-    jmp  .out_char
-.out_hash:
-    leaq ch_hash(%rip), %rsi
-.out_char:
-    movq $SYS_WRITE, %rax
-    movq $1, %rdi
-    movq $1, %rdx
+    # boot
+    mov     $SYS_WRITE, %eax
+    mov     $1, %edi
+    lea     msg_boot(%rip), %rsi
+    mov     $msg_boot_len, %edx
     syscall
 
-    # every 100 ticks: "tick NNN temp=NNC stress=N"
-    movq %r12, %rax
-    xorq %rdx, %rdx
-    movq $100, %rcx
-    divq %rcx
-    testq %rdx, %rdx
-    jnz  .no_tick
+.main:
+    # 1. TOR heartbeat
+    lea     state(%rip), %rdi
+    mov     $SOUL_ADDR, %rsi
+    call    heartbeat
 
-    # build line in tbuf
-    leaq tbuf(%rip), %rdi
+    # 2. Sense temperature
+    call    sense_temperature
+    mov     $SOUL_ADDR, %r13
+    cmp     $-1, %rax
+    je      .temp_skip
+    mov     %rax, last_temp(%rip)
+    cmp     $TEMP_85, %rax
+    jg      .s3
+    cmp     $TEMP_80, %rax
+    jge     .s2
+    cmp     $TEMP_70, %rax
+    jge     .s1
+    xor     %rax, %rax
+    jmp     .sset
+.s3: mov $3, %rax; jmp .sset
+.s2: mov $2, %rax; jmp .sset
+.s1: mov $1, %rax
+.sset: movb %al, S_HW_STRESS(%r13)
+.temp_skip:
 
-    # "tick "
-    leaq prefix(%rip), %rsi
-    movq $5, %rcx
-.pt: movb (%rsi),%al; movb %al,(%rdi); incq %rsi; incq %rdi; decq %rcx; jnz .pt
+    # 3. Sync TOR state → Soul (for C engine)
+    lea     state(%rip), %r12
+    movzbq  T_POS_STREAK(%r12), %rax
+    movb    %al, S_MODE(%r13)
+    movzbq  T_TOR_BIAS(%r12), %rax
+    movb    %al, S_RESERVED2(%r13)
 
-    # tick number
-    movq %r12, %rax
-    xorq %r8, %r8
-.itoa1: xorq %rdx,%rdx; movq $10,%rcx; divq %rcx; pushq %rdx; incq %r8; testq %rax,%rax; jnz .itoa1
-.otoa1: popq %rax; addb $'0',%al; movb %al,(%rdi); incq %rdi; decq %r8; jnz .otoa1
+    # 4. Print every 10 ticks
+    movl    S_TICK(%r13), %eax
+    xor     %edx, %edx
+    mov     $10, %ecx
+    div     %ecx
+    test    %edx, %edx
+    jnz     .noprint
 
-    # " temp="
-    leaq space_eq(%rip), %rsi
-    movq $6, %rcx
-.pt2: movb (%rsi),%al; movb %al,(%rdi); incq %rsi; incq %rdi; decq %rcx; jnz .pt2
+    mov     $SOUL_ADDR, %rdi
+    call    print_status
+    # 每 100 tick 保存 colony seed
 
-    # temperature number
-    movq last_temp(%rip), %rax
-    xorq %r8, %r8
-.itoa2: xorq %rdx,%rdx; movq $10,%rcx; divq %rcx; pushq %rdx; incq %r8; testq %rax,%rax; jnz .itoa2
-.otoa2: popq %rax; addb $'0',%al; movb %al,(%rdi); incq %rdi; decq %r8; jnz .otoa2
+    movl    S_TICK(%r13), %eax
 
-    # "C"
-    movb $'C', (%rdi); incq %rdi
+    xor     %edx, %edx
 
-    # " stress="
-    leaq stress_lbl(%rip), %rsi
-    movq $8, %rcx
-.pt3: movb (%rsi),%al; movb %al,(%rdi); incq %rsi; incq %rdi; decq %rcx; jnz .pt3
+    mov     $100, %ecx
 
-    # stress digit
-    movq $SOUL_ADDR, %rbx
-    movzbq S_HW_STRESS(%rbx), %rax
-    addb $'0', %al
-    movb %al, (%rdi); incq %rdi
+    div     %ecx
 
-    # " drive="
-    leaq drive_lbl(%rip), %rsi
-    movq $7, %rcx
-.pt4: movb (%rsi),%al; movb %al,(%rdi); incq %rsi; incq %rdi; decq %rcx; jnz .pt4
+    test    %edx, %edx
 
-    # drive value (signed int8, may be negative)
-    movq $SOUL_ADDR, %rbx
-    movsbl S_DRIVE(%rbx), %eax
-    testq %rax, %rax
-    jns  .drv_pos
-    movb $'-', (%rdi); incq %rdi
-    negq %rax
-.drv_pos:
-    xorq %r8, %r8
-.itoa3: xorq %rdx,%rdx; movq $10,%rcx; divq %rcx; pushq %rdx; incq %r8; testq %rax,%rax; jnz .itoa3
-.otoa3: popq %rax; addb $'0',%al; movb %al,(%rdi); incq %rdi; decq %r8; jnz .otoa3
+    jnz     .noprint
 
-    # newline
-    movb $10, (%rdi); incq %rdi
+    mov     $0, %edi
 
-    # write
-    leaq tbuf(%rip), %rsi
-    movq %rdi, %rax
-    subq %rsi, %rax
-    movq %rax, %rdx
-    movq $SYS_WRITE, %rax
-    movq $1, %rdi
+    call    colony_seed_save
+
+.noprint:
+
+    # 5. Stall detection
+    movzbq  T_POS_STREAK(%r12), %rax
+    test    %rax, %rax
+    jnz     .alive
+    incq    stall_cnt(%rip)
+    mov     stall_cnt(%rip), %rax
+    cmp     $STALL_LIMIT, %rax
+    jl      .sleep
+
+    movb    $0, T_TOR_BIAS(%r12)
+    movb    $0, T_POS_STREAK(%r12)
+    incb    T_PUSH_SRC(%r12)
+    movq    $0, stall_cnt(%rip)
+    mov     $SYS_WRITE, %eax
+    mov     $1, %edi
+    lea     msg_stall(%rip), %rsi
+    mov     $msg_stall_len, %edx
     syscall
-.no_tick:
+    jmp     .sleep
 
-    # ── Wait ──────────────────────────────────────────────────────
-    movq $SOUL_ADDR, %rbx
-.wait: pause
-       rdtscp
-       shlq $32, %rdx
-       orq  %rdx, %rax
-       subq S_LAST_TSC(%rbx), %rax
-       cmpq S_EXPECTED(%rbx), %rax
-       jl   .wait
+.alive:
+    movq    $0, stall_cnt(%rip)
 
-    jmp  .tick
-
-# ══════════════════════════════════════════════════════════════════
-# sense_temperature
-#   Returns rax = temperature in °C, or -1 on failure
-#   Path A: /dev/cpu/0/msr (MSR 0x1A2 → TjMax, MSR 0x19C → reading)
-#   Path B: /sys/class/thermal/thermal_zoneN/temp
-#   Cooldown: 10 consecutive fails → skip 300 ticks
-# ══════════════════════════════════════════════════════════════════
-sense_temperature:
-    pushq %rbx
-    pushq %r12
-
-    # check cooldown
-    movq cooldown(%rip), %rax
-    testq %rax, %rax
-    jnz  .st_cooldown
-
-    # ── Path A: MSR ──────────────────────────────────────────────
-    leaq msr_path(%rip), %rdi
-    movq $O_RDONLY, %rsi
-    xorq %rdx, %rdx
-    movq $SYS_OPEN, %rax
+.sleep:
+    # nanosleep({0, 100000000})
+    subq    $32, %rsp
+    movq    $0, (%rsp)
+    movq    $100000000, 8(%rsp)
+    mov     %rsp, %rdi
+    mov     $SYS_NANOSLEEP, %eax
+    xor     %esi, %esi
     syscall
-    cmpq $-1, %rax
-    je   .st_pathB
-
-    # fd in r12
-    movq %rax, %r12
-
-    # lseek to MSR_TEMPERATURE_TARGET (0x1A2)
-    movq $SYS_LSEEK, %rax
-    movq %r12, %rdi
-    movq $0x1A2, %rsi               # offset
-    movq $SEEK_SET, %rdx            # whence
-    syscall
-
-    # read 8 bytes
-    movq $SYS_READ, %rax
-    movq %r12, %rdi
-    leaq msr_buf(%rip), %rsi
-    movq $8, %rdx
-    syscall
-    cmpq $8, %rax
-    jne  .st_msr_close_fail
-
-    # parse TjMax from bits[23:16]
-    movq msr_buf(%rip), %rax
-    shrq $16, %rax
-    andq $0xFF, %rax                 # TjMax
-    movq %rax, %rbx                  # rbx = TjMax
-
-    # lseek to IA32_THERM_STATUS (0x19C)
-    movq $SYS_LSEEK, %rax
-    movq %r12, %rdi
-    movq $0x19C, %rsi
-    movq $SEEK_SET, %rdx
-    syscall
-
-    # read 8 bytes
-    movq $SYS_READ, %rax
-    movq %r12, %rdi
-    leaq msr_buf(%rip), %rsi
-    movq $8, %rdx
-    syscall
-    cmpq $8, %rax
-    jne  .st_msr_close_fail
-
-    # close fd
-    movq $SYS_CLOSE, %rax
-    movq %r12, %rdi
-    syscall
-
-    # parse DigitalReading from bits[22:16]
-    movq msr_buf(%rip), %rax
-    shrq $16, %rax
-    andq $0x7F, %rax                 # bits[22:16] = 7 bits
-    # temp = TjMax - DigitalReading
-    subq %rax, %rbx
-    movq %rbx, %rax
-
-    # reset fail counter on success
-    movq $0, fail_count(%rip)
-    jmp  .st_done
-
-.st_msr_close_fail:
-    movq $SYS_CLOSE, %rax
-    movq %r12, %rdi
-    syscall
-    # fall through to path B
-
-    # ── Path B: sysfs thermal_zone (try all, pick highest) ────────
-.st_pathB:
-    xorq %r12, %r12                # best temp = 0 (0 means no valid reading yet)
-    leaq tz0_path(%rip), %rdi
-    call .st_read_sysfs
-    cmpq $-1, %rax
-    je  .st_tz1
-    movq %rax, %r12
-.st_tz1:
-    leaq tz1_path(%rip), %rdi
-    call .st_read_sysfs
-    cmpq $-1, %rax
-    je  .st_tz2
-    cmpq %r12, %rax
-    cmovg %rax, %r12
-.st_tz2:
-    leaq tz2_path(%rip), %rdi
-    call .st_read_sysfs
-    cmpq $-1, %rax
-    je  .st_tz_done
-    cmpq %r12, %rax
-    cmovg %rax, %r12
-.st_tz_done:
-    testq %r12, %r12
-    jz   .st_all_fail
-
-    # success: r12 = highest millidegrees
-    movq %r12, %rax
-    xorq %rdx, %rdx
-    movq $1000, %rcx
-    divq %rcx                        # rax = degrees C
-    movq $0, fail_count(%rip)
-    jmp  .st_done
-
-.st_all_fail:
-    incq fail_count(%rip)
-    movq fail_count(%rip), %rax
-    cmpq $FAIL_LIMIT, %rax
-    jge  .st_set_cooldown
-    movq $-1, %rax
-    jmp  .st_done
-.st_set_cooldown:
-    movq $COOLDOWN_TICKS, cooldown(%rip)
-    movq $-1, %rax
-    jmp  .st_done
-
-.st_cooldown:
-    decq cooldown(%rip)
-    movq $-1, %rax
-    jmp  .st_done
-
-.st_done:
-    popq %r12
-    popq %rbx
-    retq
-
-# .st_read_sysfs: open file at rdi, read ascii number, close, return value in rax
-#   Returns rax = millidegrees, or -1 on failure
-.st_read_sysfs:
-    pushq %rbx
-    pushq %r13
-    movq $O_RDONLY, %rsi
-    xorq %rdx, %rdx
-    movq $SYS_OPEN, %rax
-    syscall
-    cmpq $-1, %rax
-    je   .srs_fail
-    movq %rax, %rbx                 # fd
-
-    # read up to 16 bytes
-    movq $SYS_READ, %rax
-    movq %rbx, %rdi
-    leaq temp_buf(%rip), %rsi
-    movq $16, %rdx
-    syscall
-    movq %rax, %r13                 # bytes read
-
-    # close
-    movq $SYS_CLOSE, %rax
-    movq %rbx, %rdi
-    syscall
-
-    # if read 0 bytes, fail
-    testq %r13, %r13
-    jle  .srs_fail
-
-    # parse ascii decimal to integer
-    leaq temp_buf(%rip), %rsi
-    xorq %rax, %rax                 # accumulator
-.srs_digit:
-    movzbl (%rsi), %ecx
-    subb $'0', %cl
-    cmpb $9, %cl
-    ja   .srs_done_parse
-    imulq $10, %rax, %rax
-    movzbq %cl, %rcx
-    addq %rcx, %rax
-    incq %rsi
-    jmp  .srs_digit
-.srs_done_parse:
-    popq %r13
-    popq %rbx
-    retq
-
-.srs_fail:
-    movq $-1, %rax
-    popq %r13
-    popq %rbx
-    retq
-
-# ══════════════════════════════════════════════════════════════════
-# CRC32 helpers — software, polynomial 0xEDB88320
-# ══════════════════════════════════════════════════════════════════
-crc_store:
-    pushq %rbx
-    movq  $SOUL_ADDR, %rbx
-    movb  S_DRIVE(%rbx), %r9b        # save drive
-    movl  $0, S_CRC(%rbx)
-    movb  $0, S_DRIVE(%rbx)          # drive excluded from checksum
-    movq  %rbx, %rsi
-    movq  $96, %rcx
-    xorl  %eax, %eax
-    notl  %eax
-.cs_b: movzbl (%rsi), %edi; xorl %edi, %eax
-       movq $8, %rdx
-.cs_bit: shrl $1, %eax; jnc .cs_nb; xorl $0xEDB88320, %eax
-.cs_nb:  decq %rdx; jnz .cs_bit
-       incq %rsi; decq %rcx; jnz .cs_b
-    notl  %eax
-    movl  %eax, S_CRC(%rbx)
-    movb  %r9b, S_DRIVE(%rbx)          # restore drive
-    popq  %rbx
-    retq
-
-crc_check:
-    pushq %rbx
-    movq  $SOUL_ADDR, %rbx
-    movl  S_CRC(%rbx), %r8d
-    movb  S_DRIVE(%rbx), %r9b        # save drive
-    movl  $0, S_CRC(%rbx)
-    movb  $0, S_DRIVE(%rbx)          # drive excluded from checksum
-    movq  %rbx, %rsi
-    movq  $96, %rcx
-    xorl  %eax, %eax
-    notl  %eax
-.cc_b: movzbl (%rsi), %edi; xorl %edi, %eax
-       movq $8, %rdx
-.cc_bit: shrl $1, %eax; jnc .cc_nb; xorl $0xEDB88320, %eax
-.cc_nb:  decq %rdx; jnz .cc_bit
-       incq %rsi; decq %rcx; jnz .cc_b
-    notl  %eax
-    movl  %r8d, S_CRC(%rbx)
-    movb  %r9b, S_DRIVE(%rbx)          # restore drive
-    cmpl  %r8d, %eax
-    sete  %al
-    movzbq %al, %rax
-    popq  %rbx
-    retq
+    addq    $32, %rsp
+    jmp     .main
 
 .die:
-    movq $SYS_EXIT, %rax
-    movq $1, %rdi
+    mov     $SYS_EXIT, %eax
+    mov     $1, %edi
     syscall
+
+# ══════════════════════════════════════════════════════════════════
+# colony_seed_save — 保存 Soul 快照到二进制种子文件
+# 旧版 colony 系统核心能力移植
+# 输入: %rdi = 种子序号 (0-255)
+# 使用: soul 在 SOUL_ADDR, state 在 BSS
+# ══════════════════════════════════════════════════════════════════
+colony_seed_save:
+    push    %rbx
+    push    %r12
+    push    %r13
+    push    %rdi                # save seed index
+
+    # 构建路径: "/tmp/tork_seed_N.bin"
+    lea     seed_path(%rip), %rbx
+    mov     $SYS_OPEN, %eax
+    mov     %rbx, %rdi
+    mov     $0x241, %esi        # O_WRONLY|O_CREAT|O_TRUNC
+    mov     $0x1A4, %edx        # 0644
+    syscall
+    cmp     $-1, %rax
+    je      .seed_save_fail
+    mov     %rax, %r12          # fd
+
+    # 写入 Soul (192 bytes at SOUL_ADDR)
+    mov     $SOUL_ADDR, %rsi
+    mov     $SYS_WRITE, %eax
+    mov     %r12, %rdi
+    mov     $SOUL_SIZE_BYTES, %edx
+    syscall
+
+    # 写入 TOR state (12 bytes)
+    lea     state(%rip), %rsi
+    mov     $SYS_WRITE, %eax
+    mov     %r12, %rdi
+    mov     $STATE_SIZE, %edx
+    syscall
+
+    # 写入 stall count (8 bytes)
+    lea     stall_cnt(%rip), %rsi
+    mov     $SYS_WRITE, %eax
+    mov     %r12, %rdi
+    mov     $8, %edx
+    syscall
+
+    # 关闭
+    mov     $SYS_CLOSE, %eax
+    syscall
+
+    pop     %rdi
+    pop     %r13
+    pop     %r12
+    pop     %rbx
+    ret
+
+.seed_save_fail:
+    pop     %rdi
+    pop     %r13
+    pop     %r12
+    pop     %rbx
+    ret
+
+
+# ══════════════════════════════════════════════════════════════════
+# colony_seed_load — 从二进制种子文件恢复状态
+# 输入: %rdi = 种子序号 (0-255)
+# ══════════════════════════════════════════════════════════════════
+colony_seed_load:
+    push    %rbx
+    push    %r12
+
+    lea     seed_path(%rip), %rdi
+    mov     $SYS_OPEN, %eax
+    xor     %esi, %esi          # O_RDONLY
+    syscall
+    cmp     $-1, %rax
+    je      .seed_load_fail
+    mov     %rax, %r12          # fd
+
+    # 读取 Soul (192 bytes)
+    mov     $SOUL_ADDR, %rsi
+    mov     $SYS_READ, %eax
+    mov     %r12, %rdi
+    mov     $SOUL_SIZE_BYTES, %edx
+    syscall
+
+    # 读取 TOR state
+    lea     state(%rip), %rsi
+    mov     $SYS_READ, %eax
+    mov     %r12, %rdi
+    mov     $STATE_SIZE, %edx
+    syscall
+
+    # 读取 stall count
+    lea     stall_cnt(%rip), %rsi
+    mov     $SYS_READ, %eax
+    mov     %r12, %rdi
+    mov     $8, %edx
+    syscall
+
+    mov     $SYS_CLOSE, %eax
+    mov     %r12, %rdi
+    syscall
+
+    # 恢复 TSC 计时器（重置，避免跳跃）
+    rdtscp
+    shlq    $32, %rdx
+    orq     %rdx, %rax
+    mov     $SOUL_ADDR, %rbx
+    movq    %rax, S_LAST_TSC(%rbx)
+    movq    %rax, S_CUR_TSC(%rbx)
+
+    mov     $1, %eax            # return 1 = success
+    pop     %r12
+    pop     %rbx
+    ret
+
+.seed_load_fail:
+    xor     %eax, %eax          # return 0 = fail
+    pop     %r12
+    pop     %rbx
+    ret
+
+
+# ── Colony seed 路径模板 ──
+.section .data
+seed_path:
+    .ascii "/tmp/tork_seed_"
+seed_idx:
+    .byte  '0', 0x00           # placeholder, overwritten before use
+    .byte  0                    # terminator for saver (extra len for load)
+    .byte  0

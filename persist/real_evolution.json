@@ -17,8 +17,17 @@
       "new_val": 25,
       "result": "success",
       "message": "smoke OK"
+    },
+    {
+      "gen": 3,
+      "timestamp": "2026-05-04T11:12:37.262005",
+      "param": "desire_weight",
+      "old_val": 85,
+      "new_val": 70,
+      "result": "success",
+      "message": "smoke OK"
     }
   ],
-  "successes": 2,
+  "successes": 3,
   "failures": 0
 }

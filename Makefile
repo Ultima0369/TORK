@@ -8,7 +8,7 @@ CFLAGS = -Wall -Wextra -O2 -Iengine -Iinstinct -Icode -Icore -Iinstall -Isandbox
 
 .PHONY: all clean distclean run install
 
-all: build/tork_core build/tork_engine build/tork_sandbox
+all: build/tork_core build/tork_engine build/tork_sandbox build/tork_ask
 	@mkdir -p build
 	$(CC) $(CFLAGS) -o build/probe_env install/probe_env.c -lrt
 
@@ -82,6 +82,14 @@ build/observer.o: learning/observer.c learning/observer.h
 build/snapshot.o: learning/snapshot.c learning/snapshot.h
 
 build/energy.o: learning/energy.c learning/energy.h
+
+build/watcher.o: learning/watcher.c learning/watcher.h
+
+build/query.o: engine/query.c engine/query.h
+	$(CC) $(CFLAGS) -c -o build/query.o engine/query.c -lm
+
+	$(CC) $(CFLAGS) -c -o build/watcher.o learning/watcher.c -lm
+
 	$(CC) $(CFLAGS) -c -o build/energy.o learning/energy.c -lm
 
 	$(CC) $(CFLAGS) -c -o build/snapshot.o learning/snapshot.c -lm
@@ -100,8 +108,8 @@ build/energy.o: learning/energy.c learning/energy.h
 build/idler.o: engine/idler.c engine/idler.h engine/blackboard.h engine/inductor.h
 	$(CC) $(CFLAGS) -c -o build/idler.o engine/idler.c
 
-build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/idler.o build/sandbox.o build/agreement.o
-	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/idler.o build/sandbox.o build/agreement.o -lm
+build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/idler.o build/sandbox.o build/agreement.o
+	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/idler.o build/sandbox.o build/agreement.o -lm
 
 # ── Targets ─────────────────────────────────────────────────────────
 
@@ -175,3 +183,6 @@ build/tork_grid: build/grid_main.o build/tork_grid.o
 
 grid: build/tork_grid
 	@echo "✅ 网格已编译: ./build/tork_grid [帧数]"
+
+build/tork_ask: engine/tork_ask.c build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o
+	$(CC) $(CFLAGS) -o build/tork_ask engine/tork_ask.c build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o -lm

@@ -26,6 +26,7 @@ cp "$BASE_DIR/build/tork_engine"   "$PKG_DIR/build/"
 cp "$BASE_DIR/build/tork_core"     "$PKG_DIR/build/"
 cp "$BASE_DIR/build/tork_sandbox"  "$PKG_DIR/build/"
 cp "$BASE_DIR/build/tork_grid"     "$PKG_DIR/build/"
+cp "$BASE_DIR/build/tork_ask"      "$PKG_DIR/build/"
 
 # Python 应用层
 cp "$BASE_DIR/app/tork_app.py"          "$PKG_DIR/app/"
@@ -57,7 +58,7 @@ Message: $GIT_MSG
 Build: $(date '+%Y-%m-%d %H:%M')
 Files: $(find "$BASE_DIR" -name "*.c" -o -name "*.h" -o -name "*.asm" -o -name "*.py" | grep -v /.git | wc -l) source files
 Lines: $(cat $(find "$BASE_DIR" -name "*.c" -o -name "*.h" -o -name "*.asm" -o -name "*.py" | grep -v /.git) 2>/dev/null | wc -l) lines of code
-Capabilities: core+instinct+learning+MCTS+branch+pattern+replay+snapshot+energy+grid+cloud
+Capabilities: core+instinct+learning+MCTS+branch+pattern+replay+snapshot+energy+grid+watcher+ask
 VEOF
 
 # 打包

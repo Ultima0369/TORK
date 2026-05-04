@@ -16,6 +16,7 @@
 #include "../learning/observer.h"
 #include "../learning/snapshot.h"
 #include "../learning/energy.h"
+#include "../learning/watcher.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,6 +36,7 @@ static void cleanup_core(int sig) {
     }
     ps_emergency_save();
     snap_save();
+    watcher_save();
     obs_save_baseline();
     pat_save();
     pat_cleanup();
@@ -88,6 +90,8 @@ int main(int argc, char **argv) {
     snap_init();
     snap_load();
     eng_init();
+    watcher_init();
+    watcher_load();
         fprintf(stderr, "warning: bb_init failed — blackboard unavailable\n");
     exp_init();
     br_init();
@@ -98,6 +102,8 @@ int main(int argc, char **argv) {
     snap_init();
     snap_load();
     eng_init();
+    watcher_init();
+    watcher_load();
 
     if (cal_init() != 0)
         fprintf(stderr, "warning: cal_init failed — calibrator unavailable\n");
@@ -603,6 +609,19 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             /* Limit branches if energy says so */
             if (eng_should_limit_branches() && br_active_count() > 2) {
                 /* Don't fork new branches when system is loaded */
+            }
+        }
+        
+        /* Watcher: scan /proc every 10 ticks */
+        if (i > 0 && i % 10 == 0) {
+            watcher_scan_proc();
+        }
+        /* Learn patterns every 100 ticks */
+        if (i > 0 && i % 100 == 0) {
+            int new_pats = watcher_learn_patterns();
+            if (new_pats > 0) {
+                printf("[%4d] tick=%-6u WATCH: learned %d new patterns\n",
+                       i, inp.tick, new_pats);
             }
         }
         

@@ -31,6 +31,9 @@ typedef struct {
     int restored_files;                /* count of files restored by ps_restore_all */
     int save_success;                  /* 1 if ps_save_all just succeeded */
     int idle_discoveries;              /* count of idle discoveries in last cycle */
+    int branch_active_count;             /* How many branches are currently alive */
+    int branch_fork_ticks_ago;           /* Ticks since last fork (-1=never) */
+    int branch_reap_just_happened;       /* 1 if a branch was reaped this round */
 } instinct_input_t;
 
 tork_instinct_t instinct_evaluate(const instinct_input_t *in);

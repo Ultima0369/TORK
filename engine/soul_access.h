@@ -10,7 +10,7 @@
 #include <stdio.h>
 
 #define SOUL_ADDR_VAL  0x200000
-#define SOUL_SIZE      128
+#define SOUL_SIZE      192
 #define SOUL_PAGE      4096
 
 /* Soul field offsets — must match tork_soul.inc exactly (v2.0) */
@@ -62,6 +62,17 @@
 #define S_WORST_OUTCOME     0x74  /* int16  */
 #define S_RESERVED4         0x76  /* uint8[10] */
 
+
+/* v3.1 分岔字段 */
+#define S_BRANCH_ID         0x80  /* uint32 */
+#define S_PARENT_ID         0x84  /* uint32 */
+#define S_BRANCH_GEN        0x88  /* uint32 */
+#define S_MAX_TICKS         0x8C  /* uint32 */
+#define S_DEATH_REPORT      0x90  /* uint64 */
+#define S_BRANCH_SOUL_PTR   0x98  /* uint64 */
+#define S_BRANCH_TICKS      0xA0  /* uint32 */
+#define S_BRANCH_DRIVE_PEAK 0xA4  /* int16 */
+#define S_BRANCH_DRIVE_END  0xA6  /* int16 */
 
 /* ── Soul reader/writer via /proc/PID/mem ───────────────────── */
 typedef struct {
@@ -183,6 +194,17 @@ static inline uint32_t  soul_last_idle_tick(soul_t *s)   { return SOUL_U32(s, S_
 static inline int16_t   soul_best_outcome(soul_t *s)     { return (int16_t)SOUL_U16(s, S_BEST_OUTCOME); }
 static inline int16_t   soul_worst_outcome(soul_t *s)    { return (int16_t)SOUL_U16(s, S_WORST_OUTCOME); }
 
+
+/* v3.1 分支字段访问器 */
+static inline uint32_t  soul_branch_id(soul_t *s)          { return SOUL_U32(s, S_BRANCH_ID); }
+static inline uint32_t  soul_parent_id(soul_t *s)         { return SOUL_U32(s, S_PARENT_ID); }
+static inline uint32_t  soul_branch_gen(soul_t *s)        { return SOUL_U32(s, S_BRANCH_GEN); }
+static inline uint32_t  soul_max_ticks(soul_t *s)         { return SOUL_U32(s, S_MAX_TICKS); }
+static inline uint64_t  soul_death_report(soul_t *s)      { return SOUL_U64(s, S_DEATH_REPORT); }
+static inline uint64_t  soul_branch_soul_ptr(soul_t *s)   { return SOUL_U64(s, S_BRANCH_SOUL_PTR); }
+static inline uint32_t  soul_branch_ticks(soul_t *s)      { return SOUL_U32(s, S_BRANCH_TICKS); }
+static inline int16_t   soul_branch_drive_peak(soul_t *s) { return (int16_t)SOUL_U16(s, S_BRANCH_DRIVE_PEAK); }
+static inline int16_t   soul_branch_drive_end(soul_t *s)  { return (int16_t)SOUL_U16(s, S_BRANCH_DRIVE_END); }
 
 /* CRC32 verification of the snapshot */
 int soul_verify(soul_t *s);

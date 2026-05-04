@@ -93,6 +93,18 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
     /* ── v2.2: cloud collaboration awareness ── */
     if (in->code_mod_success == 1)
         inst.curiosity += 0.12f * cw;
+    
+    /* ── v3.1: branch awareness ── */
+    if (in->branch_active_count > 0) {
+        inst.curiosity += 0.15f * cw;  /* Active branches spark curiosity */
+        inst.fear *= 0.95f;            /* Branching reduces fear (safety in diversity) */
+    }
+    if (in->branch_reap_just_happened) {
+        inst.desire += 0.1f * dw;      /* Reaping is learning, boosts desire */
+    }
+    if (in->branch_fork_ticks_ago >= 0 && in->branch_fork_ticks_ago < 100) {
+        inst.curiosity += 0.1f * cw;   /* Recent fork keeps mind open */
+    }
 
     return inst;
 }

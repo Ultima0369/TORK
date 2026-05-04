@@ -50,5 +50,19 @@
 .equ S_WORST_OUTCOME,     0x74            # int16  — worst outcome ever
 .equ S_RESERVED4,         0x76            # uint8[10]: future expansion
 
-# Soul total size = 0x80 = 128 bytes (扩展至 192 字节，更紧凑)
+# Soul total size = 0xC0 = 192 bytes (扩展至 192 字节，更紧凑)
 # 预留: 0x80 - 0xC0 未来扩展
+
+# ── v3.1 分岔字段 (Soul 扩展至 192 字节) ──────────────────────
+.equ S_BRANCH_ID,         0x80            # uint32 — 分支标识 (0=主干)
+.equ S_PARENT_ID,         0x84            # uint32 — 父分支 ID
+.equ S_BRANCH_GEN,        0x88            # uint32 — 分支诞生世代
+.equ S_MAX_TICKS,         0x8C            # uint32 — 最大存活 tick (0=无限)
+.equ S_DEATH_REPORT,      0x90            # uint64 — 死因编码 (0=存活中)
+.equ S_BRANCH_SOUL_PTR,   0x98            # uint64 — 分支 Soul 地址指针
+.equ S_BRANCH_TICKS,      0xA0            # uint32 — 已存活 tick 数
+.equ S_BRANCH_DRIVE_PEAK, 0xA4            # int16  — 分支生命周期内 drive 峰值
+.equ S_BRANCH_DRIVE_END,  0xA6            # int16  — 分支结束时的 drive
+.equ S_RESERVED5,         0xA8            # uint8[24]: future expansion
+
+# Soul total size = 0xC0 = 192 bytes

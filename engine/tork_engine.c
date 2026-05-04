@@ -11,6 +11,7 @@
 #include "idler.h"
 #include "../learning/experience.h"
 #include "../learning/mcts.h"
+#include "../learning/branch.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,6 +30,7 @@ static void cleanup_core(int sig) {
         waitpid(core_pid, NULL, 0);
     }
     ps_emergency_save();
+    br_cleanup();
     exp_save();
     _exit(0);
 }
@@ -70,8 +72,10 @@ int main(int argc, char **argv) {
     /* Initialize shared memory BEFORE restore */
     if (bb_init() != 0)
     exp_init();
+    br_init();
         fprintf(stderr, "warning: bb_init failed — blackboard unavailable\n");
     exp_init();
+    br_init();
 
     if (cal_init() != 0)
         fprintf(stderr, "warning: cal_init failed — calibrator unavailable\n");
@@ -532,7 +536,40 @@ printf("TORK engine started. core PID=%d\n", core_pid);
         if (drive > 127) drive = 127;
         if (drive < -128) drive = -128;
         soul_set_drive(&soul, (int8_t)drive);
+        
+        /* Check branch-fork conditions */
+        {
+            fork_request_t fork_req;
+            fork_req.should_fork = 0;
+            fork_req.current_tick = inp.tick;
+            fork_req.gen_count = soul_gen_count(&soul);
+            fork_req.drive = drive;
+            fork_req.sandbox_level = inp.mode;  /* Use mode as proxy */
+            fork_req.branch_cool_tick = br_last_fork_tick();
+            
+            if (br_should_fork(&fork_req)) {
+                int slot = br_fork(&soul, inp.tick, soul_gen_count(&soul));
+                if (slot >= 0) {
+                    printf("[%4d] tick=%-6u BRANCH: fork created at slot %d (drive=%d)\n",
+                           i, inp.tick, slot, drive);
+                }
+            }
+        }
 
+        /* Advance all active branches */
+        br_advance_all();
+        
+        /* Update instinct input with branch status */
+        inp.branch_active_count = br_active_count();
+        {
+            uint32_t lft = br_last_fork_tick();
+            inp.branch_fork_ticks_ago = (lft > 0) ? (int)(inp.tick - lft) : -1;
+        }
+        {
+            reap_report_t rr = br_last_reap();
+            inp.branch_reap_just_happened = (rr.death_reason != 0 && rr.branch_id > 0);
+        }
+        
         /* Update last_bb_tick if blackboard changed this round */
         {
             uint32_t cur_bb_opt = bb_global_optimizations();

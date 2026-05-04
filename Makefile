@@ -70,14 +70,18 @@ build/experience.o: learning/experience.c learning/experience.h
 	$(CC) $(CFLAGS) -c -o build/experience.o learning/experience.c
 
 build/mcts.o: learning/mcts.c learning/mcts.h learning/experience.h
+
+build/branch.o: learning/branch.c learning/branch.h learning/experience.h engine/soul_access.h
+	$(CC) $(CFLAGS) -c -o build/branch.o learning/branch.c
+
 	$(CC) $(CFLAGS) -c -o build/mcts.o learning/mcts.c
 
 
 build/idler.o: engine/idler.c engine/idler.h engine/blackboard.h engine/inductor.h
 	$(CC) $(CFLAGS) -c -o build/idler.o engine/idler.c
 
-build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/idler.o build/sandbox.o build/agreement.o
-	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/idler.o build/sandbox.o build/agreement.o -lm
+build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/idler.o build/sandbox.o build/agreement.o
+	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/idler.o build/sandbox.o build/agreement.o -lm
 
 # ── Targets ─────────────────────────────────────────────────────────
 

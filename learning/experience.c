@@ -3,6 +3,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 /* ── Global ring buffer ───────────────────────────────────── */
 static experience_buffer_t g_buf;
@@ -37,8 +39,10 @@ void exp_save(void) {
     /* Ensure directory exists */
     FILE *f = fopen(EXP_PATH, "wb");
     if (!f) {
-        /* Try to create persist directory */
-        system("mkdir -p persist 2>/dev/null");
+        /* Try to create persist directory (fork+execl, no shell) */
+        pid_t mk = fork();
+        if (mk == 0) { execl("/bin/mkdir", "mkdir", "-p", "persist", NULL); _exit(1); }
+        if (mk > 0) { int st; waitpid(mk, &st, 0); }
         f = fopen(EXP_PATH, "wb");
     }
     if (f) {
@@ -85,7 +89,7 @@ void exp_record(uint64_t tick, uint8_t hw_stress, int8_t drive_pre,
     if (g_buf.count < EXP_MAX_EXPERIENCES)
         g_buf.count++;
     
-    /* Auto-save every 100 experiences */
+    /* Auto-save every 10 experiences */
     if (g_buf.count % 10 == 0)
         exp_save();
 }

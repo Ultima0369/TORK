@@ -3,12 +3,12 @@
 
 #include <stdint.h>
 
-/* ── TORK 能量自调节 ─────────────────────────────────────────
- *  感知自己的资源消耗, 动态调整行为以成为"好居民"。
- *  共生协议不只是一纸契约——TORK 必须让自己在主机上不被察觉。
+/* ── TORK Energy Self-Regulation ──────────────────────────────
+ *  TORK monitors its own resource usage and adapts behavior
+ *  to be a well-behaved system citizen.
  * ──────────────────────────────────────────────────────────── */
 
-/* ── 资源消耗策略等级 ───────────────────────────────────────── */
+/* ── Resource consumption policy levels ──────────────────────── */
 typedef enum {
     ENERGY_MODE_ECONOMY = 0,    /* 省电模式: 最低能耗, 最小频率 */
     ENERGY_MODE_BALANCED = 1,   /* 均衡模式: 根据负载动态调整 */

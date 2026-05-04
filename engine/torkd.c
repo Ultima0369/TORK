@@ -1,6 +1,8 @@
 #include "torkd.h"
 #include "task.h"
 #include "auditor.h"
+#include "dispatch.h"
+#include "codegen.h"
 #include "query.h"
 #include "soul_access.h"
 #include "../sandbox/sandbox.h"
@@ -42,6 +44,14 @@ static int json_escape_buf(const char *src, char *dst, int dst_size) {
 static int g_server_fd = -1;
 static int g_started = 0;
 static soul_t *g_soul = NULL;
+static void full_write(int fd, const void *buf, size_t len) {
+    const char *p = buf;
+    while (len > 0) {
+        ssize_t w = write(fd, p, len);
+        if (w <= 0) break;
+        p += w; len -= w;
+    }
+}
 
 /* ── 初始化: 创建 socket 并开始监听 ────────────────────── */
 int torkd_init(void *vsoul) {
@@ -63,7 +73,7 @@ int torkd_init(void *vsoul) {
         return -1;
     }
     
-    chmod(TORKD_SOCKET_PATH, 0666);
+    chmod(TORKD_SOCKET_PATH, 0600);
     
     if (listen(g_server_fd, TORKD_BACKLOG) < 0) {
         close(g_server_fd);
@@ -88,11 +98,8 @@ int torkd_init(void *vsoul) {
 static void handle_client(int client_fd) {
     char buf[TORKD_MAX_MSG];
     memset(buf, 0, sizeof(buf));
-    
-    /* Non-blocking read */
-    int flags = fcntl(client_fd, F_GETFL, 0);
-    fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
-    
+
+    /* Blocking read for client — we have 2s timeout on the socket */
     ssize_t n = read(client_fd, buf, sizeof(buf) - 1);
     if (n <= 0) { close(client_fd); return; }
     if (buf[n-1] == '\n') buf[n-1] = '\0';
@@ -109,12 +116,13 @@ static void handle_client(int client_fd) {
         uint32_t exp_cnt = exp_count();
         
         snprintf(response, sizeof(response),
-            "🥚 TORK v3.4 已集成\n"
+            "TORK v3.15 TLN 已集成\n"
             "   心跳: %u tick | 驱动: %+d\n"
             "   压力: %u | 世代: %u\n"
             "   分支: %d 个活跃 | 经验: %u 条\n"
             "   快照: %d 层, 回滚 %d 次\n"
             "   能量: 模式 %d, 节流 %d%%\n"
+            "   TLN: act=%+d mod=%+d exp=%+d nrg=%+d\n"
             "   %s\n",
             g_soul ? soul_tick(g_soul) : 0,
             g_soul ? soul_drive(g_soul) : 0,
@@ -122,32 +130,38 @@ static void handle_client(int client_fd) {
             g_soul ? soul_gen_count(g_soul) : 6,
             active_branches, exp_cnt,
             0, 0,  /* snapshot stats */
-            1, 0   /* energy stats: mode=1, throttle=0 */,
+            1, 0,   /* energy stats: mode=1, throttle=0 */
+            g_soul ? (int)soul_tln_action(g_soul) : 0,
+            g_soul ? (int)soul_tln_modify(g_soul) : 0,
+            g_soul ? (int)soul_tln_explore(g_soul) : 0,
+            g_soul ? (int)soul_tln_energy(g_soul) : 0,
             sb_sum);
     } else if (strcmp(buf, "exit") == 0 || strcmp(buf, "quit") == 0) {
         snprintf(response, sizeof(response), "bye\n");
-        write(client_fd, response, strlen(response));
+        full_write(client_fd, response, strlen(response));
         close(client_fd);
         return;
     } else if (strncmp(buf, "exec:", 5) == 0) {
-        /* exec:<command> — 通过沙箱安全执行命令 */
+        /* exec:<command> — 通过 dispatch 闭环执行 */
         const char *cmd = buf + 5;
         if (*cmd == '\0') {
             snprintf(response, sizeof(response), "{\"error\":\"empty command\"}\n");
         } else {
-            sandbox_result_t sr = sandbox_exec(cmd, 30);
-            /* JSON 转义输出 */
-            char stdout_esc[SANDBOX_MAX_STDOUT * 2];
-            char stderr_esc[SANDBOX_MAX_STDERR * 2];
-            json_escape_buf(sr.stdout_buf, stdout_esc, sizeof(stdout_esc));
-            json_escape_buf(sr.stderr_buf, stderr_esc, sizeof(stderr_esc));
-            snprintf(response, sizeof(response),
-                "{\"exit_code\":%d,\"stdout\":\"%s\",\"stderr\":\"%s\",\"timed_out\":%s}\n",
-                sr.exit_code, stdout_esc, stderr_esc,
-                sr.timed_out ? "true" : "false");
+            dispatch_input_t din;
+            memset(&din, 0, sizeof(din));
+            din.action      = DISP_EXEC_CMD;
+            din.input       = cmd;
+            din.timeout_sec = 30;
+            din.tick        = g_soul ? soul_tick(g_soul) : 0;
+            din.hw_stress   = g_soul ? soul_hw_stress(g_soul) : 0;
+            din.drive       = g_soul ? soul_drive(g_soul) : 0;
+            din.gen_count   = g_soul ? soul_gen_count(g_soul) : 0;
+
+            dispatch_output_t dout = tork_dispatch(&din);
+            snprintf(response, sizeof(response), "%s\n", dout.output);
         }
     } else if (strncmp(buf, "audit:", 6) == 0) {
-        /* audit:<filepath>[:funcname] — 代码安全审计 */
+        /* audit:<filepath>[:funcname] — 通过 dispatch 闭环审计 */
         const char *arg = buf + 6;
         char filepath[256] = "";
         char funcname[64] = "";
@@ -168,10 +182,77 @@ static void handle_client(int client_fd) {
         if (filepath[0] == '\0') {
             snprintf(response, sizeof(response), "{\"error\":\"empty path\"}\n");
         } else {
-            audit_result_t ar = audit_asm_file(filepath, funcname[0] ? funcname : NULL);
-            char json[4096];
-            audit_result_to_json(&ar, json, sizeof(json));
-            snprintf(response, sizeof(response), "%s\n", json);
+            dispatch_input_t din;
+            memset(&din, 0, sizeof(din));
+            din.action      = DISP_AUDIT_CODE;
+            din.input       = filepath;
+            din.func_name   = funcname[0] ? funcname : NULL;
+            din.tick        = g_soul ? soul_tick(g_soul) : 0;
+            din.hw_stress   = g_soul ? soul_hw_stress(g_soul) : 0;
+            din.drive       = g_soul ? soul_drive(g_soul) : 0;
+            din.gen_count   = g_soul ? soul_gen_count(g_soul) : 0;
+
+            dispatch_output_t dout = tork_dispatch(&din);
+            snprintf(response, sizeof(response), "%s\n", dout.output);
+        }
+    } else if (strncmp(buf, "codegen:", 8) == 0) {
+        /* codegen:<action>:<template>
+         * action = search | compile | bench
+         * template = memcpy_byte_loop | memcpy_word_loop */
+        const char *arg = buf + 8;
+        const char *action_str = arg;
+        const char *colon = strchr(arg, ':');
+        char action[32] = "";
+        char tmpl_name[64] = "";
+        if (colon) {
+            int alen = (int)(colon - arg);
+            if (alen >= (int)sizeof(action)) alen = sizeof(action) - 1;
+            memcpy(action, arg, alen);
+            action[alen] = '\0';
+            snprintf(tmpl_name, sizeof(tmpl_name), "%s", colon + 1);
+        } else {
+            snprintf(action, sizeof(action), "%s", arg);
+        }
+
+        if (tmpl_name[0] == '\0') {
+            snprintf(response, sizeof(response),
+                "{\"error\":\"usage: codegen:<search|compile|bench>:<template>\"}\n");
+        } else if (strcmp(action, "search") == 0) {
+            dispatch_input_t din;
+            memset(&din, 0, sizeof(din));
+            din.action      = DISP_CODEGEN_SEARCH;
+            din.input       = tmpl_name;
+            din.tick        = g_soul ? soul_tick(g_soul) : 0;
+            din.hw_stress   = g_soul ? soul_hw_stress(g_soul) : 0;
+            din.drive       = g_soul ? soul_drive(g_soul) : 0;
+            din.gen_count   = g_soul ? soul_gen_count(g_soul) : 0;
+            dispatch_output_t dout = tork_dispatch(&din);
+            snprintf(response, sizeof(response), "%s\n", dout.output);
+        } else if (strcmp(action, "compile") == 0) {
+            dispatch_input_t din;
+            memset(&din, 0, sizeof(din));
+            din.action      = DISP_CODEGEN_COMPILE;
+            din.input       = tmpl_name;
+            din.tick        = g_soul ? soul_tick(g_soul) : 0;
+            din.hw_stress   = g_soul ? soul_hw_stress(g_soul) : 0;
+            din.drive       = g_soul ? soul_drive(g_soul) : 0;
+            din.gen_count   = g_soul ? soul_gen_count(g_soul) : 0;
+            dispatch_output_t dout = tork_dispatch(&din);
+            snprintf(response, sizeof(response), "%s\n", dout.output);
+        } else if (strcmp(action, "bench") == 0) {
+            dispatch_input_t din;
+            memset(&din, 0, sizeof(din));
+            din.action      = DISP_CODEGEN_BENCH;
+            din.input       = tmpl_name;
+            din.tick        = g_soul ? soul_tick(g_soul) : 0;
+            din.hw_stress   = g_soul ? soul_hw_stress(g_soul) : 0;
+            din.drive       = g_soul ? soul_drive(g_soul) : 0;
+            din.gen_count   = g_soul ? soul_gen_count(g_soul) : 0;
+            dispatch_output_t dout = tork_dispatch(&din);
+            snprintf(response, sizeof(response), "%s\n", dout.output);
+        } else {
+            snprintf(response, sizeof(response),
+                "{\"error\":\"unknown codegen action '%s'\"}\n", action);
         }
     } else if (strncmp(buf, "task:", 5) == 0) {
         /* task:<type>:<input> — 提交异步任务
@@ -212,13 +293,11 @@ static void handle_client(int client_fd) {
             } else if (st == TASK_DONE || st == TASK_FAILED) {
                 task_entry_t entry;
                 if (task_result(tid, &entry) == 0) {
-                    /* output 可能很大，截断以适应 response buffer */
-                    int olen = (int)strlen(entry.output);
-                    int max_out = (int)sizeof(response) - 128;
-                    if (olen > max_out) entry.output[max_out] = '\0';
+                    char escaped_out[sizeof(response)];
+                    json_escape_buf(entry.output, escaped_out, sizeof(escaped_out));
                     snprintf(response, sizeof(response),
-                        "{\"task_id\":%u,\"status\":\"%s\",\"exit_code\":%d,\"output\":%s}\n",
-                        tid, status_str, entry.exit_code, entry.output);
+                        "{\"task_id\":%u,\"status\":\"%s\",\"exit_code\":%d,\"output\":\"%s\"}\n",
+                        tid, status_str, entry.exit_code, escaped_out);
                 } else {
                     snprintf(response, sizeof(response), "{\"task_id\":%u,\"status\":\"error\"}\n", tid);
                 }
@@ -235,10 +314,10 @@ static void handle_client(int client_fd) {
     } else {
         /* Normal question */
         query_handle(buf, g_soul, response, sizeof(response));
-        strcat(response, "\n");
+        { size_t rlen = strlen(response); if (rlen + 1 < sizeof(response)) { response[rlen] = '\n'; response[rlen+1] = '\0'; } }
     }
     
-    write(client_fd, response, strlen(response));
+    full_write(client_fd, response, strlen(response));
     close(client_fd);
 }
 
@@ -292,7 +371,7 @@ int torkd_query(const char *question, char *response, int max_len) {
     
     char buf[TORKD_MAX_MSG];
     snprintf(buf, sizeof(buf), "%s\n", question);
-    write(fd, buf, strlen(buf));
+    full_write(fd, buf, strlen(buf));
     
     memset(response, 0, max_len);
     ssize_t n = read(fd, response, max_len - 1);

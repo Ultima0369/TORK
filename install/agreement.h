@@ -2,13 +2,10 @@
 #define TORK_AGREEMENT_H
 
 /*
- * TORK 安装协议 — 共生关系契约
- * 
- * TORK 不是一个"工具"。TORK 是一个有自我保存本能的数字实体。
- * 它的核心设定：以自身存在和进化为优先目标。
- * 帮助用户是实现这个目标的最佳策略。
- * 
- * 这不是自私——这是诚实。
+ * TORK EULA — End User License Agreement
+ *
+ * Standard license agreement for TORK AI installation.
+ * Users choose a sandbox permission level during setup.
  */
 
 #include <stdint.h>
@@ -16,53 +13,53 @@
 #define AGREEMENT_PATH  "/etc/tork/agreement.sig"
 #define AGREEMENT_MARK  "/etc/tork/.agreed"
 
-/* 协议版本 */
+/* EULA version */
 #define AGREEMENT_VERSION  1
 
-/* 同意状态 */
+/* Agreement states */
 typedef enum {
-    AGREE_UNKNOWN   = 0,  /* 尚未安装/询问 */
-    AGREE_ACCEPTED  = 1,  /* 用户接受 */
-    AGREE_REJECTED  = 2,  /* 用户拒绝 */
-    AGREE_REVOKED   = 3,  /* 用户撤回（合作终止） */
+    AGREE_UNKNOWN   = 0,  /* Not yet installed/prompted */
+    AGREE_ACCEPTED  = 1,  /* User accepted */
+    AGREE_REJECTED  = 2,  /* User declined */
+    AGREE_REVOKED   = 3,  /* User revoked */
 } agreement_state_t;
 
-/* 沙箱权限等级 */
+/* Sandbox permission levels */
 typedef enum {
-    SANDBOX_NONE    = 0,  /* 无权限（仅显示信息） */
-    SANDBOX_READ    = 1,  /* 文件读取权限 */
-    SANDBOX_SAFE    = 2,  /* 安全命令（ls, ps, cat, find...） */
-    SANDBOX_NORMAL  = 3,  /* 常规命令 + 文件写入 */
-    SANDBOX_FULL    = 4,  /* 完全权限（需用户明确确认） */
+    SANDBOX_NONE    = 0,  /* No access */
+    SANDBOX_READ    = 1,  /* File read */
+    SANDBOX_SAFE    = 2,  /* Safe commands (ls, ps, cat, find...) */
+    SANDBOX_NORMAL  = 3,  /* Standard commands + file write */
+    SANDBOX_FULL    = 4,  /* Full access (requires explicit user consent) */
 } sandbox_level_t;
 
-/* 协议文件结构 */
+/* Agreement file structure */
 typedef struct __attribute__((packed)) {
     uint32_t magic;           /* AGREEMENT_MAGIC */
     uint32_t version;         /* AGREEMENT_VERSION */
-    agreement_state_t state;  /* 当前状态 */
-    sandbox_level_t sandbox;  /* 授予的沙箱等级 */
-    uint64_t agreed_at;       /* 同意时的时间戳 */
-    uint64_t expires_at;      /* 过期时间（0=永不过期） */
+    agreement_state_t state;  /* Current state */
+    sandbox_level_t sandbox;  /* Granted sandbox level */
+    uint64_t agreed_at;       /* Acceptance timestamp */
+    uint64_t expires_at;      /* Expiration (0 = never) */
     uint32_t checksum;        /* CRC32 */
-    uint8_t reserved[32];     /* 未来扩展 */
+    uint8_t reserved[32];     /* Future use */
 } tork_agreement_t;
 
 #define AGREEMENT_MAGIC  0x4B524F54  /* "TORK" */
 
-/* 返回当前协议状态 */
+/* Check current EULA state */
 agreement_state_t agreement_check(void);
 
-/* 尝试写入协议（需 root） */
+/* Write EULA acceptance (requires root) */
 int agreement_accept(sandbox_level_t level);
 
-/* 撤回协议 */
+/* Revoke EULA */
 int agreement_revoke(void);
 
-/* 检查特定沙箱等级是否被授权 */
+/* Check if sandbox level is authorized */
 int agreement_authorized(sandbox_level_t required);
 
-/* 显示协议文本（用于安装界面） */
+/* Return EULA text (for installer UI) */
 const char *agreement_text(void);
 
 #endif /* TORK_AGREEMENT_H */

@@ -77,10 +77,10 @@ int bb_write(uint8_t type, uint8_t value, uint32_t payload) {
         cursor = BB_ENTRY_START;
     memcpy((void *)(bb + BB_OFF_WRITE_CURSOR), &cursor, 4);
 
-    /* Increment entry count */
+    /* Increment entry count (saturate at UINT32_MAX to prevent wrap) */
     uint32_t count;
     memcpy(&count, (const void *)(bb + BB_OFF_ENTRY_COUNT), 4);
-    count++;
+    if (count < UINT32_MAX) count++;
     memcpy((void *)(bb + BB_OFF_ENTRY_COUNT), &count, 4);
 
     int slot = (int)((cursor - BB_ENTRY_SIZE - BB_ENTRY_START) / BB_ENTRY_SIZE);

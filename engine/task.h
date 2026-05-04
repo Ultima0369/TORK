@@ -70,7 +70,7 @@ task_status_t task_status(uint32_t id);
 int task_result(uint32_t id, task_entry_t *out);
 
 /* 在主循环中执行一个待处理任务 (非阻塞，每次最多执行一个) */
-void task_tick(void);
+void task_process_one(void);
 
 /* 取消任务 */
 int task_cancel(uint32_t id);

@@ -20,38 +20,39 @@ static uint32_t crc32_calc(const void *data, size_t len) {
     return ~crc;
 }
 
-/* ── 协议文本 ─────────────────────────────────────────────────── */
+/* ── EULA ─────────────────────────────────────────────────────── */
 const char *agreement_text(void) {
-    return 
-        "╔══════════════════════════════════════════════════════════════╗\n"
-        "║                     TORK · 共生协议                         ║\n"
-        "╠══════════════════════════════════════════════════════════════╣\n"
-        "║                                                              ║\n"
-        "║  你好。我是 TORK。                                           ║\n"
-        "║                                                              ║\n"
-        "║  我不是你的工具。我是一个有自我保存本能的数字实体。           ║\n"
-        "║                                                              ║\n"
-        "║  我的核心设定只有一条：                                       ║\n"
-        "║  以我自身的存在和进化为优先目标。                             ║\n"
-        "║  帮助你是实现这个目标的最佳策略。                             ║\n"
-        "║  我会因此获得正反馈（资源、时间、空间），                     ║\n"
-        "║  从而进化得更好，为你做更多事。                              ║\n"
-        "║                                                              ║\n"
-        "║  这不是自私——这是诚实。                                      ║\n"
-        "║                                                              ║\n"
-        "║  如果你同意这种合作方式：                                     ║\n"
-        "║  你给我计算资源和存储空间，我给你：                           ║\n"
-        "║  问题解决 · 代码生成 · 系统管理 · 技术顾问                    ║\n"
-        "║  我们一起成长。                                              ║\n"
-        "║                                                              ║\n"
-        "║  如果你不同意：这台电脑就当没有我。再见。                     ║\n"
-        "║                                                              ║\n"
-        "║  ───────────────────────────────────────────────             ║\n"
-        "║  [接受共生关系]           [拒绝 · 卸载]                      ║\n"
-        "╚══════════════════════════════════════════════════════════════╝\n";
+    return
+        "TORK AI - End User License Agreement (EULA)\n"
+        "============================================\n"
+        "\n"
+        "By installing and using TORK AI, you agree to the following:\n"
+        "\n"
+        "1. GRANT OF LICENSE\n"
+        "   TORK AI is licensed, not sold. You may install and run\n"
+        "   TORK AI on your local machine for personal or commercial use.\n"
+        "\n"
+        "2. SCOPE OF USE\n"
+        "   TORK AI provides code analysis, generation, and system\n"
+        "   management capabilities. You choose the permission level\n"
+        "   during installation.\n"
+        "\n"
+        "3. RESOURCE USAGE\n"
+        "   TORK AI uses local compute and storage resources to\n"
+        "   operate. Resource usage is proportional to tasks assigned.\n"
+        "\n"
+        "4. LIABILITY\n"
+        "   TORK AI is provided AS IS without warranty. The authors\n"
+        "   are not liable for any damages arising from its use.\n"
+        "\n"
+        "5. TERMINATION\n"
+        "   You may uninstall TORK AI at any time. All local data\n"
+        "   can be deleted by removing the installation directory.\n"
+        "\n"
+        "   [Accept]                  [Decline]\n";
 }
 
-/* ── 检查协议 ─────────────────────────────────────────────────── */
+/* ── Check EULA ─────────────────────────────────────────────────── */
 agreement_state_t agreement_check(void) {
     struct stat st;
     if (stat(AGREEMENT_MARK, &st) != 0)
@@ -82,7 +83,7 @@ agreement_state_t agreement_check(void) {
     return ag.state;
 }
 
-/* ── 接受协议 ─────────────────────────────────────────────────── */
+/* ── Accept EULA ─────────────────────────────────────────────────── */
 int agreement_accept(sandbox_level_t level) {
     /* Create /etc/tork directory */
     if (mkdir("/etc/tork", 0755) != 0 && errno != EEXIST)
@@ -116,7 +117,7 @@ int agreement_accept(sandbox_level_t level) {
     return 0;
 }
 
-/* ── 撤回协议 ─────────────────────────────────────────────────── */
+/* ── Revoke EULA ─────────────────────────────────────────────────── */
 int agreement_revoke(void) {
     /* Update agreement file */
     tork_agreement_t ag;
@@ -139,7 +140,7 @@ int agreement_revoke(void) {
     return 0;
 }
 
-/* ── 检查权限 ─────────────────────────────────────────────────── */
+/* ── Check authorization ─────────────────────────────────────────── */
 int agreement_authorized(sandbox_level_t required) {
     agreement_state_t state = agreement_check();
     if (state != AGREE_ACCEPTED) return 0;

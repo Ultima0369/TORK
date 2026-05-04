@@ -40,7 +40,7 @@ void obs_update_baseline(void) {
     int n = (g_obs.count < OBS_MAX_SAMPLES) ? (int)g_obs.count : OBS_MAX_SAMPLES;
     
     double sum_stress = 0, sum_temp = 0, sum_load = 0, sum_drive = 0;
-    double max_stress = 0, max_temp = 0, max_load = 0;
+    double max_stress = -1, max_temp = -1, max_load = -1;
     
     for (int i = 0; i < n; i++) {
         observation_t *s = &g_obs.samples[i];

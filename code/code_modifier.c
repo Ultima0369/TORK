@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <sys/wait.h>
 
 /* Locate function body start (same logic as code_reader) */
 static const char *find_func_start(const char *buf, int len, const char *func_name) {
@@ -55,9 +56,9 @@ static const char *next_line(const char *p, const char *end,
 
 /* ── Public API ────────────────────────────────────────────── */
 
-int asm_replace_operand(char *buf, int len, const char *func_name,
+int asm_replace_operand(char *buf, int len, int buf_capacity, const char *func_name,
                         const char *old_op, const char *new_op,
-                        int occurrence) {
+                        int occurrence, int *new_len) {
     const char *p = find_func_start(buf, len, func_name);
     if (!p) return -1;
     const char *end = buf + len;
@@ -77,23 +78,24 @@ int asm_replace_operand(char *buf, int len, const char *func_name,
         }
         if (is_directive_line(ls, ll)) continue;
 
-        /* search for old_op on this line */
         for (int i = 0; i <= ll - olen; i++) {
             if (strncmp(ls + i, old_op, olen) == 0) {
                 found++;
                 if (found == occurrence) {
-                    /* perform replacement in the mutable buffer */
                     int pos = (int)(ls - buf) + i;
                     int diff = nlen - olen;
+                    if (len + diff > buf_capacity) return -1;
                     if (diff != 0)
                         memmove(buf + pos + nlen, buf + pos + olen, len - pos - olen);
                     memcpy(buf + pos, new_op, nlen);
-                    /* caller must track new length if diff != 0 */
+                    int updated_len = len + diff;
+                    if (new_len) *new_len = updated_len;
                     return 1;
                 }
             }
         }
     }
+    if (new_len) *new_len = len;
     return 0;
 }
 
@@ -106,16 +108,22 @@ int asm_verify_modification(const char *buf, int len, const char *work_dir) {
     fwrite(buf, 1, len, f);
     fclose(f);
 
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "as -o %s/tmp.o %s/tmp.s 2>/dev/null", work_dir, work_dir);
-    int rc = system(cmd);
+    char obj_path[256];
+    snprintf(obj_path, sizeof(obj_path), "%s/tmp.o", work_dir);
 
-    snprintf(cmd, sizeof(cmd), "%s/tmp.o", work_dir);
-    unlink(cmd);
-    snprintf(cmd, sizeof(cmd), "%s/tmp.s", work_dir);
-    unlink(cmd);
+    pid_t pid = fork();
+    if (pid < 0) { unlink(path); return 0; }
+    if (pid == 0) {
+        execl("/usr/bin/as", "as", "-o", obj_path, path, NULL);
+        _exit(1);
+    }
+    int st;
+    waitpid(pid, &st, 0);
 
-    return (rc == 0) ? 1 : 0;
+    unlink(obj_path);
+    unlink(path);
+
+    return (WIFEXITED(st) && WEXITSTATUS(st) == 0) ? 1 : 0;
 }
 
 int asm_rollback(char *buf, int len, const char *backup, int backup_len) {
@@ -166,14 +174,27 @@ static int is_nop_insn(const char *line, int len) {
             return 1;
     }
 
-    /* .byte 0x66, 0x90 — two-byte nop encoding */
+    /* .byte nop encodings:
+       - 0x90 → 1-byte nop
+       - 0x66, 0x90 → 2-byte nop (0x66 prefix + 0x90 nop)
+       Other .byte sequences are NOT nops */
     if (i + 5 <= len && strncmp(line + i, ".byte", 5) == 0) {
         const char *p = line + i + 5;
         while (p < line + len && (*p == ' ' || *p == '\t')) p++;
-        if (p + 4 < line + len && strncmp(p, "0x66", 4) == 0)
-            return 1;
-        if (p + 4 < line + len && strncmp(p, "0x90", 4) == 0)
-            return 1;
+        /* .byte 0x90 — single-byte nop */
+        if (p + 4 <= line + len && strncmp(p, "0x90", 4) == 0) {
+            const char *after = p + 4;
+            while (after < line + len && (*after == ' ' || *after == '\t')) after++;
+            if (after >= line + len || *after == '\n' || *after == '\r')
+                return 1;
+        }
+        /* .byte 0x66, 0x90 — two-byte nop */
+        if (p + 4 < line + len && strncmp(p, "0x66", 4) == 0) {
+            const char *after = p + 4;
+            while (after < line + len && (*after == ' ' || *after == '\t' || *after == ',')) after++;
+            if (after + 4 <= line + len && strncmp(after, "0x90", 4) == 0)
+                return 1;
+        }
     }
 
     return 0;

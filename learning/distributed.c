@@ -75,8 +75,9 @@ static int g_initialized = 0;
 static time_t g_last_heartbeat = 0;
 static time_t g_last_broadcast = 0;
 static int g_peer_count = 0;
-static uint32_t g_seen_peers[64];
-static time_t g_peer_time[64];
+#define DIST_MAX_PEERS 64
+static uint32_t g_seen_peers[DIST_MAX_PEERS];
+static time_t g_peer_time[DIST_MAX_PEERS];
 
 /* ── 初始化 ──────────────────────────────────────────────── */
 int dist_init(void) {
@@ -259,18 +260,30 @@ static void dist_handle_message(const uint8_t *buf, size_t len) {
     
     /* Track peer */
     int found = 0;
-    for (int i = 0; i < g_peer_count && i < 64; i++) {
+    int oldest_idx = 0;
+    time_t oldest_time = g_peer_time[0];
+    for (int i = 0; i < g_peer_count && i < DIST_MAX_PEERS; i++) {
         if (g_seen_peers[i] == sender_id) {
             g_peer_time[i] = time(NULL);
             found = 1;
             break;
         }
+        if (g_peer_time[i] < oldest_time) {
+            oldest_time = g_peer_time[i];
+            oldest_idx = i;
+        }
     }
-    if (!found && g_peer_count < 64) {
+    if (!found && g_peer_count < DIST_MAX_PEERS) {
         g_seen_peers[g_peer_count] = sender_id;
         g_peer_time[g_peer_count] = time(NULL);
         g_peer_count++;
         printf("  DIST: new peer 0x%08X (total %d)\n", sender_id, g_peer_count);
+    } else if (!found) {
+        /* Evict oldest peer to make room */
+        printf("  DIST: evicting oldest peer 0x%08X for 0x%08X\n",
+               g_seen_peers[oldest_idx], sender_id);
+        g_seen_peers[oldest_idx] = sender_id;
+        g_peer_time[oldest_idx] = time(NULL);
     }
     
     /* Handle by type */
@@ -282,6 +295,7 @@ static void dist_handle_message(const uint8_t *buf, size_t len) {
     case DIST_MSG_EXPERIENCE: {
         if (payload_len < sizeof(dist_experience_t)) break;
         const dist_experience_t *exp = (const dist_experience_t*)payload;
+        if (exp->outcome < -100 || exp->outcome > 100 || exp->crash > 1) break;
         /* Record as local experience (tick=0 because remote) */
         exp_record(0, exp->hw_stress, exp->drive_pre,
                    htonl(hdr->gen_count), exp->action_type, exp->action_param,
@@ -293,6 +307,7 @@ static void dist_handle_message(const uint8_t *buf, size_t len) {
         if (payload_len < sizeof(dist_pattern_t)) break;
         const dist_pattern_t *pat = (const dist_pattern_t*)payload;
         /* High-confidence patterns get integrated */
+        if (pat->stress_high > 100 || pat->stress_low > pat->stress_high) break;
         uint16_t samples = ntohs(pat->sample_count);
         if (samples > 5 && pat->avg_outcome > 20) {
             /* Register in local pattern table */

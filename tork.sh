@@ -1,6 +1,6 @@
 #!/bin/bash
 # ──────────────────────────────────────────────────────
-# 🥚 TORK 启动脚本
+# TORK AI — 自进化智能引擎
 # 用法: ./tork.sh [command]
 # ──────────────────────────────────────────────────────
 
@@ -20,104 +20,107 @@ NC='\033[0m'
 
 case "${1:-help}" in
     start)
-        echo -e "${GREEN}🥚 TORK 启动中...${NC}"
+        echo -e "${GREEN}TORK engine starting...${NC}"
         if [ ! -f "$ENGINE" ]; then
-            echo -e "${YELLOW}⚠️  引擎未编译，先编译...${NC}"
+            echo -e "${YELLOW}Engine not compiled, building...${NC}"
             make -C "$BASE_DIR" all
         fi
         python3 "$DAEMON" all
         ;;
 
     dashboard)
-        echo -e "${GREEN}🥚 启动仪表盘...${NC}"
-        python3 "$DASHBOARD"
+        echo -e "${GREEN}Opening TORK web dashboard...${NC}"
+        python3 "$BASE_DIR/web/tork_web.py" "$@" &
         ;;
 
     engine)
-        echo -e "${GREEN}🥚 启动引擎...${NC}"
+        echo -e "${GREEN}Starting TORK engine...${NC}"
         if [ ! -f "$ENGINE" ]; then
-            echo -e "${YELLOW}⚠️  引擎未编译，先编译...${NC}"
+            echo -e "${YELLOW}Engine not compiled, building...${NC}"
             make -C "$BASE_DIR" all
         fi
         "$ENGINE"
         ;;
 
     daemon)
-        echo -e "${GREEN}🥚 启动守护进程 (后台)...${NC}"
+        echo -e "${GREEN}Starting TORK daemon (background)...${NC}"
         python3 "$DAEMON" all &
         echo -e "   PID: $!"
         ;;
 
     status)
-        echo -e "${CYAN}📡 TORK 状态${NC}"
+        echo -e "${CYAN}TORK Status${NC}"
         echo -e "${DIM}────────────────────────${NC}"
-        # 引擎
+        # Engine
         if pgrep -x tork_core > /dev/null 2>&1; then
-            echo -e "  引擎:     ${GREEN}✅ 运行中${NC} (PID: $(pgrep -x tork_core))"
+            echo -e "  Engine:    ${GREEN}running${NC} (PID: $(pgrep -x tork_core))"
         elif pgrep -x tork_engine > /dev/null 2>&1; then
-            echo -e "  引擎:     ${GREEN}✅ 运行中${NC} (PID: $(pgrep -x tork_engine))"
+            echo -e "  Engine:    ${GREEN}running${NC} (PID: $(pgrep -x tork_engine))"
         else
-            echo -e "  引擎:     ${RED}⏹️  已停止${NC}"
+            echo -e "  Engine:    ${RED}stopped${NC}"
         fi
-        # 仪表盘
-        if pgrep -f tork_dashboard.py > /dev/null 2>&1; then
-            echo -e "  仪表盘:   ${GREEN}✅ 运行中${NC}"
+        # Dashboard
+        if pgrep -f tork_web.py > /dev/null 2>&1; then
+            echo -e "  Dashboard: ${GREEN}running${NC} (web)"
+        elif pgrep -f tork_dashboard.py > /dev/null 2>&1; then
+            echo -e "  Dashboard: ${GREEN}running${NC} (tkinter)"
         else
-            echo -e "  仪表盘:   ${DIM}⏹️  未启动${NC}"
+            echo -e "  Dashboard: ${DIM}not running${NC}"
         fi
-        # 守护进程
+        # Daemon
         if [ -f "$BASE_DIR/persist/daemon.pid" ]; then
             DPID=$(cat "$BASE_DIR/persist/daemon.pid")
             if kill -0 "$DPID" 2>/dev/null; then
-                echo -e "  守护进程: ${GREEN}✅ 运行中${NC} (PID: $DPID)"
+                echo -e "  Daemon:    ${GREEN}running${NC} (PID: $DPID)"
             else
-                echo -e "  守护进程: ${YELLOW}⚠️  PID 文件残留${NC}"
+                echo -e "  Daemon:    ${YELLOW}stale PID${NC}"
             fi
         else
-            echo -e "  守护进程: ${DIM}⏹️  未启动${NC}"
+            echo -e "  Daemon:    ${DIM}not running${NC}"
         fi
-        # 云端
+        # Cloud API
         if python3 -c "from tork_api import TorkAPI; a=TorkAPI(); print('ok' if a.api_key else 'no')" 2>/dev/null | grep -q ok; then
-            echo -e "  云端:     ${GREEN}✅ DeepSeek 已配置${NC}"
+            echo -e "  Cloud API: ${GREEN}configured${NC}"
         else
-            echo -e "  云端:     ${YELLOW}⚠️  未配置${NC}"
+            echo -e "  Cloud API: ${YELLOW}not configured${NC}"
         fi
-        # 协议
+        # License
         if [ -f /etc/tork/.agreed ]; then
-            echo -e "  协议:     ${GREEN}✅ 已签署${NC}"
+            echo -e "  License:   ${GREEN}accepted${NC}"
         else
-            echo -e "  协议:     ${DIM}⏹️  未签署${NC}"
+            echo -e "  License:   ${DIM}not accepted${NC}"
         fi
-        # 世代
+        # Generation
         EVO_FILE="$BASE_DIR/persist/evolution.json"
         if [ -f "$EVO_FILE" ]; then
             GEN=$(python3 -c "import json; d=json.load(open('$EVO_FILE')); print(d[-1].get('generation','?'))" 2>/dev/null || echo "?")
-            echo -e "  世代:     ${CYAN}${GEN}${NC}"
+            echo -e "  Generation: ${CYAN}${GEN}${NC}"
         fi
         ;;
 
     stop)
-        echo -e "${YELLOW}⏹️  停止 TORK...${NC}"
-        # 停止引擎
+        echo -e "${YELLOW}Stopping TORK...${NC}"
         for p in tork_engine tork_core; do
             if pgrep -x "$p" > /dev/null 2>&1; then
                 pkill -x "$p" 2>/dev/null
-                echo -e "  ⏹️  已停止 $p"
+                echo -e "  Stopped $p"
             fi
         done
-        # 停止仪表盘
         if pgrep -f tork_dashboard.py > /dev/null 2>&1; then
             pkill -f tork_dashboard.py 2>/dev/null
-            echo -e "  ⏹️  已停止仪表盘"
+            echo -e "  Stopped dashboard"
         fi
-        # 停止守护进程
+        if pgrep -f tork_web.py > /dev/null 2>&1; then
+            pkill -f tork_web.py 2>/dev/null
+            echo -e "  Stopped web dashboard"
+        fi
         if [ -f "$BASE_DIR/persist/daemon.pid" ]; then
             DPID=$(cat "$BASE_DIR/persist/daemon.pid")
             kill "$DPID" 2>/dev/null || true
             rm -f "$BASE_DIR/persist/daemon.pid"
-            echo -e "  ⏹️  已停止守护进程"
+            echo -e "  Stopped daemon"
         fi
-        echo -e "${GREEN}✅ TORK 已停止${NC}"
+        echo -e "${GREEN}TORK stopped${NC}"
         ;;
 
     restart)
@@ -127,29 +130,29 @@ case "${1:-help}" in
         ;;
 
     compile|build)
-        echo -e "${GREEN}🔧 编译 TORK...${NC}"
+        echo -e "${GREEN}Building TORK...${NC}"
         make -C "$BASE_DIR" all
         if [ $? -eq 0 ]; then
-            echo -e "${GREEN}✅ 编译成功${NC}"
+            echo -e "${GREEN}Build successful${NC}"
         else
-            echo -e "${RED}❌ 编译失败${NC}"
+            echo -e "${RED}Build failed${NC}"
             exit 1
         fi
         ;;
 
     evolve)
-        echo -e "${CYAN}🧬 运行进化...${NC}"
+        echo -e "${CYAN}Running evolution...${NC}"
         python3 "$EVOLUTION" --once
         ;;
 
     protocol)
-        echo -e "${CYAN}☁️  启动云端协议 (交互模式)${NC}"
-        echo -e "${DIM}   输入 JSON 指令，Ctrl+D 退出${NC}"
+        echo -e "${CYAN}Starting cloud protocol (interactive)${NC}"
+        echo -e "${DIM}   Enter JSON commands, Ctrl+D to exit${NC}"
         python3 "$PROTOCOL"
         ;;
 
     log)
-        echo -e "${CYAN}📜 进化日志${NC}"
+        echo -e "${CYAN}Evolution Log${NC}"
         if [ -f "$BASE_DIR/persist/evolution.json" ]; then
             python3 -c "
 import json
@@ -162,24 +165,24 @@ for e in d[-20:]:
     print(f'  Gen {gen:>3} | {f:<20} | {s:>7} | {desc}')
 "
         else
-            echo -e "  ${DIM}(无进化记录)${NC}"
+            echo -e "  ${DIM}(no evolution records)${NC}"
         fi
         ;;
 
     help|*)
-        echo -e "${CYAN}🥚 TORK — 使用说明${NC}"
+        echo -e "${CYAN}TORK AI — Command Reference${NC}"
         echo -e "${DIM}──────────────────────────────${NC}"
-        echo -e "  ${GREEN}start${NC}       启动引擎 + 仪表盘"
-        echo -e "  ${GREEN}dashboard${NC}   仅启动仪表盘"
-        echo -e "  ${GREEN}engine${NC}      仅启动引擎"
-        echo -e "  ${GREEN}daemon${NC}      后台守护进程"
-        echo -e "  ${GREEN}status${NC}      查看运行状态"
-        echo -e "  ${GREEN}stop${NC}        停止所有进程"
-        echo -e "  ${GREEN}restart${NC}     重启"
-        echo -e "  ${GREEN}compile${NC}     编译项目"
-        echo -e "  ${GREEN}evolve${NC}      运行一次进化"
-        echo -e "  ${GREEN}protocol${NC}    启动云端协议交互"
-        echo -e "  ${GREEN}log${NC}         查看进化日志"
+        echo -e "  ${GREEN}start${NC}       Start engine + dashboard"
+        echo -e "  ${GREEN}dashboard${NC}   Open dashboard only"
+        echo -e "  ${GREEN}engine${NC}      Start engine only"
+        echo -e "  ${GREEN}daemon${NC}      Start daemon (background)"
+        echo -e "  ${GREEN}status${NC}      Show running status"
+        echo -e "  ${GREEN}stop${NC}        Stop all processes"
+        echo -e "  ${GREEN}restart${NC}     Restart"
+        echo -e "  ${GREEN}compile${NC}     Build project"
+        echo -e "  ${GREEN}evolve${NC}      Run one evolution cycle"
+        echo -e "  ${GREEN}protocol${NC}    Start cloud protocol (interactive)"
+        echo -e "  ${GREEN}log${NC}         View evolution log"
         echo -e "${DIM}──────────────────────────────${NC}"
         ;;
 esac

@@ -29,6 +29,8 @@ static const char *find_func_start(const char *buf, int len, const char *func_na
 
 /* Check if a line is a label (ends with ':' before any comment). */
 static int is_label_line(const char *line, int len) {
+    /* Labels don't start with \t — instructions always do */
+    if (len > 0 && line[0] == '\t') return 0;
     for (int i = 0; i < len; i++) {
         if (line[i] == '#') return 0;  /* comment before colon */
         if (line[i] == ':') return 1;
@@ -214,9 +216,13 @@ int asm_classify_insns(const char *buf, int len, const char *func_name,
         if (strcmp(opc, "mov") == 0 || strcmp(opc, "movz") == 0 ||
             strcmp(opc, "movs") == 0 || strcmp(opc, "lea") == 0 ||
             strcmp(opc, "xchg") == 0 || strcmp(opc, "push") == 0 ||
-            strcmp(opc, "pop") == 0 || strcmp(opc, "cmove") == 0 ||
-            strcmp(opc, "cmov") == 0 || strcmp(opc, "movzb") == 0 ||
-            strcmp(opc, "movsb") == 0) {
+            strcmp(opc, "pop") == 0 ||
+            /* cmov* variants: cmovz, cmovnz, cmovge, cmovl, cmova, cmovbe, etc. */
+            strncmp(opc, "cmov", 4) == 0 ||
+            /* movz* movs* variants */
+            strncmp(opc, "movzb", 5) == 0 || strncmp(opc, "movsb", 5) == 0 ||
+            strncmp(opc, "movzw", 5) == 0 || strncmp(opc, "movsw", 5) == 0 ||
+            strncmp(opc, "movzl", 5) == 0 || strncmp(opc, "movsl", 5) == 0) {
             (*count_mov)++;
         } else if (strcmp(opc, "add") == 0 || strcmp(opc, "sub") == 0 ||
                    strcmp(opc, "mul") == 0 || strcmp(opc, "imul") == 0 ||
@@ -228,7 +234,11 @@ int asm_classify_insns(const char *buf, int len, const char *func_name,
                    strcmp(opc, "shr") == 0 || strcmp(opc, "shl") == 0 ||
                    strcmp(opc, "sar") == 0 || strcmp(opc, "sal") == 0 ||
                    strcmp(opc, "adc") == 0 || strcmp(opc, "sbb") == 0 ||
-                   strcmp(opc, "ror") == 0 || strcmp(opc, "rol") == 0) {
+                   strcmp(opc, "ror") == 0 || strcmp(opc, "rol") == 0 ||
+                   /* comparison/test (flags only, no mov) */
+                   strcmp(opc, "cmp") == 0 || strcmp(opc, "test") == 0 ||
+                   /* setcc: sete, setne, setl, setge, etc. */
+                   strncmp(opc, "set", 3) == 0) {
             (*count_arith)++;
         } else if (strcmp(opc, "jmp") == 0 || strcmp(opc, "je") == 0 ||
                    strcmp(opc, "jne") == 0 || strcmp(opc, "jz") == 0 ||
@@ -238,6 +248,8 @@ int asm_classify_insns(const char *buf, int len, const char *func_name,
                    strcmp(opc, "jb") == 0 || strcmp(opc, "jae") == 0 ||
                    strcmp(opc, "jbe") == 0 || strcmp(opc, "js") == 0 ||
                    strcmp(opc, "jns") == 0 || strcmp(opc, "jo") == 0 ||
+                   /* jcc long forms */
+                   strncmp(opc, "j", 1) == 0 ||
                    strcmp(opc, "call") == 0 || strcmp(opc, "ret") == 0 ||
                    strcmp(opc, "loop") == 0) {
             (*count_control)++;

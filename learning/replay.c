@@ -2,6 +2,7 @@
 #include "experience.h"
 #include "pattern.h"
 #include "pi_seed.h"
+#include "../engine/dispatch.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -93,8 +94,8 @@ replay_result_t replay_deep(void) {
         experience_t *exp = &batch[i];
         
         /* 原行动的 outcome 已知 */
-        /* 尝试所有 7 种行动类型（除了原行动本身） */
-        for (uint8_t alt = 0; alt < 7; alt++) {
+        /* 尝试所有替代行动类型 */
+        for (uint8_t alt = 0; alt < DISP_NUM_ACTIONS; alt++) {
             if (alt == exp->action_type) continue;
             
             float improvement = 0.0f;

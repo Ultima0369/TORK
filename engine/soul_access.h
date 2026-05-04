@@ -2,6 +2,7 @@
 #define SOUL_ACCESS_H
 
 #include <stdint.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <sys/ptrace.h>
 #include <sys/wait.h>
@@ -13,7 +14,7 @@
 #define SOUL_SIZE      192
 #define SOUL_PAGE      4096
 
-/* Soul field offsets — must match tork_soul.inc exactly (v2.0) */
+/* Soul field offsets — must match tork_soul.inc exactly (v3.1) */
 #define S_TICK        0x00  /* uint32 */
 #define S_LAST_TSC    0x04  /* uint64 */
 #define S_CUR_TSC     0x0C  /* uint64 */
@@ -61,6 +62,12 @@
 #define S_BEST_OUTCOME      0x72  /* int16  */
 #define S_WORST_OUTCOME     0x74  /* int16  */
 #define S_RESERVED4         0x76  /* uint8[10] */
+
+/* v3.15 TLN hint 字段 (借用 RESERVED4 前4字节) */
+#define S_TLN_ACTION       0x76  /* int8  : +1激进, -1保守, 0悬置 */
+#define S_TLN_MODIFY       0x77  /* int8  : +1可变异, -1禁变异, 0悬置 */
+#define S_TLN_EXPLORE      0x78  /* int8  : +1探索, -1收敛, 0悬置 */
+#define S_TLN_ENERGY       0x79  /* int8  : +1高功率, -1省电, 0悬置 */
 
 
 /* v3.1 分岔字段 */
@@ -145,8 +152,10 @@ static inline int soul_set_drive(soul_t *s, int8_t drive) {
 }
 
 /* Accessor macros */
-#define SOUL_U32(s, off)  (*(uint32_t*)((s)->buf + (off)))
-#define SOUL_U64(s, off)  (*(uint64_t*)((s)->buf + (off)))
+#define SOUL_U32(s, off)  __extension__({ uint32_t _v; memcpy(&_v, (s)->buf + (off), 4); _v; })
+#define SOUL_U64(s, off)  __extension__({ uint64_t _v; memcpy(&_v, (s)->buf + (off), 8); _v; })
+#define SOUL_U32_SET(s, off, val) do { uint32_t _v = (val); memcpy((s)->buf + (off), &_v, 4); } while(0)
+#define SOUL_U64_SET(s, off, val) do { uint64_t _v = (val); memcpy((s)->buf + (off), &_v, 8); } while(0)
 #define SOUL_U16(s, off)  (*(uint16_t*)((s)->buf + (off)))
 #define SOUL_U8(s, off)   ((s)->buf[(off)])
 
@@ -193,6 +202,12 @@ static inline uint16_t  soul_mcts_iterations(soul_t *s)  { return SOUL_U16(s, S_
 static inline uint32_t  soul_last_idle_tick(soul_t *s)   { return SOUL_U32(s, S_LAST_IDLE_TICK); }
 static inline int16_t   soul_best_outcome(soul_t *s)     { return (int16_t)SOUL_U16(s, S_BEST_OUTCOME); }
 static inline int16_t   soul_worst_outcome(soul_t *s)    { return (int16_t)SOUL_U16(s, S_WORST_OUTCOME); }
+
+/* v3.15 TLN 访问器 */
+static inline int8_t    soul_tln_action(soul_t *s)      { return (int8_t)SOUL_U8(s, S_TLN_ACTION); }
+static inline int8_t    soul_tln_modify(soul_t *s)      { return (int8_t)SOUL_U8(s, S_TLN_MODIFY); }
+static inline int8_t    soul_tln_explore(soul_t *s)     { return (int8_t)SOUL_U8(s, S_TLN_EXPLORE); }
+static inline int8_t    soul_tln_energy(soul_t *s)      { return (int8_t)SOUL_U8(s, S_TLN_ENERGY); }
 
 
 /* v3.1 分支字段访问器 */

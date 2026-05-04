@@ -24,6 +24,9 @@ int ps_hot_swap(const char *new_binary_path);
 /* Signal-safe: save and exit (call from SIGTERM handler). */
 void ps_emergency_save(void);
 
+/* Register soul snapshot buffer for emergency_save (avoids reading unmapped 0x200000). */
+void ps_register_soul_buf(const void *buf, size_t len);
+
 /* Cleanup .bak files. */
 void ps_cleanup_baks(void);
 

@@ -1,7 +1,5 @@
 #include "task.h"
-#include "sandbox.h"
-#include "code_reader.h"
-#include "auditor.h"
+#include "dispatch.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -22,7 +20,6 @@ void task_init(void) {
 uint32_t task_submit(task_type_t type, const char *input) {
     if (!g_initialized || !input) return 0;
 
-    /* 找空闲槽位 */
     for (int i = 0; i < TASK_MAX_SLOTS; i++) {
         if (!g_queue.slots[i].active) {
             task_entry_t *t = &g_queue.slots[i];
@@ -37,7 +34,6 @@ uint32_t task_submit(task_type_t type, const char *input) {
         }
     }
 
-    /* 队列满，尝试覆盖已完成的 */
     for (int i = 0; i < TASK_MAX_SLOTS; i++) {
         if (g_queue.slots[i].active &&
             (g_queue.slots[i].status == TASK_DONE ||
@@ -54,7 +50,7 @@ uint32_t task_submit(task_type_t type, const char *input) {
         }
     }
 
-    return 0;  /* 真的满了 */
+    return 0;
 }
 
 /* ── 获取任务状态 ────────────────────────────────────────── */
@@ -82,135 +78,57 @@ int task_result(uint32_t id, task_entry_t *out) {
     return -1;
 }
 
-/* ── 执行一个待处理任务 ──────────────────────────────────── */
-void task_tick(void) {
+/* ── 执行一个待处理任务 ────────────────────────────────────
+ * 通过 dispatch 闭环执行 — 结果自动写入 experience
+ */
+void task_process_one(void) {
     if (!g_initialized) return;
 
     for (int i = 0; i < TASK_MAX_SLOTS; i++) {
         task_entry_t *t = &g_queue.slots[i];
         if (!t->active || t->status != TASK_PENDING) continue;
 
-        /* 找到一个待处理任务，执行它 */
         t->status = TASK_RUNNING;
         char local_input[TASK_MAX_INPUT];
         snprintf(local_input, sizeof(local_input), "%s", t->input);
 
+        dispatch_action_t action;
         switch (t->type) {
-        case TASK_EXEC: {
-            sandbox_result_t sr = sandbox_exec(local_input, 30);
-
-            t->exit_code = sr.exit_code;
-            /* JSON 转义后嵌入 */
-            char stdout_esc[SANDBOX_MAX_STDOUT * 2];
-            char stderr_esc[SANDBOX_MAX_STDERR * 2];
-            {
-                int j = 0;
-                for (int i = 0; sr.stdout_buf[i] && j < (int)sizeof(stdout_esc) - 2; i++) {
-                    switch (sr.stdout_buf[i]) {
-                    case '"':  stdout_esc[j++] = '\\'; stdout_esc[j++] = '"';  break;
-                    case '\\': stdout_esc[j++] = '\\'; stdout_esc[j++] = '\\'; break;
-                    case '\n': stdout_esc[j++] = '\\'; stdout_esc[j++] = 'n';  break;
-                    case '\r': stdout_esc[j++] = '\\'; stdout_esc[j++] = 'r';  break;
-                    case '\t': stdout_esc[j++] = '\\'; stdout_esc[j++] = 't';  break;
-                    default:   stdout_esc[j++] = sr.stdout_buf[i]; break;
-                    }
-                }
-                stdout_esc[j] = '\0';
-                j = 0;
-                for (int i = 0; sr.stderr_buf[i] && j < (int)sizeof(stderr_esc) - 2; i++) {
-                    switch (sr.stderr_buf[i]) {
-                    case '"':  stderr_esc[j++] = '\\'; stderr_esc[j++] = '"';  break;
-                    case '\\': stderr_esc[j++] = '\\'; stderr_esc[j++] = '\\'; break;
-                    case '\n': stderr_esc[j++] = '\\'; stderr_esc[j++] = 'n';  break;
-                    case '\r': stderr_esc[j++] = '\\'; stderr_esc[j++] = 'r';  break;
-                    case '\t': stderr_esc[j++] = '\\'; stderr_esc[j++] = 't';  break;
-                    default:   stderr_esc[j++] = sr.stderr_buf[i]; break;
-                    }
-                }
-                stderr_esc[j] = '\0';
-            }
-            snprintf(t->output, TASK_MAX_OUTPUT,
-                "{\"exit_code\":%d,\"stdout\":\"%s\",\"stderr\":\"%s\",\"timed_out\":%s}",
-                sr.exit_code, stdout_esc, stderr_esc,
-                sr.timed_out ? "true" : "false");
-
-            if (sr.exit_code == 0) {
-                t->status = TASK_DONE;
-                g_queue.total_completed++;
-            } else {
-                t->status = TASK_FAILED;
-                g_queue.total_failed++;
-            }
-            break;
+        case TASK_EXEC:       action = DISP_EXEC_CMD;      break;
+        case TASK_ANALYZE:    action = DISP_ANALYZE_ASM;   break;
+        case TASK_AUDIT:      action = DISP_AUDIT_CODE;    break;
+        default:              action = DISP_NUM_ACTIONS;    break;
         }
 
-        case TASK_ANALYZE: {
-            /* 用 code_reader 分析汇编文件 */
-            char asm_buf[8192];
-            int alen = asm_read_file(local_input, asm_buf, sizeof(asm_buf));
-
-            if (alen <= 0) {
-                snprintf(t->output, TASK_MAX_OUTPUT,
-                    "{\"error\":\"cannot read %s\"}", local_input);
-                t->status = TASK_FAILED;
-                g_queue.total_failed++;
-                break;
-            }
-
-            int cm = 0, ca = 0, cc = 0, co = 0;
-            asm_classify_insns(asm_buf, alen, "memcpy_tork", &cm, &ca, &cc, &co);
-            int insns = asm_count_insns_in_func(asm_buf, alen, "memcpy_tork");
-
-            char opcodes[32][8];
-            asm_extract_opcodes(asm_buf, alen, "memcpy_tork", opcodes, 32);
-
-            /* 构建 JSON 输出 */
-            int off = 0;
-            off += snprintf(t->output + off, TASK_MAX_OUTPUT - off,
-                "{\"file\":\"%s\",\"insns\":%d,", local_input, insns);
-            off += snprintf(t->output + off, TASK_MAX_OUTPUT - off,
-                "\"classify\":{\"mov\":%d,\"arith\":%d,\"ctrl\":%d,\"other\":%d},",
-                cm, ca, cc, co);
-            off += snprintf(t->output + off, TASK_MAX_OUTPUT - off,
-                "\"opcodes\":[");
-            int max_opcodes = (insns > 10) ? 10 : insns;
-            for (int j = 0; j < max_opcodes && j < 32; j++) {
-                if (j > 0) off += snprintf(t->output + off, TASK_MAX_OUTPUT - off, ",");
-                off += snprintf(t->output + off, TASK_MAX_OUTPUT - off, "\"%s\"", opcodes[j]);
-            }
-            off += snprintf(t->output + off, TASK_MAX_OUTPUT - off, "]}");
-
-            t->exit_code = 0;
-            t->status = TASK_DONE;
-            g_queue.total_completed++;
-            break;
-        }
-
-        case TASK_AUDIT: {
-            /* 代码安全审计 — TORK 的手艺 */
-            audit_result_t ar = audit_asm_file(local_input, NULL);
-            int json_len = audit_result_to_json(&ar, t->output, TASK_MAX_OUTPUT);
-            if (json_len < 0) {
-                snprintf(t->output, TASK_MAX_OUTPUT,
-                    "{\"error\":\"audit serialization failed\"}");
-                t->status = TASK_FAILED;
-                g_queue.total_failed++;
-            } else {
-                t->exit_code = 0;
-                t->status = TASK_DONE;
-                g_queue.total_completed++;
-            }
-            break;
-        }
-
-        default:
+        if (action >= DISP_NUM_ACTIONS) {
             snprintf(t->output, TASK_MAX_OUTPUT, "{\"error\":\"unknown task type\"}");
             t->status = TASK_FAILED;
             g_queue.total_failed++;
-            break;
+            return;
         }
 
-        /* 每次只执行一个任务，避免阻塞主循环 */
+        dispatch_input_t din;
+        memset(&din, 0, sizeof(din));
+        din.action      = action;
+        din.input       = local_input;
+        din.timeout_sec = 30;
+
+        dispatch_output_t dout = tork_dispatch(&din);
+        t->exit_code = dout.exit_code;
+
+        int copy_len = dout.output_len;
+        if (copy_len >= TASK_MAX_OUTPUT) copy_len = TASK_MAX_OUTPUT - 1;
+        memcpy(t->output, dout.output, copy_len);
+        t->output[copy_len] = '\0';
+
+        if (dout.rc == 0) {
+            t->status = TASK_DONE;
+            g_queue.total_completed++;
+        } else {
+            t->status = TASK_FAILED;
+            g_queue.total_failed++;
+        }
+
         return;
     }
 }

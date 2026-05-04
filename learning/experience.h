@@ -82,8 +82,6 @@ uint32_t exp_count(void);
 /* Get success rate for a given action type (0.0..1.0). -1 if no data. */
 float exp_success_rate(uint8_t action_type);
 
-#endif /* EXPERIENCE_H */
-
 /* ── Experience update API ─────────────────────────────────── */
 
 /* Update the outcome of the most recent experience (written by engine after action) */
@@ -92,3 +90,5 @@ void exp_update_last(int8_t outcome, uint8_t crash, uint8_t compile_ok,
 
 /* Get a pointer to the most recent experience (read-only) */
 const experience_t *exp_last(void);
+
+#endif /* EXPERIENCE_H */

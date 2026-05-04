@@ -51,7 +51,7 @@ int br_should_fork(const fork_request_t *req, float rhythm_dissonance) {
     if (req->sandbox_level < 2) return 0;
 
     /* 3. 冷却期：距离上次分岔至少 BRANCH_COOLDOWN_TICKS */
-    if (req->current_tick - req->branch_cool_tick < BRANCH_COOLDOWN_TICKS) return 0;
+    { int32_t tick_diff = (int32_t)(req->current_tick - req->branch_cool_tick); if (tick_diff < 0 || (uint32_t)tick_diff < BRANCH_COOLDOWN_TICKS) return 0; }
 
     /* 4. 经验足够丰富（至少 100 条经验才值得分岔试探）
      *    节律失调 > 0.6 时降低阈值 30%，增强分岔急切度 */
@@ -285,7 +285,8 @@ void br_merge_if_worthy(int branch_index, soul_t *parent_soul) {
     
     int8_t main_drive = (int8_t)parent_soul->buf[S_DRIVE];
     
-    if (branch_peak <= main_drive * 1.2f) return;  /* 不够好，不合并 */
+    int16_t threshold = (int16_t)(main_drive >= 0 ? main_drive * 12 / 10 : main_drive * 8 / 10);
+    if (branch_peak <= threshold) return;  /* 不够好，不合并 */
     
     /* 非破坏性合并：以 learning_rate 为步长调整主干参数 */
     uint16_t lr;

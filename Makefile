@@ -1,4 +1,4 @@
-# TORK v3.14 — π-Heartbeat: 时效·共振·指纹·震荡
+# TORK v3.15 — TLN: 三进制逻辑推理 + π-Heartbeat
 
 AS  = as
 LD  = ld
@@ -47,6 +47,9 @@ build/instinct.o: instinct/instinct.c instinct/instinct.h
 
 build/code_reader.o: code/code_reader.c code/code_reader.h
 	$(CC) $(CFLAGS) -c -o build/code_reader.o code/code_reader.c
+
+build/tln.o: engine/tln.c engine/tln.h
+	$(CC) $(CFLAGS) -c -o build/tln.o engine/tln.c
 
 build/code_modifier.o: code/code_modifier.c code/code_modifier.h
 	$(CC) $(CFLAGS) -c -o build/code_modifier.o code/code_modifier.c
@@ -122,12 +125,21 @@ build/task.o: engine/task.c engine/task.h
 build/auditor.o: engine/auditor.c engine/auditor.h
 	$(CC) $(CFLAGS) -c -o build/auditor.o engine/auditor.c
 
+build/dispatch.o: engine/dispatch.c engine/dispatch.h
+	$(CC) $(CFLAGS) -c -o build/dispatch.o engine/dispatch.c
+
+build/codegen.o: engine/codegen.c engine/codegen.h
+	$(CC) $(CFLAGS) -c -o build/codegen.o engine/codegen.c
+
+build/scheduler.o: engine/scheduler.c engine/scheduler.h engine/soul_access.h instinct/instinct.h
+	$(CC) $(CFLAGS) -Wno-return-type -c -o build/scheduler.o engine/scheduler.c
+
 build/torkd.o: engine/torkd.c engine/torkd.h
 	$(CC) $(CFLAGS) -c -o build/torkd.o engine/torkd.c -lm
 
 # ── Engine link ─────────────────────────────────────────────────────
 
-ENGINE_OBJS = build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/self_cal.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/pi_seed.o build/pi_index.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o build/task.o build/auditor.o
+ENGINE_OBJS = build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/self_cal.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/pi_seed.o build/pi_index.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o build/task.o build/auditor.o build/dispatch.o build/codegen.o build/tln.o build/scheduler.o
 
 build/tork_engine: $(ENGINE_OBJS)
 	$(CC) -o build/tork_engine $(ENGINE_OBJS) -lm
@@ -151,14 +163,14 @@ grid: build/tork_grid
 
 # ── CLI tools ──────────────────────────────────────────────────────
 
-build/tork_ask: engine/tork_ask.c build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/pi_seed.o build/pi_index.o build/torkd.o build/self_build.o build/mutation_guide.o build/self_tune.o build/task.o build/auditor.o build/sandbox.o build/agreement.o build/code_reader.o build/code_modifier.o
-	$(CC) $(CFLAGS) -o build/tork_ask engine/tork_ask.c build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/pi_seed.o build/pi_index.o build/torkd.o build/self_build.o build/mutation_guide.o build/self_tune.o build/task.o build/auditor.o build/sandbox.o build/agreement.o build/code_reader.o build/code_modifier.o -lm
+build/tork_ask: engine/tork_ask.c build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/pi_seed.o build/pi_index.o build/torkd.o build/self_build.o build/mutation_guide.o build/self_tune.o build/task.o build/auditor.o build/dispatch.o build/codegen.o build/fission.o build/blackboard.o build/sandbox.o build/agreement.o build/code_reader.o build/code_modifier.o
+	$(CC) $(CFLAGS) -o build/tork_ask engine/tork_ask.c build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/pi_seed.o build/pi_index.o build/torkd.o build/self_build.o build/mutation_guide.o build/self_tune.o build/task.o build/auditor.o build/dispatch.o build/codegen.o build/fission.o build/blackboard.o build/sandbox.o build/agreement.o build/code_reader.o build/code_modifier.o -lm
 
-build/torkd_start: engine/torkd_start.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/pi_seed.o build/pi_index.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/mcts.o build/replay.o build/task.o build/auditor.o build/sandbox.o build/agreement.o build/code_reader.o build/code_modifier.o
-	$(CC) $(CFLAGS) -o build/torkd_start engine/torkd_start.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/pi_seed.o build/pi_index.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/mcts.o build/replay.o build/task.o build/auditor.o build/sandbox.o build/agreement.o build/code_reader.o build/code_modifier.o -lm
+build/torkd_start: engine/torkd_start.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/pi_seed.o build/pi_index.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/mcts.o build/replay.o build/task.o build/auditor.o build/dispatch.o build/codegen.o build/fission.o build/blackboard.o build/sandbox.o build/agreement.o build/code_reader.o build/code_modifier.o
+	$(CC) $(CFLAGS) -o build/torkd_start engine/torkd_start.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/pi_seed.o build/pi_index.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/mcts.o build/replay.o build/task.o build/auditor.o build/dispatch.o build/codegen.o build/fission.o build/blackboard.o build/sandbox.o build/agreement.o build/code_reader.o build/code_modifier.o -lm
 
-build/tork: engine/tork_cli.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/pi_seed.o build/pi_index.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/mcts.o build/replay.o build/task.o build/auditor.o build/sandbox.o build/agreement.o build/code_reader.o build/code_modifier.o
-	$(CC) $(CFLAGS) -o build/tork engine/tork_cli.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/pi_seed.o build/pi_index.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/mcts.o build/replay.o build/task.o build/auditor.o build/sandbox.o build/agreement.o build/code_reader.o build/code_modifier.o -lm
+build/tork: engine/tork_cli.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/pi_seed.o build/pi_index.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/mcts.o build/replay.o build/task.o build/auditor.o build/dispatch.o build/codegen.o build/fission.o build/blackboard.o build/sandbox.o build/agreement.o build/code_reader.o build/code_modifier.o
+	$(CC) $(CFLAGS) -o build/tork engine/tork_cli.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/pi_seed.o build/pi_index.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/mcts.o build/replay.o build/task.o build/auditor.o build/dispatch.o build/codegen.o build/fission.o build/blackboard.o build/sandbox.o build/agreement.o build/code_reader.o build/code_modifier.o -lm
 
 torkd: build/torkd_start
 	@echo "torkd 已编译: ./build/torkd_start"
@@ -211,7 +223,7 @@ appimage: all
 
 # ── Unit Tests ──────────────────────────────────────────────────────
 
-TEST_OBJS = build/sandbox.o build/agreement.o build/code_reader.o build/code_modifier.o build/task.o build/auditor.o build/experience.o build/pattern.o build/pi_seed.o build/pi_index.o
+TEST_OBJS = build/sandbox.o build/agreement.o build/code_reader.o build/code_modifier.o build/task.o build/auditor.o build/experience.o build/pattern.o build/pi_seed.o build/pi_index.o build/dispatch.o build/codegen.o build/fission.o build/blackboard.o
 
 build/test_core: tests/test_core.c $(TEST_OBJS)
 	$(CC) $(CFLAGS) -o build/test_core tests/test_core.c $(TEST_OBJS) -lm

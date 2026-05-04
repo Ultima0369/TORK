@@ -1,4 +1,4 @@
-/* 🥚 tork — 连接 TORK 守护进程并提问
+/* tork — 连接 TORK 守护进程并提问
  * 用法: ./build/tork "你怎么样？"
  *       ./build/tork status
  *       ./build/tork stop
@@ -11,7 +11,7 @@
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        printf("🥚 TORK 客户端\n");
+        printf("TORK CLI\n");
         printf("   用法: ./build/tork <问题>\n");
         printf("   示例: ./build/tork \"你怎么样？\"\n");
         printf("         ./build/tork status\n");
@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     
-    printf("\033[36m🥚 TORK:\n%s\033[0m", response);
+    printf("\033[36mTORK:\n%s\033[0m", response);
     
     return 0;
 }

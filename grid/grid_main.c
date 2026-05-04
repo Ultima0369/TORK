@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
     
     /* ── Clear screen, hide cursor ── */
     printf("\033[2J\033[?25l");
-    printf("\033[1;1mT🥚RK Grid %s  [Ctrl+C to exit]%s\033[0m\n",
+    printf("\033[1;1mTRK Grid %s  [Ctrl+C to exit]%s\033[0m\n",
            live_mode ? "LIVE SOUL VIZ" : "AUTONOMOUS EMERGENCE",
            live_mode ? " (connect to running engine)" : "");
     

@@ -26,7 +26,7 @@ static void cmd_status(void *soul_ptr, char *resp, int max_len) {
     soul_t *s = (soul_t *)soul_ptr;
     
     snprintf(resp, max_len,
-        "🥚 TORK 正在运行\n"
+        "TORK AI engine running\n"
         "   心跳: %u tick\n"
         "   驱动: %+d (正向=好奇, 负向=恐惧)\n"
         "   压力: %u\n"

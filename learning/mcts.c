@@ -245,11 +245,11 @@ mcts_result_t mcts_search(const mcts_state_t *state, int time_budget_ms) {
     root->action.param = 0;
     
     /* Set experience success rates from historical data */
+    mcts_state_t local_state = *state;
     for (int t = 0; t < MCTS_NUM_ACTIONS; t++) {
-        /* Override state's exp_success with real data */
-        ((mcts_state_t*)state)->exp_success[t] = exp_success_rate((uint8_t)t);
+        local_state.exp_success[t] = exp_success_rate((uint8_t)t);
     }
-    root->state = *state; /* Re-read */
+    root->state = local_state;
     
     /* Calculate iterations based on time budget */
     int iterations = (time_budget_ms > 0) ? (time_budget_ms * 100) : mcts_get_min_iterations();

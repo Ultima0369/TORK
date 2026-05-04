@@ -177,10 +177,13 @@ int sb_hotswap(void) {
         return -1;
     }
     
-    /* Copy to a safe backup location */
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "cp build/tork_engine build/tork_engine.new 2>/dev/null");
-    system(cmd);
+    /* Copy to a safe backup location (fork+execl, no shell) */
+    pid_t cp = fork();
+    if (cp == 0) {
+        execl("/bin/cp", "cp", "build/tork_engine", "build/tork_engine.new", NULL);
+        _exit(1);
+    }
+    if (cp > 0) { int st; waitpid(cp, &st, 0); }
     
     /* Signal the running engine to reload on next tick */
     /* We write a special file that tork_engine checks each loop */

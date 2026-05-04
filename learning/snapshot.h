@@ -91,9 +91,6 @@ void snap_commit(uint64_t tick, int64_t drive, uint8_t hw_stress,
 uint32_t snap_committed_count(void);
 
 /* 打印快照状态 */
-void snap_commit(uint64_t tick, int64_t drive, uint8_t hw_stress,
-                 uint64_t gen_count, const uint8_t *soul_data);
-uint32_t snap_committed_count(void);
 void snap_print_status(void);
 
 #endif /* SNAPSHOT_H */

@@ -362,7 +362,7 @@ void grid_render(tork_grid_t *g) {
         } else if (y == GRID_H - 1) {
             /* Bottom bar */
             snprintf(line_buf, sizeof(line_buf),
-                "T🥚RK ♥%05lu | M%d | %s",
+                "TRK ♥%05lu | M%d | %s",
                 g->global_tick, g->display_mode,
                 g->paused ? "PAUSED" : "ALIVE");
         } else {

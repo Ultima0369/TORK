@@ -1,5 +1,5 @@
 #!/bin/bash
-# 🥚 TORK 守护进程控制脚本
+# TORK 守护进程控制脚本
 # 用法: tools/torkd_ctl.sh [start|stop|status|restart|query]
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENGINE="$BASE_DIR/build/tork_engine"
@@ -14,7 +14,7 @@ case "${1:-help}" in
             echo "TORK 已在运行 (PID: $(cat $PIDFILE))"
             exit 0
         fi
-        echo "🥚 TORK 守护进程启动中..."
+        echo "TORK 守护进程启动中..."
         nohup "$ENGINE" --daemon --quiet 20000000 > "$LOGFILE" 2>&1 &
         echo $! > "$PIDFILE"
         sleep 1

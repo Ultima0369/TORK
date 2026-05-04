@@ -52,6 +52,30 @@ void fission_cleanup(void) {
     unlink(FISSION_LOCK_PATH);
 }
 
+static int spawn_cp(const char *src, const char *dst) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) { execl("/bin/cp", "cp", "-r", src, dst, NULL); _exit(1); }
+    int st; waitpid(pid, &st, 0);
+    return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+}
+
+static int spawn_cp_pair(const char *src, const char *dst) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) { execl("/bin/cp", "cp", src, dst, NULL); _exit(1); }
+    int st; waitpid(pid, &st, 0);
+    return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+}
+
+static int spawn_rm_rf(const char *path) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) { execl("/bin/rm", "rm", "-rf", path, NULL); _exit(1); }
+    int st; waitpid(pid, &st, 0);
+    return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+}
+
 pid_t fission_spawn(void) {
     if (create_lock() != 0) return -1;
 
@@ -70,14 +94,27 @@ pid_t fission_spawn(void) {
 
         if (mkdir(workdir, 0755) != 0 && errno != EEXIST) _exit(1);
 
-        /* Copy project structure */
-        char cmd[512];
-        snprintf(cmd, sizeof(cmd), "cp -r build core engine instinct code benchmark %s/ 2>/dev/null", workdir);
-        system(cmd);
-        snprintf(cmd, sizeof(cmd), "cp Makefile build.sh %s/ 2>/dev/null", workdir);
-        system(cmd);
-        snprintf(cmd, sizeof(cmd), "cp -r benchmark/memcpy %s/benchmark/ 2>/dev/null", workdir);
-        system(cmd);
+        /* Copy project structure (fork+execl, no shell) */
+        const char *dirs[] = {"build", "core", "engine", "instinct", "code", "benchmark", NULL};
+        for (int i = 0; dirs[i]; i++) {
+            char src[256], dst[256];
+            snprintf(src, sizeof(src), "%s", dirs[i]);
+            snprintf(dst, sizeof(dst), "%s/", workdir);
+            spawn_cp(src, dst);
+        }
+
+        const char *files[] = {"Makefile", "build.sh", NULL};
+        for (int i = 0; files[i]; i++) {
+            char dst[256];
+            snprintf(dst, sizeof(dst), "%s/", workdir);
+            spawn_cp_pair(files[i], dst);
+        }
+
+        {
+            char dst[256];
+            snprintf(dst, sizeof(dst), "%s/benchmark/", workdir);
+            spawn_cp("benchmark/memcpy", dst);
+        }
 
         if (chdir(workdir) != 0) _exit(1);
 
@@ -134,10 +171,10 @@ int fission_migrate(pid_t child_pid) {
     int st;
     waitpid(child_pid, &st, 0);
 
-    /* Clean up child directory */
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd), "rm -rf %s_%d", FISSION_CHILD_DIR_PREFIX, child_pid);
-    system(cmd);
+    /* Clean up child directory (fork+execl, no shell) */
+    char path[256];
+    snprintf(path, sizeof(path), "%s_%d", FISSION_CHILD_DIR_PREFIX, child_pid);
+    spawn_rm_rf(path);
 
     fission_cleanup();
     return 0;

@@ -7,6 +7,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <errno.h>
 
 /* ── 命令分类表 ──────────────────────────────────────────────── */
 
@@ -218,6 +219,10 @@ sandbox_result_t sandbox_exec(const char *command, int timeout_sec) {
         struct timeval tv = {0, 100000};
         int ret = select(max_fd + 1, &rfds, NULL, NULL, &tv);
 
+        if (ret < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
         if (ret > 0) {
             if (FD_ISSET(stdout_fd, &rfds)) {
                 int n = read(stdout_fd, result.stdout_buf + stdout_pos,
@@ -244,7 +249,11 @@ sandbox_result_t sandbox_exec(const char *command, int timeout_sec) {
 
     if (remaining <= 0) {
         kill(pid, SIGKILL);
-        waitpid(pid, NULL, 0);
+        for (;;) {
+            pid_t wr = waitpid(pid, NULL, 0);
+            if (wr == pid) break;
+            if (wr < 0 && errno != EINTR) break;
+        }
         timed_out = 1;
         result.exit_code = -1;
     }

@@ -1,4 +1,4 @@
-/* 🥚 torkd_start — 启动独立的 TORK 守护进程
+/* torkd_start — 启动独立的 TORK 守护进程
  * 用法: ./build/torkd_start
  * TORK 将在后台监听 /tmp/torkd.sock
  * 注: tork_engine 已自带 socket 服务, 此文件仅用于独立运行
@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
     pid_t pid = fork();
     if (pid < 0) { perror("fork"); return 1; }
     if (pid > 0) {
-        printf("🥚 TORK daemon started (PID %d, socket %s)\n", pid, TORKD_SOCKET_PATH);
+        printf("TORK daemon started (PID %d, socket %s)\n", pid, TORKD_SOCKET_PATH);
         return 0;
     }
     

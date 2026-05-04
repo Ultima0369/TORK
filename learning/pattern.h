@@ -69,8 +69,6 @@ uint32_t pat_cycles(void);
 /* 清理 */
 void pat_cleanup(void);
 
-#endif /* PATTERN_H */
-
 /* ── 持久化 ────────────────────────────────────────────────── */
 /* 将模式库保存到二进制文件 (persist/patterns.bin) */
 int pat_save(void);
@@ -82,3 +80,5 @@ void pat_record_remote(uint8_t stress_low, uint8_t stress_high,
                         int8_t drive_min, int8_t drive_max,
                         uint8_t action_type, int8_t avg_outcome,
                         uint16_t sample_count);
+
+#endif /* PATTERN_H */

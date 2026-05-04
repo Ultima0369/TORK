@@ -1,4 +1,5 @@
 #include "persistor.h"
+#include "soul_access.h"
 #include "blackboard.h"
 #include "calibrator.h"
 #include "inductor.h"
@@ -29,9 +30,10 @@
 #define PARAM_ADDR  0x301000
 #define RULE_ADDR   0x302000
 
-#define SOUL_SIZE   96
+/* SOUL_SIZE from soul_access.h (192) */
 #define BB_SIZE     4096
 #define PARAM_DATA  18
+#define PARAM_OFF_DATA 0x008  /* from calibrator.h */
 #define RULE_MAX_BYTES (RULE_MAX * RULE_STRUCT_SIZE)
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -42,7 +44,37 @@ static int ensure_dir(void) {
 }
 
 static int backup_file(const char *src, const char *dst) {
+    /* rename may fail if src doesn't exist — that's fine */
     return rename(src, dst);
+}
+
+/* Write to a temp file, then atomically rename to target.
+   On failure, the target is untouched. */
+static int safe_write_file(const char *path, const void *data, size_t len,
+                           const char *bak_path) {
+    char tmp_path[256];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
+
+    int fd = open(tmp_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return -1;
+    ssize_t w = write(fd, data, len);
+    fsync(fd);
+    close(fd);
+
+    if (w != (ssize_t)len) {
+        unlink(tmp_path);
+        return -1;
+    }
+
+    /* Move old file to backup (may not exist, that's ok) */
+    if (bak_path) rename(path, bak_path);
+
+    /* Atomically install new file */
+    if (rename(tmp_path, path) != 0) {
+        unlink(tmp_path);
+        return -1;
+    }
+    return 0;
 }
 
 static int write_file(const char *path, const void *data, size_t len) {
@@ -85,29 +117,22 @@ int ps_save_all(const void *soul_buf, size_t soul_len) {
 
     int ok = 0;
 
-    /* Backup old files */
-    backup_file(PATH_SOUL, PATH_BAK_SOUL);
-    backup_file(PATH_BB, PATH_BAK_BB);
-    backup_file(PATH_PARAMS, PATH_BAK_PARAMS);
-    backup_file(PATH_RULES, PATH_BAK_RULES);
-
     /* Save soul (from caller-provided buffer) */
     uint32_t soul_tick = 0;
     if (soul_buf && soul_len >= 4) {
         memcpy(&soul_tick, soul_buf, 4);
-        if (write_file(PATH_SOUL, soul_buf, soul_len) != 0)
+        if (safe_write_file(PATH_SOUL, soul_buf, soul_len, PATH_BAK_SOUL) != 0)
             fprintf(stderr, "ps_save: soul failed\n");
         else
             ok++;
     } else {
-        /* No soul data — remove stale file */
         unlink(PATH_SOUL);
     }
 
     /* Save params (18 bytes from shared memory) */
     uint8_t param_buf[PARAM_DATA];
-    memcpy(param_buf, (const void *)PARAM_ADDR, PARAM_DATA);
-    if (write_file(PATH_PARAMS, param_buf, PARAM_DATA) != 0)
+    memcpy(param_buf, (const void *)(PARAM_ADDR + PARAM_OFF_DATA), PARAM_DATA);
+    if (safe_write_file(PATH_PARAMS, param_buf, PARAM_DATA, PATH_BAK_PARAMS) != 0)
         fprintf(stderr, "ps_save: params failed\n");
     else
         ok++;
@@ -121,7 +146,7 @@ int ps_save_all(const void *soul_buf, size_t soul_len) {
     if (rule_bytes > sizeof(rule_buf)) rule_bytes = sizeof(rule_buf);
     if (rule_count > 0)
         memcpy(rule_buf, (const void *)(RULE_ADDR + 0x10), rule_bytes);
-    if (write_file(PATH_RULES, rule_buf, rule_bytes) != 0)
+    if (safe_write_file(PATH_RULES, rule_buf, rule_bytes, PATH_BAK_RULES) != 0)
         fprintf(stderr, "ps_save: rules failed\n");
     else
         ok++;
@@ -129,7 +154,7 @@ int ps_save_all(const void *soul_buf, size_t soul_len) {
     /* Save blackboard (4KB) */
     uint8_t bb_buf[BB_SIZE];
     memcpy(bb_buf, (const void *)BB_ADDR, BB_SIZE);
-    if (write_file(PATH_BB, bb_buf, BB_SIZE) != 0)
+    if (safe_write_file(PATH_BB, bb_buf, BB_SIZE, PATH_BAK_BB) != 0)
         fprintf(stderr, "ps_save: blackboard failed\n");
     else
         ok++;
@@ -171,7 +196,7 @@ int ps_restore_all(void) {
     /* Try params */
     uint8_t param_buf[PARAM_DATA];
     if (read_file(PATH_PARAMS, param_buf, PARAM_DATA) == 0) {
-        memcpy((void *)PARAM_ADDR, param_buf, PARAM_DATA);
+        memcpy((void *)(PARAM_ADDR + PARAM_OFF_DATA), param_buf, PARAM_DATA);
         restored++;
     }
 
@@ -281,14 +306,27 @@ int ps_hot_swap(const char *new_binary_path) {
     return -1;
 }
 
-/* ── Emergency save (signal-safe subset) ────────────────────────── */
+/* ── Emergency save (signal-safe: only async-safe syscalls) ──── */
 static volatile int ps_emergency_done = 0;
+static const void *g_soul_buf = NULL;
+static size_t g_soul_buf_len = 0;
+
+void ps_register_soul_buf(const void *buf, size_t len) {
+    g_soul_buf = buf;
+    g_soul_buf_len = len;
+}
 
 void ps_emergency_save(void) {
     if (ps_emergency_done) return;
     ps_emergency_done = 1;
-    ps_save_all(NULL, 0);
-    ps_cleanup_baks();
+    int fd = open(PATH_SOUL, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd >= 0) {
+        const void *src = (g_soul_buf && g_soul_buf_len >= SOUL_SIZE)
+                          ? g_soul_buf : (const void *)SOUL_ADDR_VAL;
+        write(fd, src, SOUL_SIZE);
+        fsync(fd);
+        close(fd);
+    }
 }
 
 /* ── Cleanup .bak files ─────────────────────────────────────────── */

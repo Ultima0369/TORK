@@ -88,8 +88,8 @@ build/watcher.o: learning/watcher.c learning/watcher.h
 build/self_build.o: learning/self_build.c learning/self_build.h
 	$(CC) $(CFLAGS) -c -o build/self_build.o learning/self_build.c -lm
 
-build/mutation_guide.o: learning/mutation_guide.c learning/mutation_guide.h
-	$(CC) $(CFLAGS) -c -o build/mutation_guide.o learning/mutation_guide.c -lm
+build/mutation_guide.o build/self_tune.o: learning/mutation_guide.c learning/mutation_guide.h
+	$(CC) $(CFLAGS) -c -o build/mutation_guide.o build/self_tune.o learning/mutation_guide.c -lm
 
 build/distributed.o: learning/distributed.c learning/distributed.h
 	$(CC) $(CFLAGS) -c -o build/distributed.o learning/distributed.c -lm
@@ -122,8 +122,8 @@ build/torkd.o: engine/torkd.c engine/torkd.h
 build/idler.o: engine/idler.c engine/idler.h engine/blackboard.h engine/inductor.h
 	$(CC) $(CFLAGS) -c -o build/idler.o engine/idler.c
 
-build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/self_cal.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/distributed.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o
-	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/self_cal.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/distributed.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o -lm
+build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/self_cal.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o
+	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/self_cal.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o -lm
 
 # ── Targets ─────────────────────────────────────────────────────────
 
@@ -206,16 +206,16 @@ grid: build/tork_grid
 	@echo "✅ 网格已编译: ./build/tork_grid [帧数]"
 
 build/tork_ask: engine/tork_ask.c build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o
-	$(CC) $(CFLAGS) -o build/tork_ask engine/tork_ask.c build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/torkd.o build/self_build.o build/mutation_guide.o -lm
+	$(CC) $(CFLAGS) -o build/tork_ask engine/tork_ask.c build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/torkd.o build/self_build.o build/mutation_guide.o build/self_tune.o -lm
 
 # ── TORK 守护进程 ─────────────────────────────────────────
 .PHONY: torkd
 
-build/torkd_start: engine/torkd_start.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/self_build.o build/mutation_guide.o build/distributed.o build/mcts.o build/replay.o
-	$(CC) $(CFLAGS) -o build/torkd_start engine/torkd_start.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/self_build.o build/mutation_guide.o build/distributed.o build/mcts.o build/replay.o -lm
+build/torkd_start: engine/torkd_start.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/mcts.o build/replay.o
+	$(CC) $(CFLAGS) -o build/torkd_start engine/torkd_start.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/mcts.o build/replay.o -lm
 
-build/tork: engine/tork_cli.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/self_build.o build/mutation_guide.o build/distributed.o build/mcts.o build/replay.o
-	$(CC) $(CFLAGS) -o build/tork engine/tork_cli.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/self_build.o build/mutation_guide.o build/distributed.o build/mcts.o build/replay.o -lm
+build/tork: engine/tork_cli.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/mcts.o build/replay.o
+	$(CC) $(CFLAGS) -o build/tork engine/tork_cli.c build/torkd.o build/query.o build/watcher.o build/snapshot.o build/observer.o build/energy.o build/experience.o build/branch.o build/pattern.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/mcts.o build/replay.o -lm
 
 torkd: build/torkd_start
 	@echo "✅ torkd 已编译: ./build/torkd_start"

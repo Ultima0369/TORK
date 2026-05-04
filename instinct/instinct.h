@@ -45,3 +45,4 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in);
 void instinct_print(int round, uint32_t tick, const tork_instinct_t *inst);
 
 #endif
+void instinct_apply_tune(void);

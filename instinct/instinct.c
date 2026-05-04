@@ -1,8 +1,9 @@
 #include "instinct.h"
+#include "../learning/self_tune.h"
 #include "calibrator.h"
 #include <stdio.h>
 
-static const struct tork_params fallback_params = {
+static struct tork_params fallback_params = {
     .temp_warn                = 70,
     .temp_moderate            = 80,
     .temp_critical            = 85,
@@ -137,6 +138,18 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
     }
 
     return inst;
+}
+
+
+/* ── 从自调参模块更新权重 ── */
+void instinct_apply_tune(void) {
+    tune_params_t tp = tune_get_params();
+    fallback_params.fear_weight      = (int)(tp.fear_weight * 100);
+    fallback_params.desire_weight    = (int)(tp.desire_weight * 100);
+    fallback_params.curiosity_weight = (int)(tp.curiosity_weight * 100);
+    printf("  INST: applied tuned params fear=%d desire=%d curiosity=%d\n",
+           fallback_params.fear_weight, fallback_params.desire_weight,
+           fallback_params.curiosity_weight);
 }
 
 void instinct_print(int round, uint32_t tick, const tork_instinct_t *inst) {

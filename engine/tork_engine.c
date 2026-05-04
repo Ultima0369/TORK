@@ -12,6 +12,7 @@
 #include "../learning/mcts.h"
 #include "../learning/branch.h"
 #include "../learning/pattern.h"
+#include "../learning/self_tune.h"
 #include "../learning/observer.h"
 #include "../learning/snapshot.h"
 #include "../learning/energy.h"
@@ -94,6 +95,7 @@ int main(int argc, char **argv) {
     exp_init();
     br_init();
     pat_init();
+    tune_init(1.0f, 0.7f, 1.15f);  /* fear_base, desire_base, curiosity_base from instinct defaults */
     pat_load();
     obs_init();
     obs_load_baseline();
@@ -111,6 +113,7 @@ int main(int argc, char **argv) {
     exp_init();
     br_init();
     pat_init();
+    tune_init(1.0f, 0.7f, 1.15f);  /* fear_base, desire_base, curiosity_base from instinct defaults */
     pat_load();
     obs_init();
     obs_load_baseline();
@@ -346,6 +349,8 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             learn_counter++;
             if (learn_counter % 20 == 0 && exp_count() > 5) {
                 pat_learn_from_experience();
+                tune_adjust_from_patterns();
+                instinct_apply_tune();
                 if (learn_counter % 40 == 0) {
                     pat_save();
                 }
@@ -929,7 +934,7 @@ printf("TORK engine started. core PID=%d\n", core_pid);
                    inp.fission_count, inp.wins, bb_opt);
         }
 
-        usleep(500000);
+        usleep(tune_get_params().heartbeat_interval * 1000);  /* dynamic from self_tune */
     }
 
     printf("\nshutting down core (pid %d)...\n", core_pid);

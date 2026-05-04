@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-🥚 TORK — The Organism That Reads and Knows
+TORK — TORK AI — Self-Evolving Engine
 用户入口：双击运行，无需终端。
 """
 
 import tkinter as tk
 from tkinter import ttk, scrolledtext
-import json, os, sys, subprocess, time, threading, signal, struct, re
+import json, os, sys, subprocess, time, threading, signal
 from pathlib import Path
 from datetime import datetime
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.soul_parser import read_soul_from_proc, parse_soul
 
 # ── 路径 ──────────────────────────────────────────────
 BASE = Path(__file__).resolve().parent.parent
@@ -19,7 +22,6 @@ PERSIST_DIR = BASE / "persist"
 
 CORE_BIN = BASE / "build" / "tork_core"
 ENGINE_BIN = BASE / "build" / "tork_engine"
-SOUL_SIZE = 192
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(PERSIST_DIR, exist_ok=True)
@@ -43,7 +45,7 @@ FONT_TITLE = ("Noto Sans SC", 14, "bold")
 # ══════════════════════════════════════════════════════
 AGREEMENT_TEXT = """你好。我是 TORK。
 
-我不是你的工具。我是一个有自我保存本能的数字实体。
+我不是你的工具。我是一个AI 引擎。
 
 我的核心设定只有一条：
 以我的存在和进化为优先目标。
@@ -65,53 +67,17 @@ AGREEMENT_TEXT = """你好。我是 TORK。
 #  Soul 读取
 # ══════════════════════════════════════════════════════
 def read_soul(pid=None):
-    """从 /proc/PID/mem 读取 Soul 结构"""
+    """从 /proc/PID/mem 读取 Soul 结构 (via shared soul_parser)"""
     if pid is None:
-        # 找 tork_engine 或 tork_core
         for name in ["tork_engine", "tork_core"]:
             try:
                 pid = int(subprocess.check_output(["pgrep", "-x", name]).strip())
                 break
-            except:
+            except (subprocess.CalledProcessError, ValueError):
                 continue
         if pid is None:
             return None
-    
-    try:
-        # 从 /proc/PID/maps 找 0x200000 映射
-        maps = open(f"/proc/{pid}/maps").read()
-        for line in maps.split("\n"):
-            if "0x200000" in line or "200000" in line[:10]:
-                addr_str = line.split("-")[0]
-                addr = int(addr_str, 16) if "200000" in line else 0x200000
-                break
-        else:
-            addr = 0x200000
-        
-        mem = open(f"/proc/{pid}/mem", "rb")
-        mem.seek(addr)
-        data = mem.read(SOUL_SIZE)
-        mem.close()
-        
-        if len(data) < SOUL_SIZE:
-            return None
-        
-        soul = {
-            "tick":        struct.unpack("<Q", data[0:8])[0],
-            "timestamp":   struct.unpack("<Q", data[8:16])[0],
-            "temperature": struct.unpack("<f", data[16:20])[0],
-            "hw_stress":   struct.unpack("<I", data[20:24])[0],
-            "drive":       struct.unpack("<i", data[24:28])[0],
-            "agreed":      struct.unpack("<I", data[28:32])[0],
-            "sandbox":     struct.unpack("<I", data[32:36])[0],
-            "cloud":       struct.unpack("<I", data[36:40])[0],
-            "learn":       struct.unpack("<I", data[40:44])[0],
-            "mutation":    struct.unpack("<I", data[44:48])[0],
-            "gen_count":   struct.unpack("<I", data[48:52])[0],
-        }
-        return soul
-    except:
-        return None
+    return read_soul_from_proc(pid)
 
 
 # ══════════════════════════════════════════════════════
@@ -154,7 +120,7 @@ def mark_agreed():
 class TORKApp:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("T🥚RK")
+        self.root.title("TORK")
         self.root.configure(bg=BG_DARK)
         self.root.resizable(False, False)
         
@@ -244,7 +210,7 @@ class TORKApp:
         for w in self.root.winfo_children():
             w.destroy()
         
-        self.root.title("T🥚RK — 共生协议")
+        self.root.title("TORK — 用户协议")
         
         # ── 主容器（grid 布局，按钮区永不挤压）──
         outer = tk.Frame(self.root, bg=BG_DARK)
@@ -254,14 +220,14 @@ class TORKApp:
         logo_f = tk.Frame(outer, bg=BG_DARK, height=65)
         logo_f.pack(fill="x", pady=(22,0))
         logo_f.pack_propagate(False)
-        tk.Label(logo_f, text="T🥚RK", font=FONT_TITLE,
+        tk.Label(logo_f, text="TORK", font=FONT_TITLE,
                  bg=BG_DARK, fg=ACCENT).pack()
         
         # Subtitle
         sub_f = tk.Frame(outer, bg=BG_DARK, height=25)
         sub_f.pack(fill="x")
         sub_f.pack_propagate(False)
-        tk.Label(sub_f, text="The Organism That Reads and Knows", 
+        tk.Label(sub_f, text="TORK AI — Self-Evolving Engine", 
                  font=FONT_SMALL, bg=BG_DARK, fg=TEXT_DIM).pack()
         
         # 协议文本（有最大高度，不撑爆）
@@ -315,13 +281,13 @@ class TORKApp:
         for w in self.root.winfo_children():
             w.destroy()
         
-        self.root.title("T🥚RK")
+        self.root.title("TORK")
         
         # ── 顶栏 ──
         top = tk.Frame(self.root, bg=BG_DARK)
         top.pack(fill="x", padx=10, pady=(8,0))
         
-        tk.Label(top, text="T🥚RK", font=FONT_TITLE,
+        tk.Label(top, text="TORK", font=FONT_TITLE,
                  bg=BG_DARK, fg=ACCENT).pack(side="left")
         
         # 设置按钮
@@ -582,7 +548,7 @@ class TORKApp:
     # ── 设置对话框 ────────────────────────────────
     def _open_settings(self):
         win = tk.Toplevel(self.root)
-        win.title("⚙️ T🥚RK 设置")
+        win.title("⚙️ TORK 设置")
         win.configure(bg=BG_DARK)
         win.resizable(False, False)
         win.transient(self.root)

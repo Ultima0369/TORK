@@ -123,7 +123,7 @@ class TORKDaemon:
             self.start_dashboard()
 
         if mode == "all":
-            print(f"\n🥚 TORK 守护进程运行中")
+            print(f"\nTORK 守护进程运行中")
             print(f"   引擎 PID: {self.engine_proc.pid if self.engine_proc else '—'}")
             print(f"   仪表盘 PID: {self.dashboard_proc.pid if self.dashboard_proc else '—'}")
             print(f"   按 Ctrl+C 停止所有进程\n")

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import subprocess, os, sys, time, threading, json, struct
+import subprocess, os, sys, time, threading, json
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'api'))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tork_api import TorkAPI
+from shared.soul_parser import read_soul_from_proc
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 INBOX = os.path.join(BASE, 'inbox.md')
@@ -12,7 +14,7 @@ INBOX = os.path.join(BASE, 'inbox.md')
 class TorkDesktop:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("TORK · 师徒系统")
+        self.root.title("TORK AI Studio")
         self.root.geometry("1200x700")
         self.root.configure(bg='#1e1e1e')
         self.current_file = None
@@ -164,14 +166,17 @@ class TorkDesktop:
         try:
             if ext == '.c':
                 out = self.current_file.replace('.c', '')
-                subprocess.Popen(f"gcc -Wall -O2 -o '{out}' '{self.current_file}' && '{out}'", shell=True)
+                subprocess.Popen(['gcc', '-Wall', '-O2', '-o', out, self.current_file])
+                self.root.after(1000, lambda: subprocess.Popen([out]))
                 self.add_log(f"▶ 编译运行: {os.path.basename(self.current_file)}", 'good')
             elif ext == '.asm':
                 out = self.current_file.replace('.asm', '')
-                subprocess.Popen(f"as -o '{out}.o' '{self.current_file}' && ld -o '{out}' '{out}.o' && '{out}'", shell=True)
+                subprocess.Popen(['as', '-o', out + '.o', self.current_file])
+                self.root.after(1000, lambda: subprocess.Popen(['ld', '-o', out, out + '.o']))
+                self.root.after(2000, lambda: subprocess.Popen([out]))
                 self.add_log(f"▶ 汇编运行: {os.path.basename(self.current_file)}", 'good')
             else:
-                subprocess.Popen(self.current_file, shell=True)
+                subprocess.Popen([self.current_file])
         except Exception as e:
             self.add_log(f"❌ 运行失败: {str(e)}", 'error')
     
@@ -245,21 +250,20 @@ class TorkDesktop:
     
     def read_tork_soul(self, pid):
         try:
-            with open(f'/proc/{pid}/mem', 'rb') as f:
-                f.seek(0x200000)
-                data = f.read(96)
-                if len(data) >= 40:
-                    tick = struct.unpack_from('<I', data, 0)[0]
-                    hw_stress = data[0x24]
-                    mode = data[0x25]
-                    self.lbl_tick.config(text=f"tick: {tick}")
-                    self.lbl_stress.config(text=f"hw_stress: {hw_stress}  mode: {mode}")
-                    if tick > 0:
-                        self.tork_indicator.itemconfig(self.dot, fill='#6a9955')
-                    self.bar_fear['value'] = max(0, min(100, hw_stress * 33))
-                    self.bar_desire['value'] = max(0, min(100, 60 - hw_stress * 10))
-                    self.bar_curiosity['value'] = max(0, min(100, 40 - hw_stress * 5))
-        except: pass
+            soul = read_soul_from_proc(pid)
+            if soul:
+                tick = soul.get("tick", 0)
+                hw_stress = soul.get("hw_stress", 0)
+                mode = soul.get("mode", 0)
+                self.lbl_tick.config(text=f"tick: {tick}")
+                self.lbl_stress.config(text=f"hw_stress: {hw_stress}  mode: {mode}")
+                if tick > 0:
+                    self.tork_indicator.itemconfig(self.dot, fill='#6a9955')
+                self.bar_fear['value'] = max(0, min(100, hw_stress * 33))
+                self.bar_desire['value'] = max(0, min(100, 60 - hw_stress * 10))
+                self.bar_curiosity['value'] = max(0, min(100, 40 - hw_stress * 5))
+        except (OSError, ValueError):
+            pass
     
     def check_inbox(self):
         if not self.watching_inbox: return
@@ -300,7 +304,7 @@ class TorkDesktop:
                             f.write(code + '\n')
                         self.add_log(f"📥 写入: {dest}", 'good')
                     elif lang in ('sh', 'bash'):
-                        subprocess.Popen(code, shell=True)
+                        subprocess.Popen(['/bin/sh', '-c', code])
                         self.add_log(f"📥 执行命令: {code[:50]}...", 'highlight')
             i += 1
     

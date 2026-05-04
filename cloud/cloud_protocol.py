@@ -6,10 +6,12 @@ TORK 云端协议 v2.2 — 接入 DeepSeek + Dashboard 支持
   云端大脑 (DeepSeek) ←→ JSON 协议 ←→ TORK 本地代理 ←→ Sandbox/Soul
 """
 
-import json, sys, os, time, struct, subprocess, threading, queue
+import json, sys, os, time, struct, subprocess, threading, queue, shlex
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(BASE, 'shared'))
 sys.path.insert(0, os.path.join(BASE, 'api'))
+from soul_parser import parse_soul_full
 
 class TorkCloudAgent:
     """云端代理：接收云端指令，执行本地操作，返回结果"""
@@ -88,7 +90,7 @@ class TorkCloudAgent:
             except:
                 pass
         try:
-            r = subprocess.run(command, shell=True, capture_output=True,
+            r = subprocess.run(shlex.split(command), capture_output=True,
                              timeout=timeout, text=True)
             return {"type": "result", "data": {
                 "exit_code": r.returncode, "stdout": r.stdout,
@@ -123,17 +125,8 @@ class TorkCloudAgent:
             if raw_hex is None:
                 return {"type": "error", "data": {"msg": "TORK 未运行"}}
             raw = bytes.fromhex(raw_hex)
-            soul = {
-                "tick": struct.unpack_from("<I", raw, 0x00)[0],
-                "hw_stress": raw[0x24],
-                "drive": struct.unpack_from("<b", raw, 0x30)[0],
-                "agreed": raw[0x48] if len(raw) > 0x48 else 0,
-                "sandbox_level": raw[0x49] if len(raw) > 0x49 else 0,
-                "cloud_connected": raw[0x4A] if len(raw) > 0x4A else 0,
-                "learn_count": struct.unpack_from("<H", raw, 0x4C)[0] if len(raw) > 0x4D else 0,
-                "mutation_count": struct.unpack_from("<H", raw, 0x4E)[0] if len(raw) > 0x4F else 0,
-                "gen_count": struct.unpack_from("<I", raw, 0x54)[0] if len(raw) > 0x57 else 0,
-            }
+            soul = parse_soul_full(raw)
+            soul["pid"] = pid
             self.soul_cache = soul
             return {"type": "result", "data": soul}
         except Exception as e:
@@ -259,43 +252,11 @@ class TorkCloudAgent:
         info["soul_hex"] = raw_hex or ""
         info["engine_pid"] = pid or 0
 
-        # 解析 Soul (v2.0 layout — 与 tork_soul.inc 一致)
+        # 解析 Soul (通过共享 soul_parser)
         if raw_hex:
             try:
                 raw = bytes.fromhex(raw_hex)
-                soul = {}
-                soul["tick"]           = struct.unpack_from("<I", raw, 0x00)[0]
-                soul["last_tsc"]       = struct.unpack_from("<Q", raw, 0x04)[0]
-                soul["cur_tsc"]        = struct.unpack_from("<Q", raw, 0x0C)[0]
-                soul["elapsed"]        = struct.unpack_from("<Q", raw, 0x14)[0]
-                soul["expected"]       = struct.unpack_from("<Q", raw, 0x1C)[0]
-                soul["hw_stress"]      = raw[0x24]
-                soul["mode"]           = raw[0x25]
-                soul["crc"]            = struct.unpack_from("<I", raw, 0x28)[0]
-                soul["self_pid"]       = struct.unpack_from("<I", raw, 0x2C)[0]
-                soul["drive"]          = struct.unpack_from("<b", raw, 0x30)[0]
-                soul["ppid"]           = struct.unpack_from("<H", raw, 0x32)[0]
-                soul["code_insns"]     = struct.unpack_from("<H", raw, 0x34)[0]
-                soul["code_mov"]       = struct.unpack_from("<H", raw, 0x36)[0]
-                soul["code_arith"]     = struct.unpack_from("<H", raw, 0x38)[0]
-                soul["code_ctrl"]      = struct.unpack_from("<H", raw, 0x3A)[0]
-                soul["code_other"]     = struct.unpack_from("<H", raw, 0x3C)[0]
-                soul["mod_success"]    = raw[0x3E]
-                soul["opt_saved"]      = raw[0x3F]
-                soul["nop_count"]      = raw[0x40]
-                soul["fission_count"]  = raw[0x41]
-                soul["child_pid"]      = struct.unpack_from("<H", raw, 0x42)[0]
-                soul["fission_tick"]   = struct.unpack_from("<H", raw, 0x44)[0]
-                soul["wins"]           = struct.unpack_from("<H", raw, 0x46)[0]
-                soul["agreed"]         = raw[0x48]
-                soul["sandbox_level"]  = raw[0x49]
-                soul["cloud_connected"]= raw[0x4A]
-                soul["cloud_provider"] = raw[0x4B]
-                soul["learn_count"]    = struct.unpack_from("<H", raw, 0x4C)[0]
-                soul["mutation_count"] = struct.unpack_from("<H", raw, 0x4E)[0]
-                soul["best_score"]     = struct.unpack_from("<I", raw, 0x50)[0]
-                soul["gen_count"]      = struct.unpack_from("<I", raw, 0x54)[0]
-                info["soul"] = soul
+                info["soul"] = parse_soul_full(raw)
             except Exception as e:
                 info["soul_parse_error"] = str(e)
 

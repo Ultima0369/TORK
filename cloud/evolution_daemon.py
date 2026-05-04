@@ -104,7 +104,9 @@ Reply with ONLY a JSON object (no markdown, no explanation):
 
 def run_cmd(cmd):
     try:
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+        if isinstance(cmd, str):
+            cmd = ['/bin/sh', '-c', cmd]
+        r = subprocess.run(cmd, capture_output=True, text=True,
                           timeout=120, cwd=PROJECT_DIR)
         return r.returncode == 0, r.stdout[-500:], r.stderr[-500:]
     except subprocess.TimeoutExpired:

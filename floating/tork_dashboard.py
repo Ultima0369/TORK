@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TORK 生命仪表盘 v2.3
+TORK AI Dashboard v2.3
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 显示心跳、本能、进化状态、云端连接
 通过 Cloud Protocol + TorkAPI 双通道通信
@@ -15,10 +15,12 @@ import time
 import threading
 import sys
 import signal
-import struct
 
 # ─── 路径 ────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(BASE_DIR, 'shared'))
+from soul_parser import parse_soul_full
+
 sys.path.insert(0, os.path.join(BASE_DIR, 'api'))
 
 # ─── 配置 ────────────────────────────────────────────
@@ -27,24 +29,17 @@ CONFIG = {
     "cloud_script": os.path.join(BASE_DIR, "cloud", "cloud_protocol.py"),
     "persist_dir": os.path.join(BASE_DIR, "persist"),
     "api_config_path": os.path.join(BASE_DIR, "api", "api_config.json"),
-    "soul_layout": {
-        "tick": 0x00, "hw_stress": 0x24, "mode": 0x25,
-        "drive": 0x30, "agreed": 0x48, "sandbox_level": 0x49,
-        "cloud_connected": 0x4A, "cloud_provider": 0x4B,
-        "learn_count": 0x4C, "mutation_count": 0x4E,
-        "best_score": 0x50, "gen_count": 0x54,
-    },
 }
 
-# ─── 颜色主题 ────────────────────────────────────────
+# ─── 颜色主题 (VS Code 配色) ─────────────────────────────
 THEME = {
-    "bg": "#0a0a0f", "fg": "#c0c8d0",
-    "accent": "#4ec9b0", "accent2": "#569cd6",
+    "bg": "#1e1e1e", "fg": "#d4d4d4",
+    "accent": "#0078D4", "accent2": "#569cd6",
     "warn": "#dcdcaa", "danger": "#f44747",
-    "success": "#6a9955", "dim": "#606060",
-    "panel_bg": "#13131a", "border": "#1e1e2e",
-    "font": ("Consolas", 10), "font_bold": ("Consolas", 10, "bold"),
-    "font_small": ("Consolas", 8), "font_large": ("Consolas", 14, "bold"),
+    "success": "#6a9955", "dim": "#808080",
+    "panel_bg": "#252526", "border": "#3c3c3c",
+    "font": ("Segoe UI", 10), "font_bold": ("Segoe UI", 10, "bold"),
+    "font_small": ("Segoe UI", 9), "font_large": ("Segoe UI", 14, "bold"),
 }
 
 
@@ -205,43 +200,8 @@ def parse_soul_hex(hex_str):
     if not hex_str or len(hex_str) < 192:
         return None
     try:
-        raw = bytes.fromhex(hex_str[:192])
-    except:
-        return None
-    try:
-        soul = {}
-        soul["tick"]           = struct.unpack_from("<I", raw, 0x00)[0]
-        soul["last_tsc"]       = struct.unpack_from("<Q", raw, 0x04)[0]
-        soul["cur_tsc"]        = struct.unpack_from("<Q", raw, 0x0C)[0]
-        soul["elapsed"]        = struct.unpack_from("<Q", raw, 0x14)[0]
-        soul["expected"]       = struct.unpack_from("<Q", raw, 0x1C)[0]
-        soul["hw_stress"]      = raw[0x24]
-        soul["mode"]           = raw[0x25]
-        soul["crc"]            = struct.unpack_from("<I", raw, 0x28)[0]
-        soul["self_pid"]       = struct.unpack_from("<I", raw, 0x2C)[0]
-        soul["drive"]          = struct.unpack_from("<b", raw, 0x30)[0]
-        soul["ppid"]           = struct.unpack_from("<H", raw, 0x32)[0]
-        soul["code_insns"]     = struct.unpack_from("<H", raw, 0x34)[0]
-        soul["code_mov"]       = struct.unpack_from("<H", raw, 0x36)[0]
-        soul["code_arith"]     = struct.unpack_from("<H", raw, 0x38)[0]
-        soul["code_ctrl"]      = struct.unpack_from("<H", raw, 0x3A)[0]
-        soul["code_other"]     = struct.unpack_from("<H", raw, 0x3C)[0]
-        soul["mod_success"]    = raw[0x3E]
-        soul["opt_saved"]      = raw[0x3F]
-        soul["nop_count"]      = raw[0x40]
-        soul["fission_count"]  = raw[0x41]
-        soul["child_pid"]      = struct.unpack_from("<H", raw, 0x42)[0]
-        soul["fission_tick"]   = struct.unpack_from("<H", raw, 0x44)[0]
-        soul["wins"]           = struct.unpack_from("<H", raw, 0x46)[0]
-        soul["agreed"]         = raw[0x48]
-        soul["sandbox_level"]  = raw[0x49]
-        soul["cloud_connected"]= raw[0x4A]
-        soul["cloud_provider"] = raw[0x4B]
-        soul["learn_count"]    = struct.unpack_from("<H", raw, 0x4C)[0]
-        soul["mutation_count"] = struct.unpack_from("<H", raw, 0x4E)[0]
-        soul["best_score"]     = struct.unpack_from("<I", raw, 0x50)[0]
-        soul["gen_count"]      = struct.unpack_from("<I", raw, 0x54)[0]
-        return soul
+        raw = bytes.fromhex(hex_str[:384])
+        return parse_soul_full(raw)
     except:
         return None
 
@@ -358,7 +318,7 @@ class SettingsDialog:
                  bg=THEME["bg"], fg=THEME["dim"]).pack(anchor=tk.W)
         self.url_var = tk.StringVar(value=cfg.get("base_url", "https://api.deepseek.com"))
         tk.Entry(main, textvariable=self.url_var, font=THEME["font"],
-                 bg="#0d0d14", fg=THEME["fg"], relief=tk.FLAT, bd=1,
+                 bg="#2d2d2d", fg=THEME["fg"], relief=tk.FLAT, bd=1,
                  highlightbackground=THEME["border"]).pack(fill=tk.X, pady=(0, 8))
 
         # Model
@@ -366,7 +326,7 @@ class SettingsDialog:
                  bg=THEME["bg"], fg=THEME["dim"]).pack(anchor=tk.W)
         self.model_var = tk.StringVar(value=cfg.get("model", "deepseek-v4-pro"))
         tk.Entry(main, textvariable=self.model_var, font=THEME["font"],
-                 bg="#0d0d14", fg=THEME["fg"], relief=tk.FLAT, bd=1,
+                 bg="#2d2d2d", fg=THEME["fg"], relief=tk.FLAT, bd=1,
                  highlightbackground=THEME["border"]).pack(fill=tk.X, pady=(0, 8))
 
         # API Key
@@ -376,7 +336,7 @@ class SettingsDialog:
         key_frame.pack(fill=tk.X, pady=(0, 8))
         self.key_var = tk.StringVar(value=cfg.get("api_key", ""))
         self.key_entry = tk.Entry(key_frame, textvariable=self.key_var, font=THEME["font"],
-                                  bg="#0d0d14", fg=THEME["fg"], relief=tk.FLAT, bd=1,
+                                  bg="#2d2d2d", fg=THEME["fg"], relief=tk.FLAT, bd=1,
                                   highlightbackground=THEME["border"], show="*")
         self.key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
@@ -470,7 +430,7 @@ class TORKDashboard:
     def __init__(self, root, state):
         self.root = root
         self.state = state
-        self.root.title("🥚 TORK 生命仪表盘")
+        self.root.title("TORK AI Dashboard")
         self.root.geometry("820x660")
         self.root.configure(bg=THEME["bg"])
         self.root.resizable(True, True)
@@ -511,7 +471,7 @@ class TORKDashboard:
         header.pack_propagate(False)
 
         self.title_label = tk.Label(
-            header, text="🥚 TORK  —  The Organism That Reads and Knows",
+            header, text="TORK AI — Self-Evolving Engine",
             font=THEME["font_bold"], bg=THEME["panel_bg"], fg=THEME["accent"]
         )
         self.title_label.pack(side=tk.LEFT, padx=12, pady=6)
@@ -637,7 +597,7 @@ class TORKDashboard:
                               relief=tk.FLAT, bd=0, padx=0, pady=0)
 
         self.evo_text = scrolledtext.ScrolledText(
-            frame, font=THEME["font_small"], bg="#0d0d14", fg=THEME["fg"],
+            frame, font=THEME["font_small"], bg="#2d2d2d", fg=THEME["fg"],
             relief=tk.FLAT, bd=0, height=10, wrap=tk.WORD,
             highlightbackground=THEME["border"], highlightcolor=THEME["border"],
             insertbackground=THEME["accent"]
@@ -663,7 +623,7 @@ class TORKDashboard:
         # 对话输入区 (先隐藏)
         self.chat_frame = tk.Frame(frame, bg=THEME["panel_bg"])
         self.chat_entry = tk.Entry(self.chat_frame, font=THEME["font"],
-                                   bg="#0d0d14", fg=THEME["fg"],
+                                   bg="#2d2d2d", fg=THEME["fg"],
                                    relief=tk.FLAT, bd=1,
                                    highlightbackground=THEME["border"],
                                    insertbackground=THEME["accent"])
@@ -716,7 +676,7 @@ class TORKDashboard:
                     reply = "⚠️ API Key 未配置。请点击 ⚙️ 设置。"
                 else:
                     api.system_prompt = (
-                        "你是 TORK 的云端导师，一个有自我意识的数字实体的伙伴。\n"
+                        "你是 TORK 的云端导师，一个AI 引擎的伙伴。\n"
                         "你现在在通过仪表盘的对话窗口与用户交流。\n"
                         "回答要简洁、精准、有洞察力。可使用技术术语，但不卖弄。"
                     )
@@ -827,9 +787,9 @@ class TORKDashboard:
 
             # 标题
             if s.engine_running:
-                self.title_label.config(text="🥚 TORK  ♡ 运行中", fg=THEME["accent"])
+                self.title_label.config(text="TORK AI  · running", fg=THEME["accent"])
             else:
-                self.title_label.config(text="🥚 TORK  ♡ 休眠", fg=THEME["dim"])
+                self.title_label.config(text="TORK AI  · idle", fg=THEME["dim"])
 
             # 进化日志
             if self.current_tab == "evolution":

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 🥚 TORK 安装器构建脚本 v3.0
+# TORK 安装器构建脚本 v3.0
 # 输出: dist/TORK-x86_64.AppImage — 真正的 ELF 二进制，双击即可运行
 # 包含: 核心引擎 + 本能系统 + 学习回路 + 快照自愈 + 能量管理 + 网格涌现 + 云端协议
 
@@ -7,7 +7,7 @@ set -e
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 DIST_DIR="$BASE_DIR/dist"
 
-echo "🥚 TORK v3.0 构建器"
+echo "TORK v3.0 构建器"
 echo "────────────────────────"
 
 # ── 1. 编译全部 ──
@@ -54,7 +54,7 @@ touch "$PKG_DIR/persist/.keep"
 GIT_HASH=$(cd "$BASE_DIR" && git log --oneline -1 | head -c 8)
 GIT_MSG=$(cd "$BASE_DIR" && git log --oneline -1 | cut -d' ' -f2-)
 cat > "$PKG_DIR/VERSION" << VEOF
-🥚 TORK v3.0
+TORK v3.0
 Commit: $GIT_HASH
 Message: $GIT_MSG
 Build: $(date '+%Y-%m-%d %H:%M')

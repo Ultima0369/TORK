@@ -12,7 +12,7 @@ INBOX = os.path.join(BASE, 'inbox.md')
 class TorkDesktop:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("TORK · 师徒系统")
+        self.root.title("TORK AI Studio")
         self.root.geometry("1200x700")
         self.root.configure(bg='#1e1e1e')
         self.current_file = None

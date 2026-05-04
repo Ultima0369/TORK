@@ -136,12 +136,18 @@ appimage: all
 # ── Grid emergence ───────────────────────────────────────────────
 .PHONY: grid
 
-build/tork_grid.o: grid/tork_grid.c grid/tork_grid.h
-	$(CC) $(CFLAGS) -c -o build/tork_grid.o grid/tork_grid.c
 
-build/tork_grid: grid/grid_main.c build/tork_grid.o
-	$(CC) $(CFLAGS) -o build/tork_grid grid/grid_main.c build/tork_grid.o
+# ── Grid Emergence ──────────────────────────────────────────────
+.PHONY: grid
+
+build/tork_grid.o: grid/tork_grid.c grid/tork_grid.h
+	$(CC) $(CFLAGS) -Igrid -c -o build/tork_grid.o grid/tork_grid.c
+
+build/grid_main.o: grid/grid_main.c grid/tork_grid.h
+	$(CC) $(CFLAGS) -Igrid -c -o build/grid_main.o grid/grid_main.c
+
+build/tork_grid: build/grid_main.o build/tork_grid.o
+	$(CC) -o build/tork_grid build/grid_main.o build/tork_grid.o -lm
 
 grid: build/tork_grid
-	@echo "🥚 启动 TORK 网格..."
-	@./build/tork_grid 1000
+	@echo "✅ 网格已编译: ./build/tork_grid [帧数]"

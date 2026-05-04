@@ -12,6 +12,7 @@
 #include "../learning/experience.h"
 #include "../learning/mcts.h"
 #include "../learning/branch.h"
+#include "../learning/pattern.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +31,7 @@ static void cleanup_core(int sig) {
         waitpid(core_pid, NULL, 0);
     }
     ps_emergency_save();
+    pat_cleanup();
     br_cleanup();
     exp_save();
     _exit(0);
@@ -73,9 +75,11 @@ int main(int argc, char **argv) {
     if (bb_init() != 0)
     exp_init();
     br_init();
+    pat_init();
         fprintf(stderr, "warning: bb_init failed — blackboard unavailable\n");
     exp_init();
     br_init();
+    pat_init();
 
     if (cal_init() != 0)
         fprintf(stderr, "warning: cal_init failed — calibrator unavailable\n");

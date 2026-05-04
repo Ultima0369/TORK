@@ -1,6 +1,7 @@
 #include "idler.h"
 #include "../learning/experience.h"
 #include "../learning/mcts.h"
+#include "../learning/pattern.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -72,6 +73,9 @@ idler_output_t idler_cycle(const idler_input_t *in) {
     
         /* Auto-tune MCTS every 10 cycles */
     if (g_cycles % 10 == 0) mcts_auto_tune();
+    
+    /* Pattern learning: extract rules from experience */
+    if (g_cycles % 3 == 0) pat_learn_from_experience();
     printf("── IDLE cycle complete ────────────────────────────\n\n");
     
     return out;

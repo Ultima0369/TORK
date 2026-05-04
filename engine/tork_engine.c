@@ -13,6 +13,7 @@
 #include "../learning/mcts.h"
 #include "../learning/branch.h"
 #include "../learning/pattern.h"
+#include "../learning/observer.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,6 +32,7 @@ static void cleanup_core(int sig) {
         waitpid(core_pid, NULL, 0);
     }
     ps_emergency_save();
+    obs_save_baseline();
     pat_save();
     pat_cleanup();
     br_cleanup();
@@ -78,11 +80,15 @@ int main(int argc, char **argv) {
     br_init();
     pat_init();
     pat_load();
+    obs_init();
+    obs_load_baseline();
         fprintf(stderr, "warning: bb_init failed — blackboard unavailable\n");
     exp_init();
     br_init();
     pat_init();
     pat_load();
+    obs_init();
+    obs_load_baseline();
 
     if (cal_init() != 0)
         fprintf(stderr, "warning: cal_init failed — calibrator unavailable\n");
@@ -565,6 +571,17 @@ printf("TORK engine started. core PID=%d\n", core_pid);
 
         /* Advance all active branches */
         br_advance_all();
+        
+        /* Observer: sample system state every OBS_SAMPLE_INTERVAL ticks */
+        if (inp.tick % OBS_SAMPLE_INTERVAL == 0) {
+            obs_sample(inp.tick, inp.hw_stress, (int8_t)drive, 47, 30, 
+                       (uint16_t)br_active_count());
+            int anomaly = obs_check_anomaly(inp.hw_stress, (int8_t)drive, 47, 30);
+            if (anomaly > 1) {
+                printf("[%4d] tick=%-6u OBS: anomaly detected (flags=%d)\n",
+                       i, inp.tick, anomaly);
+            }
+        }
         
         /* Update instinct input with branch status */
         inp.branch_active_count = br_active_count();

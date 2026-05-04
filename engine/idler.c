@@ -3,6 +3,7 @@
 #include "../learning/mcts.h"
 #include "../learning/pattern.h"
 #include "../learning/replay.h"
+#include "../learning/observer.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -80,6 +81,15 @@ idler_output_t idler_cycle(const idler_input_t *in) {
     
     /* Deep replay: every ~5 cycles, replay past experiences with "what if" */
     if (g_cycles % 5 == 0) replay_deep();
+    
+    /* Update observer baseline and check for anomalies */
+    if (g_cycles % 2 == 0) {
+        obs_update_baseline();
+        int anomaly = obs_check_anomaly(0, 0, 0, 0);
+        if (anomaly > 1) {
+            printf("  OBS: baseline anomaly detected in idle\n");
+        }
+    }
     printf("── IDLE cycle complete ────────────────────────────\n\n");
     
     return out;

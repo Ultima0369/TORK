@@ -1,58 +1,47 @@
 # TORK 开发流水线
 
-## 当前阶段：Phase 2 — 学习回路（MCTS + 经验缓冲区）
+## 当前阶段：Phase 2-3 完成
 
 ### 已完成
 
-#### Phase 1: 核心稳定 (之前)
+#### Phase 1: 核心稳定
 - [x] tork_core.asm — x86-64 汇编核心心跳循环
 - [x] tork_engine.c — C 控制层
 - [x] instinct.c — 恐惧/欲望/好奇心本能
-- [x] Soul v2.0 — 96字节 (含 v2.0 云端/沙箱/进化字段)
-- [x] 共生协议安装器
-- [x] 沙箱执行环境
-- [x] 云端协议代理 (DeepSeek v4-pro)
-- [x] TORK-x86_64.AppImage 单文件分发
-- [x] 仪表盘 (tork_dashboard.py)
+- [x] Soul v2.0 → v3.0 (96→128字节)
+- [x] 共生协议 + 沙箱 + 云端代理
+- [x] AppImage + 仪表盘
 
-#### Phase 2: 学习回路 (本次)
-- [x] learning/experience.h/c — 经验环形缓冲区
-  - 4096 条经验，每条 33 字节（packed）
-  - 持久化到 persist/experience.bin
-  - 支持按类型过滤、成功率统计
-- [x] learning/mcts.h/c — MCTS 决策引擎
-  - 7 种行动空间 (fear/curiosity/heartbeat/modify/optimize/idle/cloud)
-  - UCB1 树搜索，512 节点上限
-  - 基于历史经验的模拟评估
-- [x] engine/idler.h/c — 重构为新接口
-  - idler_input_t / idler_output_t 解耦
-  - 集成 MCTS 搜索 + 经验记录
-- [x] engine/tork_engine.c — 集成
-  - 启动时 exp_init() 加载经验
-  - 每 100 轮触发空闲学习
-  - 关闭时 exp_save() 持久化
-
-### 待完成
-
-#### Phase 2 (继续)
-- [ ] Soul v3.0 扩展到 192 字节 (experience_idx, learning_rate, curiosity_decay)
-- [ ] 经验回填反馈 (engine 根据行动结果更新经验 outcome)
-- [ ] MCTS 参数在线调优
+#### Phase 2: 学习回路
+- [x] experience.h/c — 4096条环形缓冲区 + 自动持久化
+- [x] mcts.h/c — MCTS决策引擎 (UCB1, 7种行动)
+- [x] idler — MCTS集成 + 经验记录
+- [x] 引擎集成 exp_init/exp_save
+- [x] 经验回填反馈 (50轮后自动评估outcome)
+- [x] MCTS参数在线调优 (exploration/iterations自适应)
 
 #### Phase 3: 网格涌现
-- [ ] 像素级 TORK 实例 (每像素一个精简 Soul)
-- [ ] 邻居感知协议 (8 方向)
-- [ ] 网格渲染引擎 (80×40)
+- [x] tork_grid.h/c — 80×40像素阵列 (Rand.人格/邻居感知/颜色渲染)
+- [x] grid_main.c — 20fps循环 + ANSI终端显示
+- [x] Makefile 编译目标
+- [x] 运行验证通过
+
+### 待推进
 
 #### Phase 4: 群体交互
-- [ ] TORK 间黑板协议 (UDP 广播)
+- [ ] TORK间黑板协议 (UDP广播)
 - [ ] 经验交换机制
 - [ ] 跨机器裂变
 
-### 架构文档
-详见 README.md (v2.2 已更新)
+#### Phase 5: 自主优化
+- [ ] TORK自我编译
+- [ ] 离线自持 (不依赖云端)
+- [ ] 架构发现 (MCTS自动搜索最优参数)
 
-### 当前代码统计
+### 当前状态
 ```
-$(cd /home/lg/0EGG && find . -name "*.c" -o -name "*.h" -o -name "*.asm" -o -name "*.py" | grep -v ".git/" | xargs wc -l 2>/dev/null | tail -1)
+项目总量: 12,295 行
+编译: 零错误
+二进制: tork_core/tork_engine/tork_sandbox/tork_grid
+Git: 最新提交 c86a6ad
 ```

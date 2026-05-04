@@ -78,6 +78,17 @@ Current learning state:
 Available mutation strategies:
 {strategies_str}
 """
+    # Add file manifest
+    import os, glob as _glob
+    _manifest = []
+    for _root, _dirs, _files in os.walk("."):
+        if ".git" in _root or "build" in _root or "AppDir" in _root or "__pycache__" in _root:
+            continue
+        for _f in _files:
+            if _f.endswith((".c", ".h", ".asm")) and any(_root.startswith(x) for x in ["./instinct", "./learning", "./engine", "./core", "./sandbox"]):
+                _manifest.append(os.path.join(_root, _f))
+    prompt += "\nMutation target files:\n" + "\n".join(sorted(_manifest)) + "\n"
+    prompt += "\nIMPORTANT: target_file MUST match one of the paths above exactly!\n"
     if changes:
         prompt += f"\nUncommitted source changes:\n{changes}\n"
     prompt += """
@@ -178,7 +189,22 @@ def run_evolution_once():
     specific = advice.get('specific_change', '')
     
     if target and specific:
-        target_path = os.path.join(PROJECT_DIR, target)
+        # Smart path resolution
+        target_clean = target.lstrip('./')
+        # Try direct join first
+        target_path = os.path.join(PROJECT_DIR, target_clean)
+        if not os.path.exists(target_path):
+            # Try key directories by filename
+            found = False
+            for _d in ['learning', 'instinct', 'engine', 'core', 'sandbox', 'api', 'cloud']:
+                _test = os.path.join(PROJECT_DIR, _d, os.path.basename(target_clean))
+                if os.path.exists(_test):
+                    target_path = _test
+                    found = True
+                    break
+            if not found:
+                print(f"  [WARN] target not found: {target} (tried {target_clean})")
+                # Still try with instinct.c as fallback light mutation
         if os.path.exists(target_path):
             # Backup
             shutil.copy2(target_path, target_path + '.evo_bak')
@@ -233,11 +259,110 @@ def evolution_loop(interval=3600):
         print(f"\n  Sleeping {interval}s...")
         time.sleep(interval)
 
-if __name__ == '__main__':
-    interval = 3600
-    if '--once' in sys.argv:
-        run_evolution_once()
+PID_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                              'persist', 'evolution_daemon.pid')
+
+def daemonize():
+    """Fork into background, writing PID file"""
+    pid = os.fork()
+    if pid > 0:
+        # Parent exits
+        with open(PID_FILE, 'w') as f:
+            f.write(str(pid))
+        print(f"  TORK Evolution Daemon started (PID={pid})")
+        sys.exit(0)
+    # Child continues
+    os.setsid()
+    # Second fork to fully detach
+    pid2 = os.fork()
+    if pid2 > 0:
+        sys.exit(0)
+
+def stop_daemon():
+    """Stop the running daemon"""
+    if os.path.exists(PID_FILE):
+        try:
+            with open(PID_FILE) as f:
+                pid = int(f.read().strip())
+            os.kill(pid, signal.SIGTERM)
+            os.remove(PID_FILE)
+            print(f"  TORK Evolution Daemon stopped (PID={pid})")
+            return True
+        except Exception as e:
+            print(f"  Error stopping daemon: {e}")
+            try:
+                os.remove(PID_FILE)
+            except: pass
+            return False
     else:
+        # Try pgrep
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", "evolution_daemon"],
+                capture_output=True, text=True
+            )
+            for pid in result.stdout.strip().split():
+                os.kill(int(pid), signal.SIGTERM)
+            print(f"  Stopped {len(result.stdout.strip().split())} daemon processes")
+            return True
+        except: pass
+        print("  No running daemon found")
+        return False
+
+def status_daemon():
+    """Check daemon status"""
+    if os.path.exists(PID_FILE):
+        try:
+            with open(PID_FILE) as f:
+                pid = int(f.read().strip())
+            os.kill(pid, 0)  # Check if alive
+            print(f"  TORK Evolution Daemon: RUNNING (PID={pid})")
+            return True
+        except:
+            print(f"  TORK Evolution Daemon: STALE PID (no process)")
+            os.remove(PID_FILE)
+            return False
+    else:
+        # Check by name
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", "evolution_daemon"],
+                capture_output=True, text=True
+            )
+            pids = result.stdout.strip().split()
+            if pids:
+                print(f"  TORK Evolution Daemon: RUNNING (PIDs={','.join(pids)})")
+                return True
+        except: pass
+        print(f"  TORK Evolution Daemon: NOT RUNNING")
+        return False
+
+if __name__ == '__main__':
+    import signal as _signal
+    
+    interval = 3600
+    
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1]
+        if cmd == 'start':
+            daemonize()
+            evolution_loop(interval)
+        elif cmd == 'stop':
+            stop_daemon()
+        elif cmd == 'status':
+            status_daemon()
+        elif cmd == 'restart':
+            stop_daemon()
+            time.sleep(1)
+            daemonize()
+            evolution_loop(interval)
+        elif cmd == '--once':
+            run_evolution_once()
+        else:
+            print(f"Usage: {sys.argv[0]} [start|stop|status|restart|--once]")
+            print(f"       {sys.argv[0]} --interval SEC  (set evolution interval)")
+    else:
+        # Default: run in foreground
         for i, arg in enumerate(sys.argv):
             if arg == '--interval' and i + 1 < len(sys.argv):
                 interval = int(sys.argv[i+1])

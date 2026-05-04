@@ -312,5 +312,3 @@ void pat_record_remote(uint8_t stress_low, uint8_t stress_high,
     }
     g_learner.learn_cycles++;
 }
-
-/* TORK EVO 20260504_0925: pattern_threshold */

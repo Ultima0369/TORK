@@ -49,6 +49,83 @@ THEME = {
 
 
 # ─── API 加载器 ──────────────────────────────────────
+
+# ─── torkd socket 直连 ────────────────────────────
+TORKD_SOCKET = "/tmp/torkd.sock"
+
+def read_soul_from_torkd():
+    """通过 torkd socket 快速读取 Soul 数据 (免 subprocess)"""
+    import socket as _socket
+    try:
+        sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        sock.settimeout(2)
+        sock.connect(TORKD_SOCKET)
+        sock.sendall(b"soul\n")
+        resp = b""
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            resp += chunk
+            if b"\n" in resp:
+                break
+        sock.close()
+        return resp.decode().strip()
+    except Exception:
+        return None
+
+def read_evolution_daemon_status():
+    """检查进化守护进程是否在运行"""
+    import glob as _glob
+    pid_file = os.path.join(CONFIG["persist_dir"], "evolution_daemon.pid")
+    if os.path.exists(pid_file):
+        try:
+            with open(pid_file) as f:
+                pid = int(f.read().strip())
+            # Check if process exists
+            try:
+                os.kill(pid, 0)  # Test existence
+                return True, [str(pid)]
+            except:
+                pass
+        except:
+            pass
+    
+    # Fallback: try pgrep
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "evolution_daemon"],
+            capture_output=True, text=True, timeout=3
+        )
+        pids = result.stdout.strip().split()
+        return len(pids) > 0, pids[:3]
+    except:
+        return False, []
+
+def get_evolution_stats():
+    """计算进化成功率统计"""
+    evo_file = os.path.join(CONFIG["persist_dir"], "evolution.json")
+    if not os.path.exists(evo_file):
+        return {"total": 0, "success": 0, "rate": 0, "recent": []}
+    try:
+        with open(evo_file) as f:
+            data = json.load(f)
+    except:
+        return {"total": 0, "success": 0, "rate": 0, "recent": []}
+    
+    if isinstance(data, list) and len(data) > 0:
+        total = len(data)
+        success = sum(1 for e in data if e.get("success"))
+        rate = (success / total * 100) if total > 0 else 0
+        recent = data[-5:] if isinstance(data, list) else []
+        return {"total": total, "success": success, "rate": rate, "recent": recent}
+    elif isinstance(data, dict) and "mutations" in data:
+        total = len(data["mutations"])
+        success = sum(1 for m in data["mutations"] if m.get("result") == "success")
+        rate = (success / total * 100) if total > 0 else 0
+        return {"total": total, "success": success, "rate": rate, "recent": data["mutations"][-5:]}
+    return {"total": 0, "success": 0, "rate": 0, "recent": []}
+
 def load_api():
     """加载 TorkAPI，返回 (api, error_msg)"""
     try:
@@ -186,7 +263,16 @@ def update_instincts_from_soul(state):
 
 
 def refresh_via_api(state):
-    """通过 dashboard_status 工具获取全量状态"""
+    """通过 torkd socket 或 dashboard_status 获取全量状态"""
+    # Try torkd socket first (fast path)
+    soul_raw = read_soul_from_torkd()
+    if soul_raw and len(soul_raw) > 20:
+        state.soul = parse_soul_hex(soul_raw)
+        update_instincts_from_soul(state)
+        state.engine_running = True
+        return
+    
+    # Fallback: cloud_protocol subprocess
     script = CONFIG["cloud_script"]
     try:
         result = subprocess.run(
@@ -525,6 +611,31 @@ class TORKDashboard:
                               relief=tk.FLAT, bd=1, padx=6, pady=4)
         frame.pack(fill=tk.BOTH, expand=True, pady=(0, 4))
 
+        # ── 进化统计栏 ──
+        stats_frame = tk.Frame(frame, bg=THEME["panel_bg"])
+        stats_frame.pack(fill=tk.X, pady=(0, 4))
+        
+        self.evo_total_label = tk.Label(stats_frame, text="总计: —", font=THEME["font_small"],
+                                        bg=THEME["panel_bg"], fg=THEME["dim"])
+        self.evo_total_label.pack(side=tk.LEFT, padx=2)
+        
+        self.evo_rate_label = tk.Label(stats_frame, text="成功率: —", font=THEME["font_small"],
+                                       bg=THEME["panel_bg"], fg=THEME["dim"])
+        self.evo_rate_label.pack(side=tk.LEFT, padx=8)
+        
+        self.evo_daemon_label = tk.Label(stats_frame, text="守护进程: —", font=THEME["font_small"],
+                                         bg=THEME["panel_bg"], fg=THEME["dim"])
+        self.evo_daemon_label.pack(side=tk.LEFT, padx=8)
+        
+        self.evo_last_label = tk.Label(stats_frame, text="上次: —", font=THEME["font_small"],
+                                       bg=THEME["panel_bg"], fg=THEME["dim"])
+        self.evo_last_label.pack(side=tk.RIGHT, padx=2)
+
+        # ── 进化日志文本框 ──
+        evo_frame = tk.LabelFrame(frame, text="", font=THEME["font_bold"],
+                              bg=THEME["panel_bg"], fg=THEME["accent2"],
+                              relief=tk.FLAT, bd=0, padx=0, pady=0)
+
         self.evo_text = scrolledtext.ScrolledText(
             frame, font=THEME["font_small"], bg="#0d0d14", fg=THEME["fg"],
             relief=tk.FLAT, bd=0, height=10, wrap=tk.WORD,
@@ -723,6 +834,27 @@ class TORKDashboard:
             # 进化日志
             if self.current_tab == "evolution":
                 self._refresh_evo_log()
+            
+            # 进化统计
+            evo_stats = get_evolution_stats()
+            self.evo_total_label.config(text=f"总计: {evo_stats['total']} | ✅ {evo_stats['success']}")
+            rate_color = THEME["success"] if evo_stats['rate'] >= 50 else THEME["warn"]
+            self.evo_rate_label.config(text=f"成功率: {evo_stats['rate']:.0f}%", fg=rate_color)
+            
+            is_running, pids = read_evolution_daemon_status()
+            daemon_text = f"守护进程: ✅ 运行中" if is_running else "守护进程: ❌ 未运行"
+            self.evo_daemon_label.config(text=daemon_text, 
+                                          fg=THEME["success"] if is_running else THEME["dim"])
+            
+            if evo_stats['recent']:
+                last = evo_stats['recent'][-1]
+                if isinstance(last, dict):
+                    ts = last.get("timestamp", "")[:19] if isinstance(last.get("timestamp"), str) else str(last.get("generation", ""))
+                    strategy = last.get("strategy", last.get("description", ""))[:25]
+                    self.evo_last_label.config(text=f"上次: {strategy}",
+                                                fg=THEME["accent"])
+                else:
+                    self.evo_last_label.config(text="上次: —", fg=THEME["dim"])
 
             # 时间
             self.time_label.config(text=time.strftime("%H:%M:%S"))
@@ -775,8 +907,12 @@ class TORKDashboard:
 
     def _run_evolution(self):
         self.status_label.config(text="🧬 进化中…", fg=THEME["accent"])
+        self.evo_text.config(state=tk.NORMAL)
+        self.evo_text.insert(tk.END, "🧬 正在进化...\n")
+        self.evo_text.see(tk.END)
+        self.evo_text.config(state=tk.DISABLED)
         def do():
-            evo_script = os.path.join(BASE_DIR, "cloud", "evolution.py")
+            evo_script = os.path.join(BASE_DIR, "cloud", "evolution_daemon.py")
             try:
                 result = subprocess.run(
                     ["python3", evo_script, "--once"],

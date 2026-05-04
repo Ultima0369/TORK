@@ -298,17 +298,7 @@ printf("TORK engine started. core PID=%d\n", core_pid);
         int opt_cycle = 30;    /* Aggressive optimization attempt */
         int nop_cycle = 50;    /* NOP padding cleanup */
 
-        /* ── Query pattern learner: feed learned patterns into instinct ── */
-        {
-            float pat_conf = 0.0f;
-            int pat_action = pat_query_best_action(inp.hw_stress, 
-                (int8_t)((int)((0.5f - (float)inp.hw_stress * 0.2f) * 100.0f)),  /* estimated drive */
-                inp.fission_count, &pat_conf);
-            if (pat_action >= 0 && pat_conf > 0.0f) {
-                inp.pattern_best_action = pat_action;
-                inp.pattern_confidence  = pat_conf;
-            }
-        }
+        /* ── Pattern query happens after drive ── */
         
         tork_instinct_t inst = instinct_evaluate(&inp);
 
@@ -316,6 +306,20 @@ printf("TORK engine started. core PID=%d\n", core_pid);
         if (drive > 127) drive = 127;
         if (drive < -128) drive = -128;
         soul_set_drive(&soul, (int8_t)drive);
+        /* ── Query pattern learner: use previous tick's drive from soul ── */
+        {
+            float pat_conf = 0.0f;
+            int8_t prev_drive = soul_drive(&soul);
+            int pat_action = pat_query_best_action(inp.hw_stress,
+                prev_drive, inp.fission_count, &pat_conf);
+            printf("PQUERY: drive=%d hw=%d gen=%u => act=%d conf=%.3f\n",
+                   (int)prev_drive, inp.hw_stress, inp.fission_count, pat_action, pat_conf);
+            if (pat_action >= 0 && pat_conf > 0.0f) {
+                inp.pattern_best_action = pat_action;
+                inp.pattern_confidence  = pat_conf;
+                printf("PQUERY: PATTERN APPLIED! action=%d conf=%.3f\n", pat_action, pat_conf);
+            }
+        }
 
         /* ── Record experience every 5 ticks: accumulate learning data ── */
         {
@@ -342,6 +346,9 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             learn_counter++;
             if (learn_counter % 20 == 0 && exp_count() > 5) {
                 pat_learn_from_experience();
+                if (learn_counter % 40 == 0) {
+                    pat_save();
+                }
             }
         }
         
@@ -352,7 +359,7 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             gs.tick = inp.tick;
             gs.drive = (int8_t)drive;
             gs.hw_stress = inp.hw_stress;
-            gs.gen_count = soul_gen_count ? inp.tick/1000 : 6;
+            gs.gen_count = 0;
             gs.active_branches = br_active_count();
             gs.experience_count = exp_count();
             gs.energy_mode = 1;
@@ -676,6 +683,20 @@ printf("TORK engine started. core PID=%d\n", core_pid);
         if (drive > 127) drive = 127;
         if (drive < -128) drive = -128;
         soul_set_drive(&soul, (int8_t)drive);
+        /* ── Query pattern learner: use previous tick's drive from soul ── */
+        {
+            float pat_conf = 0.0f;
+            int8_t prev_drive = soul_drive(&soul);
+            int pat_action = pat_query_best_action(inp.hw_stress,
+                prev_drive, inp.fission_count, &pat_conf);
+            printf("PQUERY: drive=%d hw=%d gen=%u => act=%d conf=%.3f\n",
+                   (int)prev_drive, inp.hw_stress, inp.fission_count, pat_action, pat_conf);
+            if (pat_action >= 0 && pat_conf > 0.0f) {
+                inp.pattern_best_action = pat_action;
+                inp.pattern_confidence  = pat_conf;
+                printf("PQUERY: PATTERN APPLIED! action=%d conf=%.3f\n", pat_action, pat_conf);
+            }
+        }
         
         /* Check branch-fork conditions */
         {

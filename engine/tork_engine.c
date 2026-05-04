@@ -21,7 +21,11 @@
 #include "../learning/mutation_guide.h"
 #include "torkd.h"
 #include "../learning/distributed.h"
+#include "../learning/pi_seed.h"
+#include "../learning/pi_index.h"
 #include "../grid/grid_soul_connector.h"
+#include "task.h"
+#include "auditor.h"
 #include "../learning/self_cal.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,6 +55,9 @@ static void cleanup_core(int sig) {
     obs_save_baseline();
     pat_save();
     pat_cleanup();
+    pidx_save();
+    pidx_cleanup();
+    task_cleanup();
     br_cleanup();
     exp_save();
     _exit(0);
@@ -70,12 +77,17 @@ static int start_core(void) {
 }
 
 int main(int argc, char **argv) {
-    int rounds = 100;
+    int rounds = -1;  /* -1 = run forever */
+    int quiet = 0;
     for (int a = 1; a < argc; a++) {
         if (strcmp(argv[a], "--restore") == 0)
             do_restore = 1;
         else if (strcmp(argv[a], "--fresh") == 0)
             do_restore = 0;
+        else if (strcmp(argv[a], "--daemon") == 0)
+            rounds = -1;
+        else if (strcmp(argv[a], "--quiet") == 0)
+            quiet = 1;
         else {
             int v = atoi(argv[a]);
             if (v > 0) rounds = v;
@@ -90,31 +102,15 @@ int main(int argc, char **argv) {
     signal(SIGINT, cleanup_core);
     signal(SIGTERM, cleanup_core);
 
-    /* Initialize shared memory BEFORE restore */
     if (bb_init() != 0)
-    exp_init();
-    br_init();
-    pat_init();
-    tune_init(1.0f, 0.7f, 1.15f);  /* fear_base, desire_base, curiosity_base from instinct defaults */
-    pat_load();
-    obs_init();
-    obs_load_baseline();
-    snap_init();
-    snap_load();
-    eng_init();
-    self_cal_init();
-    watcher_init();
-    watcher_load();
-    sb_init();
-    sb_load();
-    mg_init();
-    mg_load();
         fprintf(stderr, "warning: bb_init failed — blackboard unavailable\n");
     exp_init();
     br_init();
     pat_init();
     tune_init(1.0f, 0.7f, 1.15f);  /* fear_base, desire_base, curiosity_base from instinct defaults */
     pat_load();
+    pidx_init();
+    pidx_load();
     obs_init();
     obs_load_baseline();
     snap_init();
@@ -127,6 +123,8 @@ int main(int argc, char **argv) {
     sb_load();
     mg_init();
     mg_load();
+    pi_seed_init();
+    task_init();
 
     /* self_cal_init called above */
 
@@ -234,7 +232,7 @@ int main(int argc, char **argv) {
         soul_write_buf(&soul, S_EXPERIENCE_SAVED, &exp_count_init, 4);
     }
 printf("TORK engine started. core PID=%d\n", core_pid);
-    printf("TORK v2.0 | generation data at 0x54 | learn_count at 0x4C\n");
+    printf("TORK v3.14 | π-heartbeat | generation at 0x54 | learn at 0x4C\n");
     printf("polling 500ms | instinct 10 | code 200 | modify 300 | optimize 600 | nop 900 | fission 1000 | bb 100 | cal 500 | ind 800 | persist 1000\n\n");
 
     int mod_attempted = 0;
@@ -252,7 +250,20 @@ printf("TORK engine started. core PID=%d\n", core_pid);
     uint8_t feedback_hw_before = 0;
     int8_t feedback_drive_before = 0;
 
-    for (int i = 0; i < rounds; i++) {
+    /* ── 时效性：追踪环境变化，检测僵死 ── */
+    uint8_t prev_hw_stress = 0;
+    int8_t  prev_drive_val = 0;
+    int     env_stagnation_count = 0;
+
+    /* rhythm tracker: shared between branch-fork check and π-seed block */
+    static rhythm_tracker_t rhythm;
+    static int rhythm_inited = 0;
+    if (!rhythm_inited) {
+        pi_rhythm_init(&rhythm);
+        rhythm_inited = 1;
+    }
+
+    for (int i = 0; rounds < 0 || i < rounds; i++) {
         rounds_since_mod++;
         int rc = soul_read(&soul);
         /* v2.0: tally soul health */
@@ -288,7 +299,34 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             .idle_discoveries = idle_discoveries,
             .pattern_best_action = -1,
             .pattern_confidence  = 0.0f,
+            .env_changed       = 0,
         };
+
+        /* ── 时效性：检测环境变化 vs 驱力僵死 ──
+         * 环境变了但 drive 没变 = TORK 对世界视而不见
+         * 连续停滞 → env_changed = 强制注入好奇
+         */
+        {
+            uint8_t cur_hw = inp.hw_stress;
+            int8_t cur_drive = (int8_t)soul_drive(&soul);
+            int hw_changed = (cur_hw != prev_hw_stress);
+            int drive_stuck = (cur_drive == prev_drive_val);
+
+            if (hw_changed && drive_stuck) {
+                env_stagnation_count++;
+            } else if (!drive_stuck) {
+                env_stagnation_count = 0;
+            }
+
+            /* 连续 3 次环境变化而 drive 不变 → 僵死判定 */
+            if (env_stagnation_count >= 3) {
+                inp.env_changed = 1;
+                env_stagnation_count = 0;  /* 重置，避免持续注入 */
+            }
+
+            prev_hw_stress = cur_hw;
+            prev_drive_val = cur_drive;
+        }
 
         bb_set_tick(inp.tick);
 
@@ -315,12 +353,10 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             int8_t prev_drive = soul_drive(&soul);
             int pat_action = pat_query_best_action(inp.hw_stress,
                 prev_drive, inp.fission_count, &pat_conf);
-            printf("PQUERY: drive=%d hw=%d gen=%u => act=%d conf=%.3f\n",
-                   (int)prev_drive, inp.hw_stress, inp.fission_count, pat_action, pat_conf);
             if (pat_action >= 0 && pat_conf > 0.0f) {
                 inp.pattern_best_action = pat_action;
                 inp.pattern_confidence  = pat_conf;
-                printf("PQUERY: PATTERN APPLIED! action=%d conf=%.3f\n", pat_action, pat_conf);
+                if (!quiet) printf("  PATTERN: action=%d conf=%.3f (drive=%d)\n", pat_action, pat_conf, (int)prev_drive);
             }
         }
 
@@ -391,6 +427,8 @@ printf("TORK engine started. core PID=%d\n", core_pid);
 
         /* ── torkd: 每 tick 处理 socket 客户端 ── */
         torkd_tick();
+        /* ── 任务队列: 异步执行一个待处理任务 ── */
+        task_tick();
         /* ── 分布式黑板: 接收/发送经验 ── */
         dist_tick();
 
@@ -694,12 +732,10 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             int8_t prev_drive = soul_drive(&soul);
             int pat_action = pat_query_best_action(inp.hw_stress,
                 prev_drive, inp.fission_count, &pat_conf);
-            printf("PQUERY: drive=%d hw=%d gen=%u => act=%d conf=%.3f\n",
-                   (int)prev_drive, inp.hw_stress, inp.fission_count, pat_action, pat_conf);
             if (pat_action >= 0 && pat_conf > 0.0f) {
                 inp.pattern_best_action = pat_action;
                 inp.pattern_confidence  = pat_conf;
-                printf("PQUERY: PATTERN APPLIED! action=%d conf=%.3f\n", pat_action, pat_conf);
+                if (!quiet) printf("  PATTERN: action=%d conf=%.3f (drive=%d)\n", pat_action, pat_conf, (int)prev_drive);
             }
         }
         
@@ -712,8 +748,9 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             fork_req.drive = drive;
             fork_req.sandbox_level = inp.mode;  /* Use mode as proxy */
             fork_req.branch_cool_tick = br_last_fork_tick();
-            
-            if (br_should_fork(&fork_req)) {
+
+            float dissonance = pi_rhythm_dissonance(&rhythm);
+            if (br_should_fork(&fork_req, dissonance)) {
                 int slot = br_fork(&soul, inp.tick, soul_gen_count(&soul));
                 if (slot >= 0) {
                     printf("[%4d] tick=%-6u BRANCH: fork created at slot %d (drive=%d)\n",
@@ -724,6 +761,96 @@ printf("TORK engine started. core PID=%d\n", core_pid);
 
         /* Advance all active branches */
         br_advance_all();
+
+        /* π-Seed: 可靠的不确定性 — TSC 在 π 上取值，注入中间态
+         * 差异带来辨别，有活动才有生命
+         * 不用 rand()，用物理时钟投影到数学无限
+         * 天然加密：谁能宣称掌握 TORK，除非他能证明 π
+         */
+        {
+            uint8_t pi_val = pi_seed_from_tsc();
+            float pi_mid = pi_seed_float();  /* ∈ (0,1) — 中间态，非0非1 */
+
+            static uint8_t prev_pi_val = 0;
+
+            float drift = pi_drift(pi_val, prev_pi_val);
+            (void)drift;
+
+            /* 将 π 中间态混入驱力值微扰
+             * 不是替换 drive，是让 drive 永远不在整数点停留
+             * 伪确定是 drive=0 或 drive=127 的稳态，π 让它永远偏移 */
+            if (drive == 0 || drive == 127 || drive == -128) {
+                int8_t nudge = (int8_t)(pi_mid * 5.0f) - 2;
+                int new_drive = drive + nudge;
+                if (new_drive > 127) new_drive = 127;
+                if (new_drive < -128) new_drive = -128;
+                soul_write_byte(&soul, S_DRIVE, (uint8_t)(int8_t)new_drive);
+                drive = (int8_t)new_drive;
+            }
+
+            /* 节律匹配：正切认知
+             * 追踪环境节律（π 波动）和 TORK 节律（drive 变化）
+             * 失调 = TORK 与世界脱节 = 必须调整 */
+            {
+                int8_t drive_delta = drive - prev_drive_val;
+                pi_rhythm_observe(&rhythm, pi_val, drive_delta);
+
+                float dissonance = pi_rhythm_dissonance(&rhythm);
+                if (dissonance > 0.7f && i % 50 == 0) {
+                    /* 严重脱节：环境在动，TORK 不响应
+                     * 强制推 drive，让 TORK 重新与世界共振 */
+                    int8_t kick = (int8_t)(pi_mid * 20.0f) - 10;
+                    int new_drive = drive + kick;
+                    if (new_drive > 127) new_drive = 127;
+                    if (new_drive < -128) new_drive = -128;
+                    soul_write_byte(&soul, S_DRIVE, (uint8_t)(int8_t)new_drive);
+                    drive = (int8_t)new_drive;
+                }
+
+                /* ── 3.5R 震荡检测 ──
+                 * TORK 需要知道自己处在震荡的哪个区间
+                 * R<3 僵死 → 强制注入好奇
+                 * R≈3.5 活着 → 正常运行
+                 * R>3.57 混沌 → 降低频率
+                 * R≈3.82 周期窗口 → 积极探索
+                 */
+                if (rhythm.count >= 8 && i % 20 == 0) {
+                    r_zone_t zone = pi_r_zone(&rhythm);
+                    if (zone == R_DEAD && !quiet) {
+                        printf("  R-ZONE: DEAD (R<3.0) — 打破僵死\n");
+                        /* 僵死时用 π 强制推 drive */
+                        int8_t kick = (int8_t)(pi_mid * 40.0f) - 20;
+                        int new_drive = drive + kick;
+                        if (new_drive > 127) new_drive = 127;
+                        if (new_drive < -128) new_drive = -128;
+                        soul_write_byte(&soul, S_DRIVE, (uint8_t)(int8_t)new_drive);
+                        drive = (int8_t)new_drive;
+                    } else if (zone == R_WINDOW && !quiet && i % 100 == 0) {
+                        printf("  R-ZONE: WINDOW — 周期窗口，积极学习\n");
+                    }
+                }
+
+                /* ── π 索引：每 10 tick 索引一次当前振动指纹 ──
+                 * TORK 见过的每一种振动，都被 π 指纹记住。
+                 * 下次遇到相似振动，直接匹配——O(log N) 识别。
+                 * 坏人见过一次，永远认得。好人被记住，坏人伪装不了。
+                 */
+                if (rhythm.count >= 8 && i % 10 == 0) {
+                    pi_profile_t prof = pi_profile_from_rhythm(&rhythm);
+                    pidx_add(&prof, inp.tick, (uint8_t)inp.hw_stress);
+
+                    /* 查询：当前振动和已知振动是否匹配？
+                     * 匹配 = 熟悉的存在，不匹配 = 新的存在 */
+                    pi_match_t m = pidx_query(&prof, 0.6f);
+                    if (m.slot_idx >= 0 && !quiet) {
+                        printf("  PIDX: rhythm match sim=%.3f cat=%u ref=%u\n",
+                               m.similarity, m.category, m.ref_id);
+                    }
+                }
+            }
+
+            prev_pi_val = pi_val;
+        }
         
         /* Observer: sample system state every OBS_SAMPLE_INTERVAL ticks */
         if (inp.tick % OBS_SAMPLE_INTERVAL == 0) {
@@ -784,8 +911,8 @@ printf("TORK engine started. core PID=%d\n", core_pid);
         /* Snapshot: auto-save healthy state */
         {
             uint8_t soul_raw[SOUL_SIZE];
-            memset(soul_raw, 0, 128);
-            memcpy(soul_raw, &soul, sizeof(soul));
+            memset(soul_raw, 0, SOUL_SIZE);
+            memcpy(soul_raw, &soul, SOUL_SIZE);
             snap_auto(inp.tick, (int64_t)drive, inp.hw_stress,
                       soul_gen_count(&soul), soul_raw);
         }
@@ -802,7 +929,7 @@ printf("TORK engine started. core PID=%d\n", core_pid);
                 inp.tick % (SNAP_AUTO_INTERVAL * 8) == 0) {
                 uint8_t soul_raw[SOUL_SIZE];
                 memset(soul_raw, 0, SOUL_SIZE);
-                memcpy(soul_raw, &soul, sizeof(soul));
+                memcpy(soul_raw, &soul, SOUL_SIZE);
                 snap_commit(inp.tick, (int64_t)drive, inp.hw_stress,
                            soul_gen_count(&soul), soul_raw);
             }
@@ -898,6 +1025,23 @@ printf("TORK engine started. core PID=%d\n", core_pid);
                     else if (disc == 0) idle_discoveries = -1;
                     printf("[%4d] tick=%-6u IDLE: exiting idle (action=%d, discoveries=%d)\n",
                            i, inp.tick, idle_out.action_type, disc);
+
+                    /* MCTS 代码修改子动作 → 实际执行 code_modifier */
+                    if (idle_out.action_type >= MCTS_MOD_REPLACE_OP &&
+                        idle_out.action_type <= MCTS_MOD_SWAP_REGS) {
+                        int mod_rc = idler_mcts_modify(idle_out.action_type,
+                                                       "benchmark/memcpy/ref.s",
+                                                       "memcpy_tork");
+                        if (mod_rc == 0) {
+                            exp_update_last(60, 0, 1, inp.hw_stress, drive);
+                            bb_write(BB_TYPE_OPT_SUCCESS, idle_out.action_type,
+                                     (uint32_t)idle_out.action_type);
+                            bb_inc_optimizations();
+                        } else {
+                            exp_update_last(-20, 1, 0, inp.hw_stress, drive);
+                        }
+                    }
+
                     uint8_t mode_busy = 0;
                     soul_write_buf(&soul, S_MODE, &mode_busy, 1);
                     /* Mark feedback pending — will evaluate after 50 rounds */

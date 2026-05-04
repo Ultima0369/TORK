@@ -71,7 +71,7 @@ static void probe_cpu_json(FILE *fp) {
 
     /* Physical cores: leaf 4 */
     cores = threads; /* fallback */
-    int max_leaf = eax; /* eax from CPUID 0 */
+    (void)eax; /* suppress: max_leaf from CPUID 0 not needed beyond here */
     for (int i = 0; ; i++) {
         __cpuid_count(4, i, eax, ebx, ecx, edx);
         int type = eax & 0x1f;

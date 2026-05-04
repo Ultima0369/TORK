@@ -2,6 +2,7 @@
 #include "experience.h"
 #include "pattern.h"
 #include "mutation_guide.h"
+#include "pi_seed.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -82,8 +83,8 @@ int dist_init(void) {
     if (g_initialized) return 0;
     
     /* Generate instance ID from PID + time */
-    srand((unsigned)(time(NULL) ^ getpid()));
-    g_instance_id = (uint32_t)(rand() ^ getpid() ^ (time(NULL) & 0xFFFFFFFF));
+    pi_seed_init();
+    g_instance_id = (uint32_t)(pi_seed_from_tsc() ^ getpid() ^ (time(NULL) & 0xFFFFFFFF));
     if (g_instance_id == 0) g_instance_id = 1;
     
     /* Create UDP socket */
@@ -145,6 +146,7 @@ static void dist_send(uint8_t msg_type, const void *payload, uint16_t payload_le
     dist_header_t *hdr = (dist_header_t*)buf;
     
     hdr->magic = htonl(DIST_APP_ID);
+    hdr->token = htonl(DIST_TOKEN);
     hdr->version = 1;
     hdr->msg_type = msg_type;
     hdr->instance_id = htonl(g_instance_id);
@@ -155,6 +157,7 @@ static void dist_send(uint8_t msg_type, const void *payload, uint16_t payload_le
         memcpy(buf + DIST_HEADER_SIZE, payload, payload_len);
     
     uint32_t total_len = DIST_HEADER_SIZE + payload_len;
+    hdr->crc32 = 0;  /* zero before CRC calculation */
     hdr->crc32 = htonl(dist_crc32(buf, total_len));
     
     struct sockaddr_in dest;
@@ -237,18 +240,18 @@ static void dist_handle_message(const uint8_t *buf, size_t len) {
     
     /* Verify magic */
     if (ntohl(hdr->magic) != DIST_APP_ID) return;
+    if (ntohl(hdr->token) != DIST_TOKEN) return;
     
     uint32_t sender_id = ntohl(hdr->instance_id);
     if (sender_id == g_instance_id) return;  /* Ignore own messages */
     
-    /* Verify CRC */
+    /* Verify CRC — work on a stack copy to avoid const violation */
     uint32_t stored_crc = ntohl(hdr->crc32);
-    /* Temporarily zero CRC for verification */
-    uint8_t *mutable_buf = (uint8_t*)buf;
-    uint32_t old_crc = *(uint32_t*)(mutable_buf + 16);
-    *(uint32_t*)(mutable_buf + 16) = 0;
-    uint32_t calc_crc = dist_crc32(mutable_buf, len);
-    *(uint32_t*)(mutable_buf + 16) = old_crc;
+    uint8_t verify_buf[DIST_MAX_MSG];
+    size_t verify_len = (len < DIST_MAX_MSG) ? len : DIST_MAX_MSG;
+    memcpy(verify_buf, buf, verify_len);
+    memset(verify_buf + 20, 0, 4);  /* zero CRC field for verification */
+    uint32_t calc_crc = dist_crc32(verify_buf, verify_len);
     if (stored_crc != calc_crc) return;  /* Corrupted */
     
     uint16_t payload_len = ntohs(hdr->payload_len);

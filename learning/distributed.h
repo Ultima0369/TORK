@@ -17,6 +17,7 @@
 #define DIST_MCAST_PORT     42069
 #define DIST_MAX_MSG        1400   /* < 1500 MTU, safe for UDP */
 #define DIST_APP_ID         0x544F524B  /* "TORK" */
+#define DIST_TOKEN          0x544B4E47  /* "TKNG" — shared group token for auth */
 
 /* ── 消息类型 ─────────────────────────────────────────── */
 #define DIST_MSG_HEARTBEAT  0x01   /* 心跳/宣告存在 */
@@ -27,6 +28,7 @@
 /* ── 消息头 ────────────────────────────────────────────── */
 typedef struct __attribute__((packed)) {
     uint32_t magic;           /* DIST_APP_ID */
+    uint32_t token;           /* DIST_TOKEN — shared group auth */
     uint8_t  version;         /* 协议版本 = 1 */
     uint8_t  msg_type;        /* DIST_MSG_* */
     uint32_t instance_id;     /* 发送者实例ID (随机生成) */

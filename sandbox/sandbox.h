@@ -22,13 +22,15 @@ typedef enum {
     CMD_UNKNOWN   = 7,  /* 未知 */
 } cmd_category_t;
 
-/* 沙箱执行结果 */
+#define SANDBOX_MAX_STDOUT 2048
+#define SANDBOX_MAX_STDERR 1024
+
+/* 沙箱执行结果 — 固定缓冲区，无需 free */
 typedef struct {
-    int   exit_code;
-    char *stdout_str;    /* 调用者需 free */
-    char *stderr_str;    /* 调用者需 free */
-    int   timed_out;     /* 是否超时 */
-    double elapsed_ms;   /* 执行耗时 */
+    int  exit_code;                            /* 退出码 */
+    char stdout_buf[SANDBOX_MAX_STDOUT];       /* 标准输出 */
+    char stderr_buf[SANDBOX_MAX_STDERR];       /* 标准错误 */
+    int  timed_out;                            /* 是否超时 */
 } sandbox_result_t;
 
 /* ── API ──────────────────────────────────────────────────────── */
@@ -37,15 +39,12 @@ typedef struct {
 cmd_category_t sandbox_classify(const char *command);
 
 /* 检查命令是否在当前沙箱等级下允许执行 */
-int sandbox_allowed(const char *command, cmd_category_t cat);
+int sandbox_allowed(const char *command);
 
 /* 执行命令（受沙箱约束） */
 sandbox_result_t sandbox_exec(const char *command, int timeout_sec);
 
-/* 执行命令并返回 JSON 格式结果（用于云端 LLM） */
+/* 执行命令并返回 JSON 格式结果（调用者需 free 返回值） */
 char *sandbox_exec_json(const char *command, int timeout_sec);
-
-/* 释放结果 */
-void sandbox_free_result(sandbox_result_t *r);
 
 #endif /* TORK_SANDBOX_H */

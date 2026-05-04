@@ -1,5 +1,6 @@
 #include "pattern.h"
 #include "experience.h"
+#include "pi_seed.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -136,14 +137,17 @@ void pat_learn_from_experience(void) {
 int pat_query_best_action(uint8_t hw_stress, int8_t drive,
                           uint16_t gen_count, float *confidence) {
     if (!g_initialized) return -1;
-    
+
     uint8_t db = quantize_drive(drive);
     uint8_t gb = quantize_gen(gen_count);
-    
+
     int best_action = -1;
     float best_score = -9999.0f;
-    float best_samples = 0;
-    
+    float best_confidence = 0;
+
+    /* 时效性：查询时刻的 tick，用于计算模式衰减 */
+    uint32_t now_tick = g_learner.learn_cycles;  /* 近似当前时间 */
+
     for (int i = 0; i < PATTERN_MAX_SLOTS; i++) {
         pattern_t *p = &g_learner.slots[i];
         if (!p->active) continue;
@@ -151,25 +155,35 @@ int pat_query_best_action(uint8_t hw_stress, int8_t drive,
         if (p->key.drive_bucket != db) continue;
         if (p->key.gen_bucket != gb) continue;
         if (p->sample_count < PATTERN_MIN_SAMPLES) continue;
-        
-        /* 综合评分：avg_outcome * sqrt(samples) 以平衡置信度和样本量 */
-        float score = p->avg_outcome * sqrtf((float)p->sample_count);
-        
+
+        /* ── 时效衰减 ──────────────────────────────────────────
+         * 模式置信度随时间衰减。世界变了，旧模式必须被新经验刷新。
+         * "地图有用，却绝不是领土" — 不衰减 = 把地图当领土
+         * half_life=100: 每 100 个 learn_cycle 置信度减半
+         */
+        uint32_t age = (now_tick > p->last_seen_tick) ?
+                       (now_tick - p->last_seen_tick) : 0;
+        float decayed_outcome = pi_decay(p->avg_outcome, age, 100);
+
+        /* 综合评分：衰减后 outcome * sqrt(samples) */
+        float score = decayed_outcome * sqrtf((float)p->sample_count);
+
         /* 惩罚高崩溃率 */
         score *= (1.0f - p->crash_rate * 0.5f);
-        
+
         if (score > best_score) {
             best_score = score;
             best_action = p->key.action_type;
-            best_samples = (float)p->sample_count;
+            best_confidence = pi_decay(
+                (float)p->sample_count / ((float)p->sample_count + 5.0f),
+                age, 100);
         }
     }
-    
+
     if (confidence) {
-        *confidence = (best_action >= 0) ? 
-            (best_samples / (best_samples + 5.0f)) : 0.0f;
+        *confidence = best_confidence;
     }
-    
+
     return best_action;
 }
 
@@ -177,10 +191,12 @@ int pat_query_best_action(uint8_t hw_stress, int8_t drive,
 float pat_predict_outcome(uint8_t hw_stress, int8_t drive,
                           uint16_t gen_count, uint8_t action_type) {
     if (!g_initialized) return 0.0f;
-    
+
     uint8_t db = quantize_drive(drive);
     uint8_t gb = quantize_gen(gen_count);
-    
+
+    uint32_t now_tick = g_learner.learn_cycles;
+
     for (int i = 0; i < PATTERN_MAX_SLOTS; i++) {
         pattern_t *p = &g_learner.slots[i];
         if (!p->active) continue;
@@ -189,11 +205,14 @@ float pat_predict_outcome(uint8_t hw_stress, int8_t drive,
         if (p->key.gen_bucket  != gb) continue;
         if (p->key.action_type != action_type) continue;
         if (p->sample_count < PATTERN_MIN_SAMPLES) return 0.0f;
-        
-        return p->avg_outcome;
+
+        /* 时效衰减：旧预测不再可信 */
+        uint32_t age = (now_tick > p->last_seen_tick) ?
+                       (now_tick - p->last_seen_tick) : 0;
+        return pi_decay(p->avg_outcome, age, 100);
     }
-    
-    return 0.0f;  /* 未知情境 */
+
+    return 0.0f;
 }
 
 /* ── 获取已学习的模式数 ────────────────────────────────────── */

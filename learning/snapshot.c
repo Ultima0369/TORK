@@ -70,6 +70,7 @@ void snap_force(uint64_t tick, int64_t drive, uint8_t hw_stress,
 /* 修复：只在 drive 真正恶化时触发回滚，而不是从初始峰值正常回落 */
 health_check_t snap_health_check(uint64_t tick, int64_t drive,
                                   uint8_t hw_stress, int soul_crc_ok) {
+    (void)tick;
     health_check_t result;
     memset(&result, 0, sizeof(result));
     

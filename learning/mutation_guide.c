@@ -1,4 +1,5 @@
 #include "mutation_guide.h"
+#include "pi_seed.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -80,7 +81,7 @@ mg_strategy_type_t mg_recommend(char *recommendation, int buf_size) {
     }
     
     /* Pick based on weights */
-    float roll = (float)rand() / (float)RAND_MAX * total_weight;
+    float roll = pi_seed_float() * total_weight;
     float cumulative = 0;
     for (uint32_t i = 0; i < g_mg.strategy_count; i++) {
         cumulative += g_mg.strategies[i].weight;

@@ -137,6 +137,18 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
         inst.curiosity += 0.1f * cw;   /* Still worth exploring */
     }
 
+    /* ── 时效性：环境变了但驱力没变 = 僵死，必须打破 ──
+     * "世界变了,TORK必须变"
+     * 环境在变（stress 波动、tick 推进）但 drive 停滞，
+     * 说明 TORK 对世界的变化视而不见——这是最深的伪确定。
+     * 强制注入好奇，拒绝僵死。
+     */
+    if (in->env_changed) {
+        inst.curiosity += 0.35f * cw;   /* 环境变了，必须好奇 */
+        inst.fear *= 0.9f;              /* 僵死时恐惧反而不重要 */
+        inst.desire += 0.1f * dw;       /* 世界在动，你也该动 */
+    }
+
     return inst;
 }
 

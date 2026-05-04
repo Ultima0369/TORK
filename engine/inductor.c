@@ -156,7 +156,7 @@ int ind_extract_experiences(struct tork_rule *rules, int max_rules) {
         r->active = 0;
         int total = g_succ[0] + g_fail[0];
         r->confidence = (uint8_t)(g_succ[0] * 100 / total);
-        strncpy(r->premise, "function contains 'je' instruction", 32);
+        strncpy(r->premise, "function contains 'je' instr", 32);
         r->premise_len = (uint8_t)strlen(r->premise);
         strncpy(r->conclusion, "replace 'je' with 'jz'", 32);
         r->conclusion_len = (uint8_t)strlen(r->conclusion);
@@ -233,8 +233,8 @@ int ind_generalize(const struct tork_rule *existing, int count,
             earliest_tick = existing[i].from_tick;
 
         if (merged == 1) {
-            strncpy(new_rule->premise, existing[i].premise, 32);
-            strncpy(new_rule->conclusion, existing[i].conclusion, 32);
+            snprintf(new_rule->premise, sizeof(new_rule->premise), "%s", existing[i].premise);
+            snprintf(new_rule->conclusion, sizeof(new_rule->conclusion), "%s", existing[i].conclusion);
             new_rule->premise_len = existing[i].premise_len;
             new_rule->conclusion_len = existing[i].conclusion_len;
         }

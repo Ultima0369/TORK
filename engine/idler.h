@@ -43,4 +43,9 @@ void idler_set_active(int active);
 /* Total number of idle cycles completed */
 int idler_cycle_count(void);
 
+/* Execute code modification based on MCTS action type.
+ * Returns 0=success, -1=failure/not applicable */
+int idler_mcts_modify(uint8_t action_type, const char *target_file,
+                       const char *func_name);
+
 #endif /* IDLER_H */

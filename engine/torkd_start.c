@@ -5,6 +5,7 @@
  */
 
 #include "torkd.h"
+#include "query.h"
 #include "../learning/watcher.h"
 #include "../learning/snapshot.h"
 #include "../learning/self_build.h"
@@ -55,7 +56,11 @@ int main(int argc, char **argv) {
     snap_load();
     sb_load();
     mg_load();
-    
+
+    /* 不初始化 task 队列 — torkd_start 是独立守护进程，
+     * task 命令会返回提示让用户通过引擎进程执行 */
+    printf("  TORKD: standalone daemon started (task execution requires tork_engine)\n");
+
     /* Init socket (without a real soul — query handles this) */
     torkd_init(NULL);
     

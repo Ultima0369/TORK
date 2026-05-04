@@ -1,10 +1,9 @@
 #include "replay.h"
 #include "experience.h"
 #include "pattern.h"
+#include "pi_seed.h"
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 /* ── 全局 ──────────────────────────────────────────────────── */
 static replay_result_t g_last_replay;
@@ -27,7 +26,7 @@ static int simulate_alternative(const experience_t *original,
     /* 如果没有历史数据，用经验法则估算 */
     if (predicted == 0.0f) {
         /* 保守估算：替代行动通常比已知的好或差不明确 */
-        predicted = (float)(rand() % 40 - 20);  /* -20..+19 */
+        predicted = (float)(pi_seed_from_tsc() % 40 - 20);  /* -20..+19 */
     }
     
     float actual = original->outcome;
@@ -47,20 +46,39 @@ replay_result_t replay_deep(void) {
         return result;
     }
     
-    /* 先获取一批经验 */
+    /* 先获取一批经验，用 decay 权重偏好近期记忆
+     * "地图有用，却绝不是领土" — 旧经验消退，新经验清晰 */
     experience_t batch[REPLAY_BATCH_SIZE];
     int n = (total < REPLAY_BATCH_SIZE) ? total : REPLAY_BATCH_SIZE;
-    
+
+    /* 取最新经验的 tick 作为"当前"参考 */
+    experience_t latest;
+    uint64_t current_tick = 0;
+    if (exp_read(total - 1, &latest) == 0) {
+        current_tick = latest.tick;
+    }
+
     /* 随机采样：从不同位置读取，覆盖不同时期 */
     int stride = total / n;
     if (stride < 1) stride = 1;
-    
+
     int loaded = 0;
-    for (int i = 0; i < n; i++) {
-        int idx = (i * stride + rand() % stride) % total;
-        if (exp_read(idx, &batch[loaded]) == 0) {
-            loaded++;
-        }
+    for (int i = 0; i < n && loaded < REPLAY_BATCH_SIZE; i++) {
+        int idx = (i * stride + pi_seed_from_tsc() % stride) % total;
+        experience_t candidate;
+        if (exp_read(idx, &candidate) != 0)
+            continue;
+
+        /* decay 权重：久远的经验衰减，近期的清晰 */
+        uint32_t elapsed = (current_tick > candidate.tick)
+                           ? (uint32_t)(current_tick - candidate.tick) : 0;
+        float weight = pi_decay(1.0f, elapsed, 200);
+
+        /* 权重作为选中概率 — 旧记忆更可能被跳过 */
+        if (pi_seed_float() > weight)
+            continue;
+
+        batch[loaded++] = candidate;
     }
     
     if (loaded < 3) {

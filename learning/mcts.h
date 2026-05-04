@@ -31,7 +31,12 @@ typedef enum {
     MCTS_TRY_OPTIMIZE       = 4,  /* Attempt code optimization */
     MCTS_ENTER_IDLE         = 5,  /* Enter idle learning mode */
     MCTS_CALL_CLOUD         = 6,  /* Ask cloud for guidance */
-    MCTS_NUM_ACTIONS        = 7
+    /* 代码修改子动作 — code_modifier 的具体能力 */
+    MCTS_MOD_REPLACE_OP     = 7,  /* 替换操作数 (je→jz 等) */
+    MCTS_MOD_DEL_DEAD       = 8,  /* 删除死代码 (ret后不可达) */
+    MCTS_MOD_DEL_NOP        = 9,  /* 删除 NOP 填充 */
+    MCTS_MOD_SWAP_REGS      = 10, /* 寄存器交换优化 */
+    MCTS_NUM_ACTIONS        = 11
 } mcts_action_type_t;
 
 /* ── A single action (what to do) ─────────────────────────── */

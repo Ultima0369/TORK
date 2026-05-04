@@ -61,7 +61,7 @@ void watcher_scan_proc(void) {
     while ((entry = readdir(proc)) != NULL) {
         if (entry->d_name[0] < '0' || entry->d_name[0] > '9') continue;
         
-        char cmdline[256];
+        char cmdline[512];
         snprintf(cmdline, sizeof(cmdline), "/proc/%s/comm", entry->d_name);
         
         FILE *f = fopen(cmdline, "r");

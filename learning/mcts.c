@@ -1,10 +1,10 @@
 #include "mcts.h"
 #include "experience.h"
+#include "pi_seed.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
-#include <time.h>
 
 /* ── Tree node (internal) ──────────────────────────────────── */
 typedef struct mcts_node {
@@ -111,6 +111,24 @@ static int expand_node(mcts_node_t *node) {
             case MCTS_CALL_CLOUD:
                 /* Cloud call doesn't change local state immediately */
                 break;
+            case MCTS_MOD_REPLACE_OP:
+                /* 替换操作数：临时增加压力（风险操作） */
+                child->state.hw_stress = (node->state.hw_stress < 3) ?
+                                         node->state.hw_stress + 1 : 3;
+                break;
+            case MCTS_MOD_DEL_DEAD:
+                /* 删除死代码：降低压力（清理操作） */
+                child->state.hw_stress = (node->state.hw_stress > 0) ?
+                                         node->state.hw_stress - 1 : 0;
+                break;
+            case MCTS_MOD_DEL_NOP:
+                /* 删除 NOP：中性操作 */
+                break;
+            case MCTS_MOD_SWAP_REGS:
+                /* 寄存器交换：临时增加压力 */
+                child->state.hw_stress = (node->state.hw_stress < 3) ?
+                                         node->state.hw_stress + 1 : 3;
+                break;
         }
         
         node->children[node->num_children++] = child;
@@ -127,6 +145,7 @@ static float simulate_node(mcts_node_t *node, int depth) {
     /* Look up historical experience to inform simulation */
     experience_t recent[5];
     int n = exp_recent(5, recent);
+    (void)n;
     
     /* Base value from state quality */
     float value = 0.0f;
@@ -139,7 +158,31 @@ static float simulate_node(mcts_node_t *node, int depth) {
     
     /* Higher gen count = more evolved = better */
     value += node->state.gen_count * 0.001f;
-    
+
+    /* 代码修改子动作：根据压力和历史成功率给分 */
+    switch (node->action.type) {
+    case MCTS_MOD_REPLACE_OP:
+        /* 低压力时替换操作数风险低，价值高 */
+        if (node->state.hw_stress == 0) value += 0.25f;
+        else value -= 0.1f;
+        break;
+    case MCTS_MOD_DEL_DEAD:
+        /* 删除死代码总是有益的 */
+        value += 0.2f;
+        break;
+    case MCTS_MOD_DEL_NOP:
+        /* 删除 NOP 收益较小但安全 */
+        value += 0.15f;
+        break;
+    case MCTS_MOD_SWAP_REGS:
+        /* 寄存器优化需要低压力 */
+        if (node->state.hw_stress <= 1) value += 0.2f;
+        else value -= 0.05f;
+        break;
+    default:
+        break;
+    }
+
     /* Check historical success rates */
     if (node->action.type < MCTS_NUM_ACTIONS) {
         float sr = node->state.exp_success[node->action.type];
@@ -149,7 +192,7 @@ static float simulate_node(mcts_node_t *node, int depth) {
     }
     
     /* Small randomness for exploration */
-    value += ((float)rand() / RAND_MAX) * 0.1f;
+    value += pi_seed_float() * 0.1f;
     
     return value;
 }
@@ -293,6 +336,18 @@ float mcts_evaluate(const mcts_state_t *state, const mcts_action_t *action) {
             if (state->drive < -20 || state->recent_crashes > 3)
                 value += 0.5f;
             break;
+        case MCTS_MOD_REPLACE_OP:
+            if (state->hw_stress == 0) value += 0.35f;
+            break;
+        case MCTS_MOD_DEL_DEAD:
+            value += 0.25f;  /* dead code deletion is almost always safe */
+            break;
+        case MCTS_MOD_DEL_NOP:
+            value += 0.15f;
+            break;
+        case MCTS_MOD_SWAP_REGS:
+            if (state->hw_stress <= 1) value += 0.25f;
+            break;
     }
     
     return value;
@@ -314,7 +369,8 @@ void mcts_print_result(const mcts_result_t *result) {
 const char *mcts_action_name(uint8_t type) {
     static const char *names[MCTS_NUM_ACTIONS] = {
         "fear_adjust", "curiosity", "heartbeat",
-        "modify", "optimize", "idle", "call_cloud"
+        "modify", "optimize", "idle", "call_cloud",
+        "replace_op", "del_dead", "del_nop", "swap_regs"
     };
     if (type < MCTS_NUM_ACTIONS) return names[type];
     return "unknown";

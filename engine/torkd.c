@@ -1,14 +1,32 @@
 #include "torkd.h"
+#include "task.h"
+#include "auditor.h"
 #include "query.h"
 #include "soul_access.h"
+#include "../sandbox/sandbox.h"
 #include "../learning/watcher.h"
 /* snapshot stats from monitor */
-
-
 #include "../learning/experience.h"
 #include "../learning/branch.h"
 #include "../learning/self_build.h"
 #include "../learning/mutation_guide.h"
+
+/* JSON 转义辅助 */
+static int json_escape_buf(const char *src, char *dst, int dst_size) {
+    int j = 0;
+    for (int i = 0; src[i] && j < dst_size - 2; i++) {
+        switch (src[i]) {
+        case '"':  dst[j++] = '\\'; dst[j++] = '"';  break;
+        case '\\': dst[j++] = '\\'; dst[j++] = '\\'; break;
+        case '\n': dst[j++] = '\\'; dst[j++] = 'n';  break;
+        case '\r': dst[j++] = '\\'; dst[j++] = 'r';  break;
+        case '\t': dst[j++] = '\\'; dst[j++] = 't';  break;
+        default:   dst[j++] = src[i]; break;
+        }
+    }
+    dst[j] = '\0';
+    return j;
+}
 
 #include <stdio.h>
 #include <string.h>
@@ -79,7 +97,7 @@ static void handle_client(int client_fd) {
     if (n <= 0) { close(client_fd); return; }
     if (buf[n-1] == '\n') buf[n-1] = '\0';
     
-    char response[TORKD_MAX_MSG];
+    char response[TORKD_MAX_MSG * 2];
     
     if (strcmp(buf, "ping") == 0) {
         snprintf(response, sizeof(response), "pong\n");
@@ -111,6 +129,109 @@ static void handle_client(int client_fd) {
         write(client_fd, response, strlen(response));
         close(client_fd);
         return;
+    } else if (strncmp(buf, "exec:", 5) == 0) {
+        /* exec:<command> — 通过沙箱安全执行命令 */
+        const char *cmd = buf + 5;
+        if (*cmd == '\0') {
+            snprintf(response, sizeof(response), "{\"error\":\"empty command\"}\n");
+        } else {
+            sandbox_result_t sr = sandbox_exec(cmd, 30);
+            /* JSON 转义输出 */
+            char stdout_esc[SANDBOX_MAX_STDOUT * 2];
+            char stderr_esc[SANDBOX_MAX_STDERR * 2];
+            json_escape_buf(sr.stdout_buf, stdout_esc, sizeof(stdout_esc));
+            json_escape_buf(sr.stderr_buf, stderr_esc, sizeof(stderr_esc));
+            snprintf(response, sizeof(response),
+                "{\"exit_code\":%d,\"stdout\":\"%s\",\"stderr\":\"%s\",\"timed_out\":%s}\n",
+                sr.exit_code, stdout_esc, stderr_esc,
+                sr.timed_out ? "true" : "false");
+        }
+    } else if (strncmp(buf, "audit:", 6) == 0) {
+        /* audit:<filepath>[:funcname] — 代码安全审计 */
+        const char *arg = buf + 6;
+        char filepath[256] = "";
+        char funcname[64] = "";
+        const char *colon = strchr(arg, ':');
+        if (colon) {
+            int plen = (int)(colon - arg);
+            if (plen >= (int)sizeof(filepath)) plen = sizeof(filepath) - 1;
+            memcpy(filepath, arg, plen);
+            filepath[plen] = '\0';
+            snprintf(funcname, sizeof(funcname), "%s", colon + 1);
+        } else {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
+            strncpy(filepath, arg, sizeof(filepath) - 1);
+#pragma GCC diagnostic pop
+            filepath[sizeof(filepath) - 1] = '\0';
+        }
+        if (filepath[0] == '\0') {
+            snprintf(response, sizeof(response), "{\"error\":\"empty path\"}\n");
+        } else {
+            audit_result_t ar = audit_asm_file(filepath, funcname[0] ? funcname : NULL);
+            char json[4096];
+            audit_result_to_json(&ar, json, sizeof(json));
+            snprintf(response, sizeof(response), "%s\n", json);
+        }
+    } else if (strncmp(buf, "task:", 5) == 0) {
+        /* task:<type>:<input> — 提交异步任务
+         * type = exec | analyze | audit
+         * 返回 task_id */
+        const char *arg = buf + 5;
+        task_type_t ttype = TASK_UNKNOWN_TYPE;
+        const char *input = NULL;
+        if (strncmp(arg, "exec:", 5) == 0) { ttype = TASK_EXEC; input = arg + 5; }
+        else if (strncmp(arg, "analyze:", 8) == 0) { ttype = TASK_ANALYZE; input = arg + 8; }
+        else if (strncmp(arg, "audit:", 6) == 0) { ttype = TASK_AUDIT; input = arg + 6; }
+
+        if (ttype == TASK_UNKNOWN_TYPE || !input || *input == '\0') {
+            snprintf(response, sizeof(response), "{\"error\":\"usage: task:<exec|analyze|audit>:<input>\"}\n");
+        } else {
+            uint32_t tid = task_submit(ttype, input);
+            if (tid > 0)
+                snprintf(response, sizeof(response), "{\"task_id\":%u,\"status\":\"pending\"}\n", tid);
+            else
+                snprintf(response, sizeof(response), "{\"error\":\"task queue full\"}\n");
+        }
+    } else if (strncmp(buf, "result:", 7) == 0) {
+        /* result:<task_id> — 查询任务结果 */
+        uint32_t tid = (uint32_t)atoi(buf + 7);
+        if (tid == 0) {
+            snprintf(response, sizeof(response), "{\"error\":\"invalid task_id\"}\n");
+        } else {
+            task_status_t st = task_status(tid);
+            const char *status_str = "not_found";
+            if (st == TASK_PENDING) status_str = "pending";
+            else if (st == TASK_RUNNING) status_str = "running";
+            else if (st == TASK_DONE) status_str = "done";
+            else if (st == TASK_FAILED) status_str = "failed";
+            else if (st == TASK_CANCELLED) status_str = "cancelled";
+
+            if (st == TASK_PENDING || st == TASK_RUNNING) {
+                snprintf(response, sizeof(response), "{\"task_id\":%u,\"status\":\"%s\"}\n", tid, status_str);
+            } else if (st == TASK_DONE || st == TASK_FAILED) {
+                task_entry_t entry;
+                if (task_result(tid, &entry) == 0) {
+                    /* output 可能很大，截断以适应 response buffer */
+                    int olen = (int)strlen(entry.output);
+                    int max_out = (int)sizeof(response) - 128;
+                    if (olen > max_out) entry.output[max_out] = '\0';
+                    snprintf(response, sizeof(response),
+                        "{\"task_id\":%u,\"status\":\"%s\",\"exit_code\":%d,\"output\":%s}\n",
+                        tid, status_str, entry.exit_code, entry.output);
+                } else {
+                    snprintf(response, sizeof(response), "{\"task_id\":%u,\"status\":\"error\"}\n", tid);
+                }
+            } else {
+                snprintf(response, sizeof(response), "{\"task_id\":%u,\"status\":\"%s\"}\n", tid, status_str);
+            }
+        }
+    } else if (strcmp(buf, "tasks") == 0) {
+        /* tasks — 查看任务队列状态 */
+        snprintf(response, sizeof(response),
+            "{\"pending\":%d,\"active\":%d,\"completed\":%u,\"failed\":%u}\n",
+            task_pending_count(), task_active_count(),
+            task_total_completed(), task_total_failed());
     } else {
         /* Normal question */
         query_handle(buf, g_soul, response, sizeof(response));

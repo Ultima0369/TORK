@@ -1,5 +1,6 @@
 #include "branch.h"
 #include "experience.h"
+#include "pi_seed.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -40,20 +41,25 @@ void br_init(void) {
 }
 
 /* ── 检查是否可以分岔 ─────────────────────────────────────── */
-int br_should_fork(const fork_request_t *req) {
+int br_should_fork(const fork_request_t *req, float rhythm_dissonance) {
     if (!req) return 0;
-    
+
     /* 1. 驱动值必须为正（好奇心驱动，不是恐惧驱动） */
     if (req->drive <= 0) return 0;
-    
+
     /* 2. 沙箱级别至少 2（有权写自己的代码/内存） */
     if (req->sandbox_level < 2) return 0;
-    
+
     /* 3. 冷却期：距离上次分岔至少 BRANCH_COOLDOWN_TICKS */
     if (req->current_tick - req->branch_cool_tick < BRANCH_COOLDOWN_TICKS) return 0;
-    
-    /* 4. 经验足够丰富（至少 100 条经验才值得分岔试探） */
-    if (exp_count() < 100) return 0;
+
+    /* 4. 经验足够丰富（至少 100 条经验才值得分岔试探）
+     *    节律失调 > 0.6 时降低阈值 30%，增强分岔急切度 */
+    uint32_t exp_threshold = 100;
+    if (rhythm_dissonance > 0.6f) {
+        exp_threshold = (uint32_t)(exp_threshold * 0.7f);
+    }
+    if (exp_count() < exp_threshold) return 0;
     
     /* 5. 有空闲槽位 */
     if (g_branch_count >= BRANCH_MAX_ACTIVE) return 0;
@@ -62,7 +68,7 @@ int br_should_fork(const fork_request_t *req) {
 }
 
 /* ── 创建分支 ─────────────────────────────────────────────── */
-int br_fork(soul_t *parent_soul, uint32_t current_tick, uint16_t gen_count) {
+int br_fork(soul_t *parent_soul, uint32_t current_tick, uint32_t gen_count) {
     if (!parent_soul || !g_initialized) return -1;
     
     int slot = find_free_slot();
@@ -121,12 +127,13 @@ int br_fork(soul_t *parent_soul, uint32_t current_tick, uint16_t gen_count) {
 static void execute_branch_tick(branch_context_t *branch) {
     /* 读取分支 Soul 中的关键值 */
     uint8_t  hw_stress  = branch->soul.buf[S_HW_STRESS];
+    (void)hw_stress;
     int8_t   drive      = (int8_t)branch->soul.buf[S_DRIVE];
     uint32_t tick;
     memcpy(&tick, branch->soul.buf + S_TICK, 4);
     
     /* 模拟：驱动值小幅随机波动（分支的「试探」本质） */
-    int8_t drive_delta = (int8_t)(rand() % 7 - 3);  /* -3..+3 */
+    int8_t drive_delta = (int8_t)(pi_seed_from_tsc() % 7 - 3);  /* -3..+3 */
     int new_drive = drive + drive_delta;
     if (new_drive > 127) new_drive = 127;
     if (new_drive < -128) new_drive = -128;

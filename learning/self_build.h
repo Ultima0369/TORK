@@ -24,7 +24,7 @@ typedef enum {
 
 /* ── 监控的文件 ──────────────────────────────────────────── */
 typedef struct {
-    char    path[256];          /* 文件路径 */
+    char    path[512];          /* 文件路径 */
     time_t  mtime;              /* 上次修改时间 */
     int     changed;            /* 是否已变更 */
 } sb_source_t;

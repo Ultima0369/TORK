@@ -89,7 +89,6 @@ static void render_instinct_bars(tork_grid_t *g, int y_global, char *line, int m
     const grid_soul_feed_t *s = &g->soul;
     
     int bar_row = y_global - 10;  /* 0..5 */
-    int bar_height = 6;
     float bar_values[3] = {
         s->fear / 100.0f,
         s->desire / 100.0f,

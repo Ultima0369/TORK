@@ -1,5 +1,6 @@
 #include "fission.h"
 #include "monitor.h"
+#include "../learning/pi_seed.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,6 +27,13 @@ int fission_decide(const soul_t *soul) {
     /* Check lock file */
     if (access(FISSION_LOCK_PATH, F_OK) == 0)
         return 0;
+
+    static int pi_fission_inited = 0;
+    if (!pi_fission_inited) { pi_seed_init(); pi_fission_inited = 1; }
+
+    /* π-Seed random backoff: prevent thundering herd fission */
+    float fission_roll = pi_seed_float();
+    if (fission_roll < 0.4f) return 0;  /* 40% chance to defer fission */
 
     return 1;
 }

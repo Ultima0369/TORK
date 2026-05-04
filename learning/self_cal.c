@@ -1,4 +1,5 @@
 #include "self_cal.h"
+#include "pi_seed.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -136,6 +137,7 @@ static float calculate_efficiency(float energy_cost, float useful_output) {
 
 /* ── 评估当前探测点 ────────────────────────────────────────── */
 static void evaluate_current_point(uint32_t tick) {
+    (void)tick;
     cal_measurement_t *m = &g_cal.accum;
     
     if (m->ticks_at_point < g_cal.min_probe_ticks) return;
@@ -232,7 +234,7 @@ float self_cal_tick(uint32_t tick, float cpu_load, float mem_kb,
             if (g_cal.exploration_rate < 0.05f) g_cal.exploration_rate = 0.05f;
             
             /* 有一定概率在当前最优解附近精细探测, 而不是全局探测 */
-            if (g_cal.best_efficiency > 0 && (rand() % 100) < 80) {
+            if (g_cal.best_efficiency > 0 && (pi_seed_from_tsc() % 100) < 80) {
                 generate_fine_probes();
                 printf("  CAL: recalibrating (fine-tune around best, round %d)\n",
                        g_cal.total_calibrations);

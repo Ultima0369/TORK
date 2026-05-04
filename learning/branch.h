@@ -65,10 +65,10 @@ typedef struct {
 void br_init(void);
 
 /* 检查是否可以分岔（由 instinct 层调用） */
-int br_should_fork(const fork_request_t *req);
+int br_should_fork(const fork_request_t *req, float rhythm_dissonance);
 
 /* 创建分支：从主干 soul 分岔出一个子分支 */
-int br_fork(soul_t *parent_soul, uint32_t current_tick, uint16_t gen_count);
+int br_fork(soul_t *parent_soul, uint32_t current_tick, uint32_t gen_count);
 
 /* 推进所有活跃分支一步（由主干循环每圈末尾调用） */
 void br_advance_all(void);

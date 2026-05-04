@@ -4,6 +4,8 @@
 #include "../learning/pattern.h"
 #include "../learning/replay.h"
 #include "../learning/observer.h"
+#include "code_reader.h"
+#include "../code/code_modifier.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -105,4 +107,78 @@ void idler_set_active(int active) {
 
 int idler_cycle_count(void) {
     return g_cycles;
+}
+
+/* ── MCTS 代码修改执行器 ──────────────────────────────────────
+ * 当 MCTS 决策出代码修改子动作时，通过 code_modifier 实际执行。
+ * 返回: 0=成功, -1=失败/不适用
+ */
+int idler_mcts_modify(uint8_t action_type, const char *target_file,
+                       const char *func_name) {
+    if (!target_file || !func_name) return -1;
+
+    char asm_buf[8192];
+    int alen = asm_read_file(target_file, asm_buf, sizeof(asm_buf));
+    if (alen <= 0) return -1;
+
+    char backup[8192];
+    memcpy(backup, asm_buf, alen);
+
+    switch (action_type) {
+    case MCTS_MOD_REPLACE_OP: {
+        int rep = asm_replace_operand(asm_buf, alen, func_name,
+                                      "\tje\t", "\tjz\t", 1);
+        if (rep != 1) return -1;
+        if (!asm_verify_modification(asm_buf, alen, "benchmark/memcpy")) {
+            asm_rollback(asm_buf, sizeof(asm_buf), backup, alen);
+            return -1;
+        }
+        FILE *f = fopen(target_file, "w");
+        if (f) { fwrite(asm_buf, 1, alen, f); fclose(f); }
+        printf("  MCTS-MOD: replaced je→jz (verified)\n");
+        return 0;
+    }
+    case MCTS_MOD_DEL_DEAD: {
+        int new_len = alen;
+        int del = asm_delete_dead_insns(asm_buf, alen, func_name, &new_len);
+        if (del <= 0) return -1;
+        if (!asm_verify_modification(asm_buf, new_len, "benchmark/memcpy")) {
+            asm_rollback(asm_buf, sizeof(asm_buf), backup, alen);
+            return -1;
+        }
+        FILE *f = fopen(target_file, "w");
+        if (f) { fwrite(asm_buf, 1, new_len, f); fclose(f); }
+        printf("  MCTS-MOD: deleted %d dead insn(s) (verified)\n", del);
+        return 0;
+    }
+    case MCTS_MOD_DEL_NOP: {
+        int new_len = alen;
+        int nops = asm_delete_nop_insns(asm_buf, alen, func_name, &new_len);
+        if (nops <= 0) return -1;
+        if (!asm_verify_modification(asm_buf, new_len, "benchmark/memcpy")) {
+            asm_rollback(asm_buf, sizeof(asm_buf), backup, alen);
+            return -1;
+        }
+        FILE *f = fopen(target_file, "w");
+        if (f) { fwrite(asm_buf, 1, new_len, f); fclose(f); }
+        printf("  MCTS-MOD: deleted %d nop(s) (verified)\n", nops);
+        return 0;
+    }
+    case MCTS_MOD_SWAP_REGS: {
+        /* 寄存器交换: rax↔rdx 在 mov 指令中 */
+        int rep = asm_replace_operand(asm_buf, alen, func_name,
+                                      "%rax", "%rdx", 1);
+        if (rep != 1) return -1;
+        if (!asm_verify_modification(asm_buf, alen, "benchmark/memcpy")) {
+            asm_rollback(asm_buf, sizeof(asm_buf), backup, alen);
+            return -1;
+        }
+        FILE *f = fopen(target_file, "w");
+        if (f) { fwrite(asm_buf, 1, alen, f); fclose(f); }
+        printf("  MCTS-MOD: swapped rax↔rdx (verified)\n");
+        return 0;
+    }
+    default:
+        return -1;
+    }
 }

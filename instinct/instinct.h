@@ -38,6 +38,7 @@ typedef struct {
     float pattern_confidence;            /* Confidence in pattern recommendation (0..1) */
     int energy_mode;                     /* Current energy mode (0-3) */
     float energy_throttle;               /* Energy throttle level (0.0-1.0) */
+    uint8_t env_changed;                 /* 1 if environment changed but drive didn't (stagnation) */
 } instinct_input_t;
 
 tork_instinct_t instinct_evaluate(const instinct_input_t *in);

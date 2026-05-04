@@ -31,6 +31,7 @@ static void cleanup_core(int sig) {
         waitpid(core_pid, NULL, 0);
     }
     ps_emergency_save();
+    pat_save();
     pat_cleanup();
     br_cleanup();
     exp_save();
@@ -76,10 +77,12 @@ int main(int argc, char **argv) {
     exp_init();
     br_init();
     pat_init();
+    pat_load();
         fprintf(stderr, "warning: bb_init failed — blackboard unavailable\n");
     exp_init();
     br_init();
     pat_init();
+    pat_load();
 
     if (cal_init() != 0)
         fprintf(stderr, "warning: cal_init failed — calibrator unavailable\n");

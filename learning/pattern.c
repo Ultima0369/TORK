@@ -208,6 +208,72 @@ uint32_t pat_cycles(void) {
     return g_learner.learn_cycles;
 }
 
+/* ── 保存模式库 ────────────────────────────────────────────── */
+int pat_save(void) {
+    if (!g_initialized) return -1;
+    
+    const char *path = "persist/patterns.bin";
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        printf("  PAT: cannot save to %s\n", path);
+        return -1;
+    }
+    
+    /* 写入模式计数和所有活跃模式 */
+    uint32_t count = 0;
+    for (int i = 0; i < PATTERN_MAX_SLOTS; i++) {
+        if (g_learner.slots[i].active) count++;
+    }
+    
+    fwrite(&count, sizeof(count), 1, f);
+    fwrite(&g_learner.learn_cycles, sizeof(g_learner.learn_cycles), 1, f);
+    
+    for (int i = 0; i < PATTERN_MAX_SLOTS; i++) {
+        if (g_learner.slots[i].active) {
+            fwrite(&g_learner.slots[i], sizeof(pattern_t), 1, f);
+        }
+    }
+    
+    fclose(f);
+    printf("  PAT: saved %u patterns to %s\n", count, path);
+    return 0;
+}
+
+/* ── 加载模式库 ────────────────────────────────────────────── */
+int pat_load(void) {
+    if (!g_initialized) {
+        pat_init();
+    }
+    
+    const char *path = "persist/patterns.bin";
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        printf("  PAT: no saved patterns at %s (fresh start)\n", path);
+        return -1;
+    }
+    
+    uint32_t count;
+    fread(&count, sizeof(count), 1, f);
+    fread(&g_learner.learn_cycles, sizeof(g_learner.learn_cycles), 1, f);
+    
+    if (count > PATTERN_MAX_SLOTS) count = PATTERN_MAX_SLOTS;
+    
+    memset(g_learner.slots, 0, sizeof(g_learner.slots));
+    for (uint32_t i = 0; i < count; i++) {
+        pattern_t p;
+        fread(&p, sizeof(pattern_t), 1, f);
+        if (i < PATTERN_MAX_SLOTS) {
+            g_learner.slots[i] = p;
+            g_learner.total_patterns++;
+        }
+    }
+    
+    fclose(f);
+    printf("  PAT: loaded %u patterns from %s (cycle=%u)\n",
+           count, path, g_learner.learn_cycles);
+    return 0;
+}
+
 /* ── 清理 ─────────────────────────────────────────────────── */
 void pat_cleanup(void) {
     memset(&g_learner, 0, sizeof(g_learner));

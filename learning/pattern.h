@@ -70,3 +70,10 @@ uint32_t pat_cycles(void);
 void pat_cleanup(void);
 
 #endif /* PATTERN_H */
+
+/* ── 持久化 ────────────────────────────────────────────────── */
+/* 将模式库保存到二进制文件 (persist/patterns.bin) */
+int pat_save(void);
+
+/* 从二进制文件加载模式库 */
+int pat_load(void);

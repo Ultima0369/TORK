@@ -322,9 +322,17 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             static int exp_tick_counter = 0;
             exp_tick_counter++;
             if (exp_tick_counter % 2 == 0) {
+                /* Diverse action: vary by tick parity for pattern exploration */
+                uint8_t act = (inp.tick % 3 == 0) ? 2 :  /* curiosity */
+                             (inp.tick % 5 == 0) ? 1 :  /* fear */
+                             (inp.tick % 7 == 0) ? 3 :  /* modify */
+                             0;                          /* default */
+                int8_t outc = (int8_t)(drive / 8);
+                if (outc == 0 && drive > 0) outc = 2;
+                if (outc == 0 && drive < 0) outc = -2;
                 exp_record(inp.tick, inp.hw_stress, (int8_t)drive, inp.fission_count,
-                          (uint8_t)(drive > 50 ? 1 : 0), (int8_t)(drive > 50 ? 5 : -5),
-                          0, 0, 0, inp.hw_stress, (int8_t)drive);
+                          act, 0,
+                          outc, 0, 0, inp.hw_stress, (int8_t)drive);
             }
         }
         

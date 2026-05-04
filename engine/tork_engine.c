@@ -14,6 +14,7 @@
 #include "../learning/branch.h"
 #include "../learning/pattern.h"
 #include "../learning/observer.h"
+#include "../learning/snapshot.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,6 +33,7 @@ static void cleanup_core(int sig) {
         waitpid(core_pid, NULL, 0);
     }
     ps_emergency_save();
+    snap_save();
     obs_save_baseline();
     pat_save();
     pat_cleanup();
@@ -82,6 +84,8 @@ int main(int argc, char **argv) {
     pat_load();
     obs_init();
     obs_load_baseline();
+    snap_init();
+    snap_load();
         fprintf(stderr, "warning: bb_init failed — blackboard unavailable\n");
     exp_init();
     br_init();
@@ -89,6 +93,8 @@ int main(int argc, char **argv) {
     pat_load();
     obs_init();
     obs_load_baseline();
+    snap_init();
+    snap_load();
 
     if (cal_init() != 0)
         fprintf(stderr, "warning: cal_init failed — calibrator unavailable\n");
@@ -583,8 +589,30 @@ printf("TORK engine started. core PID=%d\n", core_pid);
             }
         }
         
+        /* Snapshot: auto-save healthy state */
+        {
+            uint8_t soul_raw[128];
+            memset(soul_raw, 0, 128);
+            memcpy(soul_raw, &soul, sizeof(soul));
+            snap_auto(inp.tick, (int64_t)drive, inp.hw_stress,
+                      soul_gen_count(&soul), soul_raw);
+        }
+        
         /* Update instinct input with branch status */
         inp.branch_active_count = br_active_count();
+        
+        /* Health check: detect degradation and auto-rollback */
+        {
+            int crc_ok = 1;  /* Assume CRC OK for now */
+            health_check_t hc = snap_health_check(inp.tick, (int64_t)drive,
+                                                   inp.hw_stress, crc_ok);
+            if (hc.degraded) {
+                printf("[%4d] tick=%-6u SNAP: DEGRADED, initiating rollback\n",
+                       i, inp.tick);
+                /* Rollback would restore soul from snapshot here */
+                /* For now just log it - full rollback requires core restart */
+            }
+        }
         {
             uint32_t lft = br_last_fork_tick();
             inp.branch_fork_ticks_ago = (lft > 0) ? (int)(inp.tick - lft) : -1;

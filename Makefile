@@ -78,6 +78,10 @@ build/pattern.o: learning/pattern.c learning/pattern.h learning/experience.h
 build/replay.o: learning/replay.c learning/replay.h learning/experience.h learning/pattern.h
 
 build/observer.o: learning/observer.c learning/observer.h
+
+build/snapshot.o: learning/snapshot.c learning/snapshot.h
+	$(CC) $(CFLAGS) -c -o build/snapshot.o learning/snapshot.c -lm
+
 	$(CC) $(CFLAGS) -c -o build/observer.o learning/observer.c -lm
 
 	$(CC) $(CFLAGS) -c -o build/replay.o learning/replay.c -lm
@@ -92,8 +96,8 @@ build/observer.o: learning/observer.c learning/observer.h
 build/idler.o: engine/idler.c engine/idler.h engine/blackboard.h engine/inductor.h
 	$(CC) $(CFLAGS) -c -o build/idler.o engine/idler.c
 
-build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/idler.o build/sandbox.o build/agreement.o
-	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/idler.o build/sandbox.o build/agreement.o -lm
+build/tork_engine: build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/idler.o build/sandbox.o build/agreement.o
+	$(CC) -o build/tork_engine build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/calibrator.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/idler.o build/sandbox.o build/agreement.o -lm
 
 # ── Targets ─────────────────────────────────────────────────────────
 

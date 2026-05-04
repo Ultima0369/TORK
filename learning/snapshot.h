@@ -1,3 +1,6 @@
+#ifndef SOUL_SIZE
+#define SOUL_SIZE 192
+#endif
 #ifndef SNAPSHOT_H
 #define SNAPSHOT_H
 
@@ -20,7 +23,7 @@ typedef struct {
     uint64_t gen_count;         /* 当时世代 */
     
     /* Soul 完整内容 */
-    uint8_t  soul_data[128];    /* 完整 Soul v3.0 快照 */
+    uint8_t  soul_data[SOUL_SIZE];    /* 完整 Soul v3.0 快照 */
     
     uint32_t checksum;          /* 快照自身的 CRC */
 } snapshot_t;

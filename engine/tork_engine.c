@@ -591,7 +591,7 @@ printf("TORK engine started. core PID=%d\n", core_pid);
         
         /* Snapshot: auto-save healthy state */
         {
-            uint8_t soul_raw[128];
+            uint8_t soul_raw[SOUL_SIZE];
             memset(soul_raw, 0, 128);
             memcpy(soul_raw, &soul, sizeof(soul));
             snap_auto(inp.tick, (int64_t)drive, inp.hw_stress,
@@ -601,16 +601,33 @@ printf("TORK engine started. core PID=%d\n", core_pid);
         /* Update instinct input with branch status */
         inp.branch_active_count = br_active_count();
         
-        /* Health check: detect degradation and auto-rollback */
+        /* Health check: detect degradation, auto-rollback via /proc/PID/mem */
         {
-            int crc_ok = 1;  /* Assume CRC OK for now */
+            int crc_ok = (soul_checksum(&soul) == 0);  /* 0=unchecked in engine */
             health_check_t hc = snap_health_check(inp.tick, (int64_t)drive,
-                                                   inp.hw_stress, crc_ok);
-            if (hc.degraded) {
-                printf("[%4d] tick=%-6u SNAP: DEGRADED, initiating rollback\n",
-                       i, inp.tick);
-                /* Rollback would restore soul from snapshot here */
-                /* For now just log it - full rollback requires core restart */
+                                                   inp.hw_stress, 1);
+            if (hc.degraded && core_pid > 0) {
+                printf("[%4d] tick=%-6u SNAP: DEGRADED (drive_drop=%.0f), ROLLING BACK\n",
+                       i, inp.tick, hc.drive_drop);
+                
+                uint8_t restored_soul[SOUL_SIZE];
+                uint32_t restore_tick = 0;
+                int r = snap_rollback(restored_soul, &restore_tick);
+                if (r > 0 && restore_tick > 0) {
+                    /* Write restored soul to core process via soul.wr_fd */
+                    if (soul.wr_fd >= 0) {
+                        lseek(soul.wr_fd, SOUL_ADDR_VAL, SEEK_SET);
+                        ssize_t written = write(soul.wr_fd, restored_soul, SOUL_SIZE);
+                        printf("[%4d] tick=%-6u SNAP: wrote %zd bytes to core @ 0x%x\n",
+                               i, inp.tick, written, SOUL_ADDR_VAL);
+                        
+                        /* Re-read to verify rollback */
+                        soul_read(&soul);
+                    } else {
+                        printf("[%4d] tick=%-6u SNAP: no wr_fd, cannot rollback\n",
+                               i, inp.tick);
+                    }
+                }
             }
         }
         {

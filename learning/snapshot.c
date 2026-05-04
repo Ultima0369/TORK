@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 /* ── 全局 ──────────────────────────────────────────────────── */
 static snapshot_history_t g_hist;
@@ -36,7 +38,7 @@ static void save_snapshot(uint64_t tick, int64_t drive, uint8_t hw_stress,
     s->drive     = drive;
     s->hw_stress = hw_stress;
     s->gen_count = gen_count;
-    memcpy(s->soul_data, soul_data, 128);
+    memcpy(s->soul_data, soul_data, SOUL_SIZE);
     s->checksum  = crc32_simple((const uint8_t *)s, sizeof(snapshot_t) - 4);
     
     g_hist.head = (g_hist.head + 1) % SNAP_MAX_HISTORY;
@@ -131,7 +133,7 @@ int snap_rollback(uint8_t *soul_data, uint32_t *restore_tick) {
     }
     
     snapshot_t *best = &g_hist.slots[best_idx];
-    memcpy(soul_data, best->soul_data, 128);
+    memcpy(soul_data, best->soul_data, SOUL_SIZE);
     if (restore_tick) *restore_tick = (uint32_t)best->tick;
     
     g_hist.restores++;

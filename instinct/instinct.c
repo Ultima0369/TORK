@@ -105,6 +105,20 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
     if (in->branch_fork_ticks_ago >= 0 && in->branch_fork_ticks_ago < 100) {
         inst.curiosity += 0.1f * cw;   /* Recent fork keeps mind open */
     }
+    
+    /* ── v3.2: pattern experience awareness ── */
+    if (in->pattern_best_action >= 0 && in->pattern_confidence > 0.3f) {
+        /* Pattern says there's a known-good action for this situation */
+        inst.fear *= 0.92f;            /* Experience reduces fear */
+        inst.desire += 0.15f * dw;     /* Pattern match boosts desire (confidence) */
+        if (in->pattern_confidence > 0.6f) {
+            inst.curiosity += 0.2f * cw;  /* Strong pattern sparks focused curiosity */
+        }
+    } else if (in->pattern_best_action >= 0 && in->pattern_confidence > 0.0f) {
+        /* Low confidence: be cautious, but still curious */
+        inst.fear *= 1.05f;            /* Unknown territory, slight caution */
+        inst.curiosity += 0.1f * cw;   /* Still worth exploring */
+    }
 
     return inst;
 }

@@ -128,6 +128,47 @@ int tune_load(void) {
     return -1;
 }
 
+void tune_apply_tln_hints(int action, int modify, int explore, int energy) {
+    if (!g_initialized) return;
+
+    /* explore_hint: +1 → 增探索率/学习率, -1 → 收敛 */
+    if (explore == 1) {
+        g_params.exploration_rate += 3;
+        if (g_params.exploration_rate > 60) g_params.exploration_rate = 60;
+        g_params.learning_rate += 0.005f;
+        if (g_params.learning_rate > 0.5f) g_params.learning_rate = 0.5f;
+    } else if (explore == -1) {
+        g_params.exploration_rate -= 2;
+        if (g_params.exploration_rate < 5) g_params.exploration_rate = 5;
+        g_params.learning_rate -= 0.003f;
+        if (g_params.learning_rate < 0.01f) g_params.learning_rate = 0.01f;
+    }
+
+    /* energy_hint: +1 → 加速(缩心跳), -1 → 省电(扩心跳) */
+    if (energy == 1) {
+        g_params.heartbeat_interval -= 15;
+        if (g_params.heartbeat_interval < 50) g_params.heartbeat_interval = 50;
+    } else if (energy == -1) {
+        g_params.heartbeat_interval += 20;
+        if (g_params.heartbeat_interval > 2000) g_params.heartbeat_interval = 2000;
+    }
+
+    /* modify_hint: +1 → 增好奇心(鼓励变异), -1 已在 scheduler 中否决修改 */
+    if (modify == 1) {
+        g_params.curiosity_weight += 0.01f;
+        if (g_params.curiosity_weight > 2.0f) g_params.curiosity_weight = 2.0f;
+    }
+
+    /* action_hint: +1 → 增欲望(激进), -1 → 增恐惧(保守) */
+    if (action == 1) {
+        g_params.desire_weight += 0.01f;
+        if (g_params.desire_weight > 2.0f) g_params.desire_weight = 2.0f;
+    } else if (action == -1) {
+        g_params.fear_weight += 0.01f;
+        if (g_params.fear_weight > 2.0f) g_params.fear_weight = 2.0f;
+    }
+}
+
 void tune_print(void) {
     if (!g_initialized) return;
     printf("  TUNE: fear=%.2f desire=%.2f curiosity=%.2f | lr=%.2f hb=%dms explore=%d%% (adjusts=%d)\n",

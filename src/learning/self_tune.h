@@ -31,6 +31,9 @@ tune_params_t tune_get_params(void);
 int tune_save(void);
 int tune_load(void);
 
+/* TLN 三值提示调制参数: +1 激进, -1 保守, 0 悬置不动 */
+void tune_apply_tln_hints(int action, int modify, int explore, int energy);
+
 /* 打印当前参数 */
 void tune_print(void);
 

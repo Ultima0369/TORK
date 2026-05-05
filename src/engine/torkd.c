@@ -132,7 +132,7 @@ static void handle_client(int client_fd) {
         uint32_t exp_cnt = exp_count();
         
         snprintf(response, sizeof(response),
-            "TORK v3.15 TLN 已集成\n"
+            "TORK v3.16 TLN 反馈回路已集成\n"
             "   心跳: %u tick | 驱动: %+d\n"
             "   压力: %u | 世代: %u\n"
             "   分支: %d 个活跃 | 经验: %u 条\n"

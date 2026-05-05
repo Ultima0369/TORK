@@ -69,6 +69,7 @@ SIMPLE_FIELDS = [
     "code_insns", "code_ctrl", "fission_count", "wins",
     "agreed", "sandbox_level", "cloud_connected", "learn_count",
     "gen_count", "experience_count",
+    "tln_action", "tln_modify", "tln_explore", "tln_energy",
 ]
 
 

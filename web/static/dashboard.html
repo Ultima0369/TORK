@@ -487,6 +487,16 @@ body {
           <span class="vital-label" style="color:var(--dim)">Mode</span>
           <span class="vital-val" id="v-mode" style="width:auto;text-align:left">--</span>
         </div>
+        <div style="height:4px"></div>
+        <div class="vital-row">
+          <span class="vital-label" style="color:var(--curiosity);font-size:9px">TLN</span>
+          <div style="display:flex;gap:4px;flex:1">
+            <span id="tln-act" style="font-size:10px;width:22px;text-align:center;border-radius:2px;background:var(--border);color:var(--dim)">0</span>
+            <span id="tln-mod" style="font-size:10px;width:22px;text-align:center;border-radius:2px;background:var(--border);color:var(--dim)">0</span>
+            <span id="tln-exp" style="font-size:10px;width:22px;text-align:center;border-radius:2px;background:var(--border);color:var(--dim)">0</span>
+            <span id="tln-nrg" style="font-size:10px;width:22px;text-align:center;border-radius:2px;background:var(--border);color:var(--dim)">0</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1008,11 +1018,18 @@ function onUpdate(d) {
   text('f-drive', drive ?? '--');
   text('f-stress', soul.hw_stress ?? '--');
   text('f-mode', MODE_LABELS[soul.mode ?? 0] || 'idle');
-  // TLN: ternary logic network (+1/0/-1)
+  // TLN: ternary logic network (+1/0/-1) — vitals indicators
   const tlnA = soul.tln_action, tlnM = soul.tln_modify, tlnE = soul.tln_explore, tlnN = soul.tln_energy;
+  const tlnSym = {1:'+', 0:'0', '-1':'-'};
+  const tlnBg  = {1:'#1a3a1a', 0:'var(--border)', '-1':'#3a1a1a'};
+  const tlnClr = {1:'var(--success)', 0:'var(--dim)', '-1':'var(--danger)'};
+  setTlnBadge('tln-act', tlnA, tlnSym);
+  setTlnBadge('tln-mod', tlnM, tlnSym);
+  setTlnBadge('tln-exp', tlnE, tlnSym);
+  setTlnBadge('tln-nrg', tlnN, tlnSym);
+  // TLN in fields section
   if (tlnA != null || tlnM != null) {
-    const tlnLabels = {1:'+', 0:'0', '-1':'-'};
-    text('f-tln', `${tlnLabels[tlnA]??'?'}${tlnLabels[tlnM]??'?'}${tlnLabels[tlnE]??'?'}${tlnLabels[tlnN]??'?'}`);
+    text('f-tln', `${tlnSym[tlnA]??'?'}${tlnSym[tlnM]??'?'}${tlnSym[tlnE]??'?'}${tlnSym[tlnN]??'?'}`);
   }
   text('f-gen', evo.generation ?? soul.gen_count ?? '--');
   text('f-learn', soul.learn_count ?? '--');
@@ -1059,6 +1076,15 @@ function setVital(barId, valId, v) {
 function setBar2(id, v) {
   const el = document.getElementById(id);
   if (el) el.style.width = `${Math.max(0,Math.min(100,v))}%`;
+}
+function setTlnBadge(id, val, symMap) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const bgMap  = {1:'#1a3a1a', 0:'var(--border)', '-1':'#3a1a1a'};
+  const clrMap = {1:'var(--success)', 0:'var(--dim)', '-1':'var(--danger)'};
+  el.textContent = symMap[val] ?? '?';
+  el.style.background = bgMap[val] ?? 'var(--border)';
+  el.style.color = clrMap[val] ?? 'var(--dim)';
 }
 function text(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
 

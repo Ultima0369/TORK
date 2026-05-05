@@ -442,6 +442,13 @@ float mcts_get_exploration(void) {
     return mcts_tune.exploration;
 }
 
+/* Set exploration constant (TLN explore_hint drives this) */
+void mcts_set_exploration(float c) {
+    if (c < 0.3f) c = 0.3f;
+    if (c > 5.0f) c = 5.0f;
+    mcts_tune.exploration = c;
+}
+
 /* Get current min iterations */
 int mcts_get_min_iterations(void) {
     return mcts_tune.min_iterations;

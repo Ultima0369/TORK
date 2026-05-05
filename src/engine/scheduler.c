@@ -111,6 +111,33 @@ static void tick_services(sched_ctx_t *ctx) {
             (int8_t)ctx->tln_energy_hint
         };
         soul_write_buf(ctx->soul, S_TLN_ACTION, tln_hints, 4);
+
+        /* TLN 主见 → 调制 self_tune 参数 (每 20 tick 一次，避免抖动) */
+        if (ctx->round % 20 == 0) {
+            tune_apply_tln_hints(ctx->tln_action_hint,
+                                 ctx->tln_modify_hint,
+                                 ctx->tln_explore_hint,
+                                 ctx->tln_energy_hint);
+        }
+
+        /* TLN energy_hint → 能耗模式切换 (每 100 tick 一次) */
+        if (ctx->round % 100 == 0) {
+            if (ctx->tln_energy_hint == 1)
+                eng_set_mode(ENERGY_MODE_PERFORMANCE);
+            else if (ctx->tln_energy_hint == -1)
+                eng_set_mode(ENERGY_MODE_ECONOMY);
+            else
+                eng_set_mode(ENERGY_MODE_BALANCED);
+        }
+
+        /* TLN explore_hint → MCTS 探索常数 (每 50 tick 一次) */
+        if (ctx->round % 50 == 0) {
+            float cur_c = mcts_get_exploration();
+            if (ctx->tln_explore_hint == 1)
+                mcts_set_exploration(cur_c + 0.05f);
+            else if (ctx->tln_explore_hint == -1)
+                mcts_set_exploration(cur_c - 0.05f);
+        }
     }
 }
 

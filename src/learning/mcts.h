@@ -87,6 +87,9 @@ void mcts_auto_tune(void);
 /* Get current exploration constant */
 float mcts_get_exploration(void);
 
+/* Set exploration constant (TLN explore_hint drives this) */
+void mcts_set_exploration(float c);
+
 /* Get current min iterations */
 int mcts_get_min_iterations(void);
 

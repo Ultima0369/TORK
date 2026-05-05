@@ -228,6 +228,42 @@ static int sandbox_child(void *arg) {
     fprintf(stderr, "TORK sandbox initialized\n");
     fflush(stderr);
 
+    /* ── 隔离性自检 ── */
+    {
+        int pass = 0, fail = 0;
+
+        /* 温度读取 */
+        int fd = open("/sys/class/thermal/thermal_zone0/temp", O_RDONLY);
+        if (fd >= 0) {
+            char buf[32] = {0};
+            read(fd, buf, sizeof(buf) - 1);
+            close(fd);
+            int temp = atoi(buf);
+            if (temp > 0) { fprintf(stderr, "  CHECK: thermal=%d°C ✓\n", temp / 1000); pass++; }
+            else { fprintf(stderr, "  CHECK: thermal=invalid ✗\n"); fail++; }
+        } else {
+            fprintf(stderr, "  CHECK: thermal not available ✗\n"); fail++;
+        }
+
+        /* /home 不可访问 */
+        if (access("/home", F_OK) != 0) { fprintf(stderr, "  CHECK: /home isolated ✓\n"); pass++; }
+        else { fprintf(stderr, "  CHECK: /home visible ✗\n"); fail++; }
+
+        /* /proc/net 隔离 */
+        fd = open("/proc/net/dev", O_RDONLY);
+        if (fd >= 0) {
+            char buf[256] = {0};
+            read(fd, buf, sizeof(buf) - 1);
+            close(fd);
+            int lines = 0;
+            for (char *p = buf; *p; p++) if (*p == '\n') lines++;
+            if (lines <= 2) { fprintf(stderr, "  CHECK: net isolated (only lo) ✓\n"); pass++; }
+            else { fprintf(stderr, "  CHECK: net has interfaces ✗\n"); fail++; }
+        }
+
+        fprintf(stderr, "  SANDBOX CHECKS: %d/%d passed\n", pass, pass + fail);
+    }
+
     char *args[] = { "tork_engine", "--daemon", NULL };
     execv("/build/tork_engine", args);
 

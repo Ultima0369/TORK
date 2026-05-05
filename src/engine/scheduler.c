@@ -91,7 +91,15 @@ static void tick_services(sched_ctx_t *ctx) {
 
     /* 师徒阶段更新 (每 100 tick) */
     if (ctx->round % 100 == 0) {
-        mentor_tick(exp_count(), ctx->inp.pattern_confidence, 0.5f);
+        float pat_conf = ctx->inp.pattern_confidence;
+        /* TLN 一致性: 最近4个hint中非零的比例 */
+        int tln_nonzero = 0;
+        if (ctx->tln_action_hint != 0) tln_nonzero++;
+        if (ctx->tln_modify_hint != 0) tln_nonzero++;
+        if (ctx->tln_explore_hint != 0) tln_nonzero++;
+        if (ctx->tln_energy_hint != 0) tln_nonzero++;
+        float tln_cons = (float)tln_nonzero / 4.0f;
+        mentor_tick(exp_count(), pat_conf, tln_cons);
     }
 
     /* TLN: 每 tick 做一步三值逻辑推理 */

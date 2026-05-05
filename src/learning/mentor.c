@@ -9,7 +9,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define PERSIST_PATH "/opt/tork/persist/mentor_state.bin"
+#define PERSIST_PATH "persist/mentor_state.bin"
 
 static mentor_state_t g_mentor = {0};
 

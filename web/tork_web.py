@@ -368,6 +368,13 @@ async def _push_update() -> None:
                     logger.debug("Soul hex parse failed", exc_info=True)
     instincts = _derive_instincts(soul)
     evo = _evolution_stats()
+    mentor_raw = await torkd_query("mentor")
+    mentor = None
+    if mentor_raw:
+        try:
+            mentor = json.loads(mentor_raw)
+        except json.JSONDecodeError:
+            logger.debug("Mentor parse failed")
     msg = {
         "type": "update",
         "data": {
@@ -376,6 +383,7 @@ async def _push_update() -> None:
             "engine_running": pid is not None,
             "pid": pid,
             "evolution": evo,
+            "mentor": mentor,
         },
     }
     payload = json.dumps(msg)

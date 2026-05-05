@@ -201,7 +201,7 @@ body {
 
 /* ── State Fields ── */
 .fields-section {
-  display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px;
+  display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:16px;
 }
 .field-card {
   background:var(--panel); border:1px solid var(--border);
@@ -522,6 +522,13 @@ body {
         <div class="field-row"><span class="k">Patterns</span><span class="v" id="f-learn">--</span></div>
         <div class="field-row"><span class="k">Mutations</span><span class="v" id="f-mutations">--</span></div>
         <div class="field-row"><span class="k">Success</span><span class="v" id="f-success">--</span></div>
+      </div>
+      <div class="field-card">
+        <h4>Mentor</h4>
+        <div class="field-row"><span class="k">Stage</span><span class="v" id="f-mentor-stage">--</span></div>
+        <div class="field-row"><span class="k">Cloud</span><span class="v" id="f-mentor-cloud">--</span></div>
+        <div class="field-row"><span class="k">Local</span><span class="v" id="f-mentor-local">--</span></div>
+        <div class="field-row"><span class="k">Auto</span><span class="v" id="f-mentor-auto">--</span></div>
       </div>
       <div class="field-card">
         <h4>System</h4>
@@ -1039,6 +1046,13 @@ function onUpdate(d) {
   text('f-sandbox', SANDBOX_LABELS[soul.sandbox_level ?? 0] || 'none');
   text('f-cloud', soul.cloud_connected ? 'Connected' : 'No');
   text('f-pid', pid ?? '--');
+
+  // Mentor
+  const mentor = d.mentor || {};
+  text('f-mentor-stage', mentor.stage || '--');
+  text('f-mentor-cloud', mentor.cloud_weight != null ? mentor.cloud_weight + '%' : '--');
+  text('f-mentor-local', mentor.local_weight != null ? mentor.local_weight + '%' : '--');
+  text('f-mentor-auto', mentor.auto_weight != null ? mentor.auto_weight + '%' : '--');
 
   // Editor panel
   text('e-tick', soul.tick ?? '--');

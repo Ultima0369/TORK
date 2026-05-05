@@ -12,6 +12,7 @@
 #include "../learning/branch.h"
 #include "../learning/self_build.h"
 #include "../learning/mutation_guide.h"
+#include "../learning/mentor.h"
 
 /* JSON 转义辅助 */
 static int json_escape_buf(const char *src, char *dst, int dst_size) {
@@ -292,6 +293,19 @@ static void handle_client(int client_fd) {
             "{\"pending\":%d,\"active\":%d,\"completed\":%u,\"failed\":%u}\n",
             task_pending_count(), task_active_count(),
             task_total_completed(), task_total_failed());
+    } else if (strcmp(buf, "mentor") == 0 || strcmp(buf, "师徒") == 0) {
+        /* mentor — 师徒阶段查询 */
+        const mentor_state_t *ms = mentor_get_state();
+        uint8_t cw, lw, aw;
+        mentor_decision_weights(&cw, &lw, &aw);
+        snprintf(response, sizeof(response),
+            "{\"stage\":\"%s\",\"stage_id\":%d,\"cloud_weight\":%d,\"local_weight\":%d,\"auto_weight\":%d,"
+            "\"cloud_queries\":%u,\"local_decisions\":%u,\"auto_mutations\":%u,"
+            "\"pattern_conf\":%.2f,\"tln_cons\":%.2f}\n",
+            mentor_stage_name(ms->stage), ms->stage,
+            cw, lw, aw,
+            ms->cloud_queries, ms->local_decisions, ms->autonomous_mutations,
+            ms->pattern_confidence, ms->tln_consistency);
     } else {
         /* Normal question */
         query_handle(buf, g_soul, response, sizeof(response));

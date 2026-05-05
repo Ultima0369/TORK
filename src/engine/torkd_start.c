@@ -13,6 +13,7 @@
 #include "../learning/experience.h"
 #include "../learning/branch.h"
 #include "../learning/pattern.h"
+#include "../learning/mentor.h"
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -52,6 +53,7 @@ int main(int argc, char **argv) {
     pat_init();
     sb_init();
     mg_init();
+    mentor_init();
     watcher_load();
     snap_load();
     sb_load();

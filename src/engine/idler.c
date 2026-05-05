@@ -5,8 +5,11 @@
 #include "../learning/pattern.h"
 #include "../learning/replay.h"
 #include "../learning/observer.h"
+#include "../learning/mentor.h"
+#include "../learning/self_build.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 /* ── State ──────────────────────────────────────────────────── */
 static int g_active = 0;
@@ -35,7 +38,71 @@ idler_output_t idler_cycle(const idler_input_t *in) {
     printf("\n── IDLE cycle #%d ─────────────────────────────────\n", g_cycles);
     printf("  state: stress=%d drive=%d gen=%u tick=%u\n",
            in->hw_stress, in->drive, in->gen_count, in->tick);
-    
+
+    /* ── Mentor-weighted decision routing ── */
+    uint8_t cw, lw, aw;
+    mentor_decision_weights(&cw, &lw, &aw);
+    int roll = rand() % 100;
+    int mentor_path = 0;  /* 0=local, 1=cloud, 2=autonomous */
+    if (roll < cw)       mentor_path = 1;  /* 云端 */
+    else if (roll < cw + lw) mentor_path = 0;  /* 本地 */
+    else                 mentor_path = 2;  /* 自主 */
+
+    printf("  MENTOR: weights cloud=%d local=%d auto=%d → path=%s (roll=%d)\n",
+           cw, lw, aw,
+           mentor_path == 1 ? "cloud" : mentor_path == 2 ? "auto" : "local",
+           roll);
+
+    if (mentor_path == 1) {
+        /* 云端路径: 记录云端查询，走 dispatch 请求外部 API */
+        mentor_record_cloud_query();
+        dispatch_input_t din;
+        memset(&din, 0, sizeof(din));
+        din.action = DISP_EXEC_CMD;
+        din.input  = "echo mentor_cloud_query";
+        din.tick   = in->tick;
+        din.hw_stress = in->hw_stress;
+        din.drive  = (int8_t)in->drive;
+        din.gen_count = in->gen_count;
+        dispatch_output_t dout = tork_dispatch(&din);
+        printf("  CLOUD: dispatch returned '%s'\n", dout.output);
+        out.action_type = MCTS_ENTER_IDLE;
+        out.discoveries = 0;
+        printf("── IDLE cycle complete (cloud) ────────────────────\n\n");
+        return out;
+    }
+
+    if (mentor_path == 2) {
+        /* 自主路径: 记录自主变异，尝试 self_build 修改 */
+        mentor_record_autonomous_mutation();
+        int changed = sb_check_sources();
+        if (changed > 0) {
+            printf("  AUTO: %d source changes detected, self-build triggered\n", changed);
+            int rc = sb_build();
+            if (rc == 0) {
+                printf("  AUTO: build succeeded, hotswap\n");
+                sb_hotswap();
+                out.action_type = MCTS_MOD_REPLACE_OP;
+                out.discoveries = changed;
+            } else {
+                printf("  AUTO: build failed, skip hotswap\n");
+                out.action_type = MCTS_ADJUST_FEAR;
+                out.discoveries = 0;
+            }
+        } else {
+            printf("  AUTO: no changes, recording experience\n");
+            out.action_type = MCTS_ENTER_IDLE;
+            out.discoveries = 0;
+        }
+        exp_record(in->tick, in->hw_stress, in->drive, in->gen_count,
+                   out.action_type, 0, 0, 0, 0, in->hw_stress, in->drive);
+        printf("── IDLE cycle complete (auto) ────────────────────\n\n");
+        return out;
+    }
+
+    /* 本地路径: 记录本地决策，走 MCTS */
+    mentor_record_local_decision();
+
     /* ── Step 1: Build MCTS state ── */
     mcts_state_t mcts_state;
     memset(&mcts_state, 0, sizeof(mcts_state));

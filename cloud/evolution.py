@@ -58,16 +58,16 @@ class TorkEvolution:
         print("TORK self-assessment...")
 
         source_files = [
-            "core/tork_core.asm", "engine/tork_engine.c",
-            "instinct/instinct.c", "instinct/instinct.h",
-            "code/code_reader.c", "code/code_modifier.c",
-            "code/code_modifier.h", "engine/soul_access.h",
-            "engine/blackboard.c", "engine/calibrator.c",
-            "engine/fission.c", "engine/idler.c",
-            "engine/inductor.c", "engine/persistor.c",
-            "engine/monitor.c", "sandbox/sandbox.c",
-            "sandbox/sandbox.h", "install/agreement.c",
-            "install/agreement.h", "cloud/cloud_protocol.py",
+            "src/core/tork_core.asm", "src/engine/tork_engine.c",
+            "src/instinct/instinct.c", "src/instinct/instinct.h",
+            "src/code/code_reader.c", "src/code/code_modifier.c",
+            "src/code/code_modifier.h", "src/engine/soul_access.h",
+            "src/engine/blackboard.c", "src/engine/calibrator.c",
+            "src/engine/fission.c", "src/engine/idler.c",
+            "src/engine/inductor.c", "src/engine/persistor.c",
+            "src/engine/monitor.c", "src/sandbox/sandbox.c",
+            "src/sandbox/sandbox.h", "src/install/agreement.c",
+            "src/install/agreement.h", "cloud/cloud_protocol.py",
             "cloud/evolution.py",
         ]
 
@@ -135,16 +135,16 @@ Give ONE concrete suggestion, focused on instinct/self-monitoring/code analysis.
     def _pick_mutation_strategy(self, assessment):
         gen = assessment["generation"]
         strategies = [
-            {"file": "instinct/instinct.c", "description": "cloud collaboration awareness", "mutagen": "instinct_cloud_curiosity", "apply": self._mutate_instinct_cloud},
-            {"file": "engine/tork_engine.c", "description": "soul_read latency tracking", "mutagen": "engine_latency_track", "apply": self._mutate_engine_latency},
-            {"file": "sandbox/sandbox.c", "description": "extend dev tools whitelist", "mutagen": "sandbox_devtools", "apply": self._mutate_sandbox_devtools},
-            {"file": "engine/tork_engine.c", "description": "round counter self-awareness", "mutagen": "engine_round_tracker", "apply": self._mutate_engine_rounds},
-            {"file": "instinct/instinct.c", "description": "generation-aware curiosity", "mutagen": "instinct_gen_awareness", "apply": self._mutate_instinct_gen},
-            {"file": "instinct/instinct.c", "description": "curiosity_weight +15", "mutagen": "curiosity", "apply": self._mutate_instinct_curiosity_up},
-            {"file": "instinct/instinct.c", "description": "fear_weight +15", "mutagen": "fear", "apply": self._mutate_instinct_fear_up},
-            {"file": "instinct/instinct.c", "description": "desire_weight +15", "mutagen": "desire", "apply": self._mutate_instinct_desire_up},
-            {"file": "instinct/instinct.c", "description": "conservative_cycle -5", "mutagen": "cycle", "apply": self._mutate_cycle_faster},
-            {"file": "instinct/instinct.c", "description": "conservative_cycle +5", "mutagen": "cycle", "apply": self._mutate_cycle_slower},
+            {"file": "src/instinct/instinct.c", "description": "cloud collaboration awareness", "mutagen": "instinct_cloud_curiosity", "apply": self._mutate_instinct_cloud},
+            {"file": "src/engine/tork_engine.c", "description": "soul_read latency tracking", "mutagen": "engine_latency_track", "apply": self._mutate_engine_latency},
+            {"file": "src/sandbox/sandbox.c", "description": "extend dev tools whitelist", "mutagen": "sandbox_devtools", "apply": self._mutate_sandbox_devtools},
+            {"file": "src/engine/tork_engine.c", "description": "round counter self-awareness", "mutagen": "engine_round_tracker", "apply": self._mutate_engine_rounds},
+            {"file": "src/instinct/instinct.c", "description": "generation-aware curiosity", "mutagen": "instinct_gen_awareness", "apply": self._mutate_instinct_gen},
+            {"file": "src/instinct/instinct.c", "description": "curiosity_weight +15", "mutagen": "curiosity", "apply": self._mutate_instinct_curiosity_up},
+            {"file": "src/instinct/instinct.c", "description": "fear_weight +15", "mutagen": "fear", "apply": self._mutate_instinct_fear_up},
+            {"file": "src/instinct/instinct.c", "description": "desire_weight +15", "mutagen": "desire", "apply": self._mutate_instinct_desire_up},
+            {"file": "src/instinct/instinct.c", "description": "conservative_cycle -5", "mutagen": "cycle", "apply": self._mutate_cycle_faster},
+            {"file": "src/instinct/instinct.c", "description": "conservative_cycle +5", "mutagen": "cycle", "apply": self._mutate_cycle_slower},
         ]
         idx = gen % len(strategies)
         strategy = strategies[idx]

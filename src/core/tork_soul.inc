@@ -38,6 +38,9 @@
 .equ S_GEN_COUNT,         0x54    # uint32
 .equ S_RESERVED3,         0x58    # uint8[8]
 
+# 心跳间隔：大脑改写此值控制心跳速度
+.equ S_HEARTBEAT_MS,      0x58    # uint16 — 心跳间隔(ms)，默认100，大脑可改写
+
 # v3.0 学习字段
 .equ S_EXPERIENCE_COUNT,  0x60    # uint32
 .equ S_EXPERIENCE_SAVED,  0x64    # uint32

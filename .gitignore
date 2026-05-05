@@ -9,6 +9,7 @@ dist/payload.tar.gz
 *.s~
 __pycache__/
 *.pyc
+.ruff_cache/
 
 # Secrets — NEVER commit
 api/api_config.json
@@ -26,10 +27,13 @@ persist/self_build.bin
 persist/mutation_guide.bin
 
 # Evolution/mutation logs and artifacts
-asm_mutation.log
+logs/
 persist/mutations/
 persist/fitness.json
 persist/evolution.json
+
+# Archive (not tracked)
+archive/
 
 # Backup files
 *.bak

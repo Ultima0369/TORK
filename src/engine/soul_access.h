@@ -50,7 +50,7 @@
 #define S_MUTATION_COUNT    0x4E  /* uint16 */
 #define S_BEST_SCORE        0x50  /* uint32 */
 #define S_GEN_COUNT         0x54  /* uint32 */
-#define S_RESERVED3         0x58  /* uint8[8] */
+#define S_HEARTBEAT_MS      0x58  /* uint16 — 心跳间隔(ms)，默认100，大脑可改写 */
 
 /* v3.0 学习字段 */
 #define S_EXPERIENCE_COUNT  0x60  /* uint32 */
@@ -192,6 +192,14 @@ static inline uint16_t  soul_learn_count(soul_t *s)        { return SOUL_U16(s, 
 static inline uint16_t  soul_mutation_count(soul_t *s)     { return SOUL_U16(s, S_MUTATION_COUNT); }
 static inline uint32_t  soul_best_score(soul_t *s)         { return SOUL_U32(s, S_BEST_SCORE); }
 static inline uint32_t  soul_gen_count(soul_t *s)          { return SOUL_U32(s, S_GEN_COUNT); }
+
+/* 心跳间隔：大脑改写此值控制ASM心跳速度 */
+static inline uint16_t  soul_heartbeat_ms(soul_t *s)      { return SOUL_U16(s, S_HEARTBEAT_MS); }
+static inline int soul_set_heartbeat_ms(soul_t *s, uint16_t ms) {
+    if (ms < 10) ms = 10;     /* 最低10ms，防止烧CPU */
+    if (ms > 5000) ms = 5000; /* 最高5秒，防止假死 */
+    return soul_write_buf(s, S_HEARTBEAT_MS, &ms, 2);
+}
 
 /* v3.0 访问器 */
 static inline uint32_t  soul_experience_count(soul_t *s) { return SOUL_U32(s, S_EXPERIENCE_COUNT); }

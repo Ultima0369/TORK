@@ -16,7 +16,7 @@ sys.path.insert(0, BASE)
 sys.path.insert(0, os.path.join(BASE, "api"))  # noqa: E402
 
 from web.torkd_bridge import torkd_query
-from shared.soul_parser import read_soul_from_proc, parse_soul_full
+from shared.soul_parser import read_soul_from_proc, parse_soul_full, parse_soul_hex
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 EVOLUTION_LOG = os.path.join(BASE, "persist", "evolution.json")
@@ -42,7 +42,7 @@ SANDBOX_LABELS = ["none", "read", "safe", "normal", "full"]
 
 def _safe_path(path: str) -> str | None:
     full = os.path.normpath(os.path.join(BASE, path))
-    if not full.startswith(SAFE_BASE):
+    if full != os.path.normpath(BASE) and not full.startswith(SAFE_BASE):
         return None
     return full
 
@@ -131,11 +131,11 @@ async def _run_evolution() -> dict:
         stderr=asyncio.subprocess.PIPE,
     )
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-        return {"output": "Evolution timed out (60s)", "code": -1}
+        return {"output": "Evolution timed out (120s)", "code": -1}
     return {
         "output": stdout.decode(errors="replace")[-500:] if stdout else "",
         "error": stderr.decode(errors="replace")[-200:] if stderr else "",
@@ -239,6 +239,25 @@ async def api_inbox(request: web.Request) -> web.Response:
     return web.json_response({"content": "", "exists": False})
 
 
+async def api_dir(request: web.Request) -> web.Response:
+    dir_path = request.match_info.get("path", "")
+    full = _safe_path(dir_path)
+    if full is None:
+        return web.json_response({"error": "forbidden"}, status=403)
+    if not os.path.isdir(full):
+        return web.json_response({"error": "not a directory"}, status=400)
+    try:
+        entries = []
+        for name in sorted(os.listdir(full)):
+            p = os.path.join(full, name)
+            is_dir = os.path.isdir(p)
+            entries.append({"name": name, "dir": is_dir,
+                            "path": os.path.join(dir_path, name) if dir_path else name})
+        return web.json_response({"entries": entries, "path": dir_path})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
 # ── WebSocket ──────────────────────────────────────────────────
 
 WS_CLIENTS: set[web.WebSocketResponse] = set()
@@ -266,7 +285,8 @@ async def _handle_ws(ws: web.WebSocketResponse, data: dict) -> None:
     t = data.get("type", "")
     if t == "chat":
         msg = data.get("data", {}).get("message", "")
-        reply = await _chat_reply(msg)
+        history = data.get("data", {}).get("history")
+        reply = await _chat_reply(msg, history)
         await ws.send_json({"type": "chat_reply", "data": {"role": "tork", "content": reply}})
     elif t == "exec":
         cmd = data.get("data", {}).get("command", "")
@@ -299,10 +319,13 @@ def _get_chat_api():
     return _CHAT_API
 
 
-async def _chat_reply(message: str) -> str:
+async def _chat_reply(message: str, history: list | None = None) -> str:
     api = _get_chat_api()
     if api and api.api_key:
         try:
+            if history:
+                api.conversation = list(history)
+                return api.ask(message, temperature=0.7)
             return api.ask_simple(message, temperature=0.7)
         except Exception:
             logger.warning("Chat API call failed", exc_info=True)
@@ -340,9 +363,9 @@ async def _push_update() -> None:
             raw = await torkd_query("soul")
             if raw:
                 try:
-                    soul = parse_soul_full(raw)
+                    soul = parse_soul_hex(raw)
                 except Exception:
-                    logger.debug("Soul parse failed", exc_info=True)
+                    logger.debug("Soul hex parse failed", exc_info=True)
     instincts = _derive_instincts(soul)
     evo = _evolution_stats()
     msg = {
@@ -383,6 +406,8 @@ def create_app() -> web.Application:
     app.router.add_get("/api/file/{path:.*}", api_file_read)
     app.router.add_post("/api/file", api_file_write)
     app.router.add_get("/api/inbox", api_inbox)
+    app.router.add_get("/api/dir", api_dir)
+    app.router.add_get("/api/dir/{path:.*}", api_dir)
     app.on_startup.append(_start_poll)
     app.on_cleanup.append(_stop_poll)
     return app

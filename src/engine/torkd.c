@@ -94,6 +94,22 @@ int torkd_init(void *vsoul) {
     return 0;
 }
 
+/* ── Dispatch helper ───────────────────────────────────────── */
+static dispatch_output_t dispatch_quick(int action, const char *input,
+                                         const char *func_name) {
+    dispatch_input_t din;
+    memset(&din, 0, sizeof(din));
+    din.action      = action;
+    din.input       = input;
+    din.func_name   = func_name;
+    din.timeout_sec = 30;
+    din.tick        = g_soul ? soul_tick(g_soul) : 0;
+    din.hw_stress   = g_soul ? soul_hw_stress(g_soul) : 0;
+    din.drive       = g_soul ? soul_drive(g_soul) : 0;
+    din.gen_count   = g_soul ? soul_gen_count(g_soul) : 0;
+    return tork_dispatch(&din);
+}
+
 /* ── 每 tick 调用: 接受新连接 + 处理 ──────────────────────── */
 static void handle_client(int client_fd) {
     char buf[TORKD_MAX_MSG];
@@ -142,22 +158,11 @@ static void handle_client(int client_fd) {
         close(client_fd);
         return;
     } else if (strncmp(buf, "exec:", 5) == 0) {
-        /* exec:<command> — 通过 dispatch 闭环执行 */
         const char *cmd = buf + 5;
         if (*cmd == '\0') {
             snprintf(response, sizeof(response), "{\"error\":\"empty command\"}\n");
         } else {
-            dispatch_input_t din;
-            memset(&din, 0, sizeof(din));
-            din.action      = DISP_EXEC_CMD;
-            din.input       = cmd;
-            din.timeout_sec = 30;
-            din.tick        = g_soul ? soul_tick(g_soul) : 0;
-            din.hw_stress   = g_soul ? soul_hw_stress(g_soul) : 0;
-            din.drive       = g_soul ? soul_drive(g_soul) : 0;
-            din.gen_count   = g_soul ? soul_gen_count(g_soul) : 0;
-
-            dispatch_output_t dout = tork_dispatch(&din);
+            dispatch_output_t dout = dispatch_quick(DISP_EXEC_CMD, cmd, NULL);
             snprintf(response, sizeof(response), "%s\n", dout.output);
         }
     } else if (strncmp(buf, "audit:", 6) == 0) {
@@ -182,17 +187,7 @@ static void handle_client(int client_fd) {
         if (filepath[0] == '\0') {
             snprintf(response, sizeof(response), "{\"error\":\"empty path\"}\n");
         } else {
-            dispatch_input_t din;
-            memset(&din, 0, sizeof(din));
-            din.action      = DISP_AUDIT_CODE;
-            din.input       = filepath;
-            din.func_name   = funcname[0] ? funcname : NULL;
-            din.tick        = g_soul ? soul_tick(g_soul) : 0;
-            din.hw_stress   = g_soul ? soul_hw_stress(g_soul) : 0;
-            din.drive       = g_soul ? soul_drive(g_soul) : 0;
-            din.gen_count   = g_soul ? soul_gen_count(g_soul) : 0;
-
-            dispatch_output_t dout = tork_dispatch(&din);
+            dispatch_output_t dout = dispatch_quick(DISP_AUDIT_CODE, filepath, funcname[0] ? funcname : NULL);
             snprintf(response, sizeof(response), "%s\n", dout.output);
         }
     } else if (strncmp(buf, "codegen:", 8) == 0) {
@@ -200,7 +195,6 @@ static void handle_client(int client_fd) {
          * action = search | compile | bench
          * template = memcpy_byte_loop | memcpy_word_loop */
         const char *arg = buf + 8;
-        const char *action_str = arg;
         const char *colon = strchr(arg, ':');
         char action[32] = "";
         char tmpl_name[64] = "";
@@ -218,37 +212,13 @@ static void handle_client(int client_fd) {
             snprintf(response, sizeof(response),
                 "{\"error\":\"usage: codegen:<search|compile|bench>:<template>\"}\n");
         } else if (strcmp(action, "search") == 0) {
-            dispatch_input_t din;
-            memset(&din, 0, sizeof(din));
-            din.action      = DISP_CODEGEN_SEARCH;
-            din.input       = tmpl_name;
-            din.tick        = g_soul ? soul_tick(g_soul) : 0;
-            din.hw_stress   = g_soul ? soul_hw_stress(g_soul) : 0;
-            din.drive       = g_soul ? soul_drive(g_soul) : 0;
-            din.gen_count   = g_soul ? soul_gen_count(g_soul) : 0;
-            dispatch_output_t dout = tork_dispatch(&din);
+            dispatch_output_t dout = dispatch_quick(DISP_CODEGEN_SEARCH, tmpl_name, NULL);
             snprintf(response, sizeof(response), "%s\n", dout.output);
         } else if (strcmp(action, "compile") == 0) {
-            dispatch_input_t din;
-            memset(&din, 0, sizeof(din));
-            din.action      = DISP_CODEGEN_COMPILE;
-            din.input       = tmpl_name;
-            din.tick        = g_soul ? soul_tick(g_soul) : 0;
-            din.hw_stress   = g_soul ? soul_hw_stress(g_soul) : 0;
-            din.drive       = g_soul ? soul_drive(g_soul) : 0;
-            din.gen_count   = g_soul ? soul_gen_count(g_soul) : 0;
-            dispatch_output_t dout = tork_dispatch(&din);
+            dispatch_output_t dout = dispatch_quick(DISP_CODEGEN_COMPILE, tmpl_name, NULL);
             snprintf(response, sizeof(response), "%s\n", dout.output);
         } else if (strcmp(action, "bench") == 0) {
-            dispatch_input_t din;
-            memset(&din, 0, sizeof(din));
-            din.action      = DISP_CODEGEN_BENCH;
-            din.input       = tmpl_name;
-            din.tick        = g_soul ? soul_tick(g_soul) : 0;
-            din.hw_stress   = g_soul ? soul_hw_stress(g_soul) : 0;
-            din.drive       = g_soul ? soul_drive(g_soul) : 0;
-            din.gen_count   = g_soul ? soul_gen_count(g_soul) : 0;
-            dispatch_output_t dout = tork_dispatch(&din);
+            dispatch_output_t dout = dispatch_quick(DISP_CODEGEN_BENCH, tmpl_name, NULL);
             snprintf(response, sizeof(response), "%s\n", dout.output);
         } else {
             snprintf(response, sizeof(response),
@@ -304,6 +274,17 @@ static void handle_client(int client_fd) {
             } else {
                 snprintf(response, sizeof(response), "{\"task_id\":%u,\"status\":\"%s\"}\n", tid, status_str);
             }
+        }
+    } else if (strcmp(buf, "soul") == 0 || strcmp(buf, "灵魂") == 0) {
+        /* soul — dump raw soul as hex for Python parser */
+        if (!g_soul) {
+            snprintf(response, sizeof(response), "{\"error\":\"no soul\"}\n");
+        } else {
+            char *p = response;
+            p += snprintf(p, sizeof(response) - (p - response), "0x");
+            for (int i = 0; i < SOUL_SIZE && (p - response) < (ssize_t)sizeof(response) - 4; i++)
+                p += snprintf(p, 3, "%02x", g_soul->buf[i]);
+            p += snprintf(p, 2, "\n");
         }
     } else if (strcmp(buf, "tasks") == 0) {
         /* tasks — 查看任务队列状态 */

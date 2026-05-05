@@ -228,8 +228,9 @@ int main(int argc, char **argv) {
     init_soul_fields(&soul);
 
     printf("TORK engine started. core PID=%d\n", core_pid);
-    printf("TORK v3.14 | π-heartbeat | generation at 0x54 | learn at 0x4C\n");
-    printf("polling 500ms | code 200 | modify 10 | optimize 30 | nop 50 | fission 1000 | persist 1000\n\n");
+    printf("TORK v3.16 | π-heartbeat | generation at 0x54 | learn at 0x4C\n");
+    printf("polling %dms | code 200 | modify 10 | optimize 30 | nop 50 | fission 1000 | persist 1000\n\n",
+           tune_get_params().heartbeat_interval);
 
     /* ── Main soul loop ── */
     sched_ctx_t sched;
@@ -308,6 +309,15 @@ int main(int argc, char **argv) {
         /* Sync back any changes scheduler made */
         drive = sched.drive;
         inp = sched.inp;
+
+        /* 大脑改写心跳常量：将决策节奏同步到ASM心跳 */
+        {
+            uint16_t hb = (uint16_t)tune_get_params().heartbeat_interval;
+            int rc = soul_set_heartbeat_ms(&soul, hb);
+            if (rc != 0 && i < 3) {
+                fprintf(stderr, "WARN: soul_set_heartbeat_ms(%u) failed (rc=%d)\n", hb, rc);
+            }
+        }
 
         usleep(tune_get_params().heartbeat_interval * 1000);
     }

@@ -4,7 +4,7 @@
 # 用法: ./tork.sh [command]
 # ──────────────────────────────────────────────────────
 
-BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DAEMON="$BASE_DIR/floating/tork_daemon.py"
 DASHBOARD="$BASE_DIR/floating/tork_dashboard.py"
 ENGINE="$BASE_DIR/build/tork_engine"

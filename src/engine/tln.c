@@ -135,17 +135,41 @@ void tln_decode_output(const tln_val_t output[TLN_OUTPUTS],
  *   0  → +1 或 -1 (增强或反转)
  *   -1 → 0 或 +1 (减弱或反转)
  */
-static tln_val_t tln_random_value(void) {
-    /* π-seed: 晶振在 π 序列上的投影，不是 rand() */
+/* π-seed 随机: 用于 tln_step 推理 (密码学质量) */
+static tln_val_t __attribute__((unused)) tln_random_value(void) {
     uint8_t v = pi_seed_from_tsc();
     return (v < 85) ? -1 : (v < 170) ? 0 : 1;
 }
 
-static float tln_random_float(void) {
+static float __attribute__((unused)) tln_random_float(void) {
     return pi_seed_float();
 }
 
+/* xorshift32 快速伪随机: 用于 tln_mutate 批量初始化 */
+static uint32_t tln_fast_state = 0;
+
+static void tln_fast_seed(void) {
+    tln_fast_state = (uint32_t)pi_seed_from_tsc();
+    if (tln_fast_state == 0) tln_fast_state = 1;
+}
+
+static float tln_fast_float(void) {
+    tln_fast_state ^= tln_fast_state << 13;
+    tln_fast_state ^= tln_fast_state >> 17;
+    tln_fast_state ^= tln_fast_state << 5;
+    return (tln_fast_state & 0xFFFFFF) / 16777216.0f;
+}
+
+static tln_val_t tln_fast_value(void) {
+    tln_fast_state ^= tln_fast_state << 13;
+    tln_fast_state ^= tln_fast_state >> 17;
+    tln_fast_state ^= tln_fast_state << 5;
+    uint8_t v = tln_fast_state & 0xFF;
+    return (v < 85) ? -1 : (v < 170) ? 0 : 1;
+}
+
 int tln_mutate(TernaryNet *net, float p) {
+    if (tln_fast_state == 0) tln_fast_seed();
     int mutated = 0;
     int total_weights = TLN_INPUTS * TLN_HIDDEN +
                         TLN_HIDDEN * TLN_HIDDEN +
@@ -153,8 +177,8 @@ int tln_mutate(TernaryNet *net, float p) {
 
     tln_val_t *weights = net->w_ih; /* 连续内存布局 */
     for (int i = 0; i < total_weights; i++) {
-        if (tln_random_float() < p) {
-            weights[i] = tln_random_value();
+        if (tln_fast_float() < p) {
+            weights[i] = tln_fast_value();
             mutated++;
         }
     }

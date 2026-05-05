@@ -85,7 +85,7 @@ Available mutation strategies:
         if ".git" in _root or "build" in _root or "AppDir" in _root or "__pycache__" in _root:
             continue
         for _f in _files:
-            if _f.endswith((".c", ".h", ".asm")) and any(_root.startswith(x) for x in ["./instinct", "./learning", "./engine", "./core", "./sandbox"]):
+            if _f.endswith((".c", ".h", ".asm")) and any(_root.startswith(x) for x in ["./src/instinct", "./src/learning", "./src/engine", "./src/core", "./src/sandbox"]):
                 _manifest.append(os.path.join(_root, _f))
     prompt += "\nMutation target files:\n" + "\n".join(sorted(_manifest)) + "\n"
     prompt += "\nIMPORTANT: target_file MUST match one of the paths above exactly!\n"
@@ -198,7 +198,7 @@ def run_evolution_once():
         if not os.path.exists(target_path):
             # Try key directories by filename
             found = False
-            for _d in ['learning', 'instinct', 'engine', 'core', 'sandbox', 'api', 'cloud']:
+            for _d in ['src/learning', 'src/instinct', 'src/engine', 'src/core', 'src/sandbox', 'api', 'cloud']:
                 _test = os.path.join(PROJECT_DIR, _d, os.path.basename(target_clean))
                 if os.path.exists(_test):
                     target_path = _test
@@ -225,7 +225,7 @@ def run_evolution_once():
             ok = True  # non-fatal, try build anyway
     else:
         # Just add a comment to instinct.c as a light mutation
-        target_path = os.path.join(PROJECT_DIR, 'instinct', 'instinct.c')
+        target_path = os.path.join(PROJECT_DIR, 'src', 'instinct', 'instinct.c')
         if os.path.exists(target_path):
             ts = datetime.now().strftime('%Y%m%d_%H%M')
             comment = f"\n/* EVO_{ts}_{strategy_name[:20]} */\n"

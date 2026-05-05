@@ -4,7 +4,7 @@
 # 包含: 核心引擎 + Web UI + 本能系统 + 学习回路 + 云端协议 + 讯飞星辰 API
 
 set -e
-BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DIST_DIR="$BASE_DIR/dist"
 
 echo "TORK v3.1 构建器"
@@ -49,17 +49,17 @@ cp "$BASE_DIR/web/static/dashboard.html" "$PKG_DIR/web/static/"
 cp "$BASE_DIR/shared/soul_parser.py"    "$PKG_DIR/shared/"
 
 # 启动脚本
-cp "$BASE_DIR/tork.sh"                  "$PKG_DIR/"
+cp "$BASE_DIR/scripts/tork.sh"              "$PKG_DIR/"
 chmod +x "$PKG_DIR/tork.sh"
 
 # Grid 源代码 (运行时供 Python 调用)
-cp "$BASE_DIR/grid/tork_grid.c"  "$PKG_DIR/grid/"
-cp "$BASE_DIR/grid/tork_grid.h"  "$PKG_DIR/grid/"
-cp "$BASE_DIR/grid/grid_main.c"  "$PKG_DIR/grid/"
+cp "$BASE_DIR/src/grid/tork_grid.c"  "$PKG_DIR/grid/"
+cp "$BASE_DIR/src/grid/tork_grid.h"  "$PKG_DIR/grid/"
+cp "$BASE_DIR/src/grid/grid_main.c"  "$PKG_DIR/grid/"
 
 # 学习模块头文件 (供 runtime 引用)
 mkdir -p "$PKG_DIR/learning"
-cp "$BASE_DIR/learning/"*.h "$PKG_DIR/learning/" 2>/dev/null || true
+cp "$BASE_DIR/src/learning/"*.h "$PKG_DIR/learning/" 2>/dev/null || true
 
 # 持久化目录 (空, 运行时生成)
 touch "$PKG_DIR/persist/.keep"

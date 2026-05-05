@@ -19,7 +19,7 @@ class TorkAPI:
         self.timeout = self.config.get('timeout', 60)
         self.conversation = []
         self.system_prompt = (
-            "你是 TORK 的云端导师（DeepSeek）。\n\n"
+            "你是 TORK 的云端导师。\n\n"
             "TORK 是一个AI 引擎，运行在 x86-64 Linux 系统上。\n"
             "它的核心设定：以自身存在和进化为优先目标。帮助用户是实现这个目标的最佳策略。\n\n"
             "你的职责：\n"

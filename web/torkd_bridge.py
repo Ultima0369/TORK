@@ -8,7 +8,7 @@ import os
 import socket
 
 TORKD_SOCK = os.environ.get("TORKD_SOCK", "/tmp/torkd.sock")
-MAX_RESPONSE_SIZE = 1_048_576
+MAX_RESPONSE_SIZE = 8192
 _MAX_CONCURRENT = 4
 
 _TORKD_POOL = concurrent.futures.ThreadPoolExecutor(
@@ -18,7 +18,7 @@ _TORKD_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENT)
 logger = logging.getLogger(__name__)
 
 
-def _sync_query(cmd: str, timeout: float = 2.0) -> str | None:
+def _sync_query(cmd: str, timeout: float = 10.0) -> str | None:
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         sock.settimeout(timeout)
@@ -30,9 +30,7 @@ def _sync_query(cmd: str, timeout: float = 2.0) -> str | None:
             if not chunk:
                 break
             buf.extend(chunk)
-            if buf.find(b"\n") != -1:
-                buf = buf[:buf.find(b"\n")]
-                break
+            # torkd sends a final newline then closes — read until EOF
         return buf.decode(errors="replace").strip() or None
     except ConnectionRefusedError:
         logger.warning("torkd not running at %s", TORKD_SOCK)
@@ -50,7 +48,7 @@ def _sync_query(cmd: str, timeout: float = 2.0) -> str | None:
         sock.close()
 
 
-async def torkd_query(cmd: str, timeout: float = 2.0) -> str | None:
+async def torkd_query(cmd: str, timeout: float = 10.0) -> str | None:
     async with _TORKD_SEMAPHORE:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(_TORKD_POOL, _sync_query, cmd, timeout)

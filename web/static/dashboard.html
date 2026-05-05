@@ -253,6 +253,26 @@ body {
   flex:1; background:var(--bg); color:var(--fg);
   overflow:auto;
 }
+#file-tree {
+  width:180px; min-width:120px; background:var(--panel);
+  border-right:1px solid var(--border); overflow-y:auto;
+  display:flex; flex-direction:column;
+}
+#file-tree .tree-header {
+  font-size:9px; color:var(--dimmer); letter-spacing:2px;
+  text-transform:uppercase; padding:8px 10px 4px;
+  border-bottom:1px solid var(--border);
+}
+#file-tree .tree-list { padding:4px 0; }
+#file-tree .tree-item {
+  font-size:11px; padding:3px 10px; cursor:pointer;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+#file-tree .tree-item:hover { background:var(--surface); color:var(--accent); }
+#file-tree .tree-item.is-dir { color:var(--dim); }
+#file-tree .tree-item.is-dir::before { content:"📁 "; }
+#file-tree .tree-item.is-file::before { content:"  "; }
+#file-tree .tree-item.active { color:var(--accent); background:var(--surface); }
 #editor-right {
   width:280px; background:var(--panel);
   display:flex; flex-direction:column; padding:16px; gap:12px;
@@ -408,6 +428,7 @@ body {
   <button data-tab="editor">Editor</button>
   <button data-tab="chat">Chat</button>
   <button data-tab="evolution">Evolution</button>
+  <button data-tab="settings">Settings</button>
 </div>
 
 <!-- Main -->
@@ -483,6 +504,7 @@ body {
         <div class="field-row"><span class="k">Drive</span><span class="v" id="f-drive">--</span></div>
         <div class="field-row"><span class="k">Stress</span><span class="v" id="f-stress">--</span></div>
         <div class="field-row"><span class="k">Mode</span><span class="v" id="f-mode">--</span></div>
+        <div class="field-row"><span class="k">TLN</span><span class="v" id="f-tln">--</span></div>
       </div>
       <div class="field-card">
         <h4>Learning</h4>
@@ -503,6 +525,10 @@ body {
 
   <!-- ═══ Editor ═══ -->
   <div id="tab-editor" class="tab-content">
+    <div id="file-tree">
+      <div class="tree-header">Files</div>
+      <div class="tree-list" id="tree-list"></div>
+    </div>
     <div id="editor-left">
       <div id="editor-toolbar">
         <button id="btn-open">Open</button>
@@ -569,6 +595,33 @@ body {
       <button id="btn-evo-refresh">Refresh</button>
     </div>
     <div id="evo-log">No evolution records yet.</div>
+  </div>
+
+  <!-- ═══ Settings ═══ -->
+  <div id="tab-settings" class="tab-content" style="flex-direction:column;padding:24px 32px;gap:16px;overflow-y:auto">
+    <div class="field-card" style="max-width:520px">
+      <h4>API Configuration</h4>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
+        <div class="field-row"><span class="k">Model</span><input id="cfg-model" style="flex:1;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:4px 8px;font-family:inherit;font-size:11px;border-radius:3px;outline:none"></div>
+        <div class="field-row"><span class="k">Base URL</span><input id="cfg-base-url" style="flex:1;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:4px 8px;font-family:inherit;font-size:11px;border-radius:3px;outline:none"></div>
+        <div class="field-row"><span class="k">API Key</span><input id="cfg-api-key" type="password" style="flex:1;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:4px 8px;font-family:inherit;font-size:11px;border-radius:3px;outline:none"></div>
+        <div class="field-row"><span class="k">Temperature</span><input id="cfg-temperature" type="number" step="0.1" min="0" max="2" style="width:60px;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:4px 8px;font-family:inherit;font-size:11px;border-radius:3px;outline:none"></div>
+        <div class="field-row"><span class="k">Max Tokens</span><input id="cfg-max-tokens" type="number" step="256" min="256" max="32768" style="width:80px;background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:4px 8px;font-family:inherit;font-size:11px;border-radius:3px;outline:none"></div>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <button id="cfg-save" style="background:var(--accent-dim);color:#ccc;border:none;font-family:inherit;font-size:10px;padding:6px 18px;border-radius:3px;cursor:pointer">Save</button>
+          <button id="cfg-test" style="background:var(--accent-dim);color:#ccc;border:none;font-family:inherit;font-size:10px;padding:6px 18px;border-radius:3px;cursor:pointer">Test Connection</button>
+          <span id="cfg-status" style="font-size:10px;color:var(--dim);align-self:center"></span>
+        </div>
+      </div>
+    </div>
+    <div class="field-card" style="max-width:520px">
+      <h4>Engine Control</h4>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button id="cfg-start" style="background:var(--accent-dim);color:#ccc;border:none;font-family:inherit;font-size:10px;padding:6px 18px;border-radius:3px;cursor:pointer">Start Engine</button>
+        <button id="cfg-stop" style="background:#3a1a1a;color:#ccc;border:none;font-family:inherit;font-size:10px;padding:6px 18px;border-radius:3px;cursor:pointer">Stop Engine</button>
+        <span id="engine-status" style="font-size:10px;color:var(--dim);align-self:center"></span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -645,6 +698,49 @@ function resizeWave() {
 }
 resizeWave();
 window.addEventListener('resize', resizeWave);
+
+// ── File Tree ───────────────────────────────────────────
+function loadDir(path) {
+  const url = path ? '/api/dir/' + encodeURIComponent(path) : '/api/dir';
+  fetch(url)
+    .then(r => r.json())
+    .then(d => {
+      const list = document.getElementById('tree-list');
+      list.innerHTML = '';
+      if (path) {
+        const parent = path.split('/').slice(0, -1).join('/');
+        const el = document.createElement('div');
+        el.className = 'tree-item is-dir';
+        el.textContent = '..';
+        el.addEventListener('click', () => loadDir(parent));
+        list.appendChild(el);
+      }
+      for (const e of d.entries || []) {
+        if (e.name.startsWith('.') && e.name !== '.gitignore') continue;
+        const el = document.createElement('div');
+        el.className = 'tree-item ' + (e.dir ? 'is-dir' : 'is-file');
+        el.textContent = e.name;
+        if (e.dir) {
+          el.addEventListener('click', () => loadDir(e.path));
+        } else {
+          el.addEventListener('click', () => {
+            document.querySelectorAll('.tree-item.active').forEach(x => x.classList.remove('active'));
+            el.classList.add('active');
+            fetch('/api/file/' + encodeURIComponent(e.path))
+              .then(r => r.json())
+              .then(fd => {
+                if (fd.error) return;
+                currentFile = e.path;
+                cmSetContent(fd.content);
+                document.getElementById('editor-filename').textContent = e.path;
+              });
+          });
+        }
+        list.appendChild(el);
+      }
+    });
+}
+window.loadDir = loadDir;
 
 function drawWave() {
   const W = waveCanvas.width, H = waveCanvas.height;
@@ -741,7 +837,7 @@ function connectWS() {
 
 function handleMsg(msg) {
   if (msg.type === 'update') onUpdate(msg.data);
-  else if (msg.type === 'chat_reply') appendChat(msg.data.role, msg.data.content);
+  else if (msg.type === 'chat_reply') { chatHistory.push({role:'assistant',content:msg.data.content}); appendChat(msg.data.role, msg.data.content); }
   else if (msg.type === 'exec_result') appendChat('tork', msg.data.output);
   else if (msg.type === 'evolution_result') {
     appendChat('tork', msg.data.output || 'Evolution complete.');
@@ -897,7 +993,7 @@ function onUpdate(d) {
   setVital('v-fear', 'vv-fear', inst.fear || 0);
   setVital('v-desire', 'vv-desire', inst.desire ?? 50);
   setVital('v-curiosity', 'vv-curiosity', inst.curiosity ?? 50);
-  setVital('v-stress', 'vv-stress', (soul.hw_stress ?? 0) * 10);
+  setVital('v-stress', 'vv-stress', soul.hw_stress ?? 0);
   text('v-mode', MODE_LABELS[soul.mode ?? 0] || 'idle');
 
   // Waveform
@@ -912,6 +1008,12 @@ function onUpdate(d) {
   text('f-drive', drive ?? '--');
   text('f-stress', soul.hw_stress ?? '--');
   text('f-mode', MODE_LABELS[soul.mode ?? 0] || 'idle');
+  // TLN: ternary logic network (+1/0/-1)
+  const tlnA = soul.tln_action, tlnM = soul.tln_modify, tlnE = soul.tln_explore, tlnN = soul.tln_energy;
+  if (tlnA != null || tlnM != null) {
+    const tlnLabels = {1:'+', 0:'0', '-1':'-'};
+    text('f-tln', `${tlnLabels[tlnA]??'?'}${tlnLabels[tlnM]??'?'}${tlnLabels[tlnE]??'?'}${tlnLabels[tlnN]??'?'}`);
+  }
   text('f-gen', evo.generation ?? soul.gen_count ?? '--');
   text('f-learn', soul.learn_count ?? '--');
   text('f-mutations', evo.total_mutations ?? soul.mutation_count ?? '--');
@@ -945,6 +1047,8 @@ function onUpdate(d) {
   text('evo-total', evo.total_mutations || 0);
   text('evo-success', evo.successes || 0);
   text('evo-rate', `${evo.success_rate||0}%`);
+  const rateEl = document.getElementById('evo-rate');
+  if (rateEl) rateEl.className = 'num ' + ((evo.success_rate||0) >= 50 ? 'good' : (evo.success_rate||0) >= 20 ? 'warn' : 'danger');
 }
 
 function setVital(barId, valId, v) {
@@ -967,21 +1071,26 @@ document.querySelectorAll('#tabs button').forEach(btn => {
     const tab = document.getElementById('tab-' + btn.dataset.tab);
     tab.classList.add('active');
     if (btn.dataset.tab === 'dashboard') { resizeWave(); drawWave(); }
+    if (btn.dataset.tab === 'editor' && !document.getElementById('tree-list').children.length) { loadDir(''); }
+    if (btn.dataset.tab === 'settings') { loadConfig(); }
   });
 });
 
 // ── Chat ───────────────────────────────────────────────────
+let chatHistory = [];
 function sendChat() {
   const input = document.getElementById('chat-input');
   const msg = input.value.trim();
   if (!msg) return;
   input.value = '';
   appendChat('user', msg);
+  chatHistory.push({role: 'user', content: msg});
+  if (chatHistory.length > 20) chatHistory = chatHistory.slice(-16);
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({type:'chat', data:{message:msg}}));
+    ws.send(JSON.stringify({type:'chat', data:{message:msg, history:chatHistory}}));
   } else {
     fetch('/api/exec', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({command:msg})})
-      .then(r=>r.json()).then(d=>appendChat('tork', d.output||'No response')).catch(()=>appendChat('tork', torkPersonaReply(msg)));
+      .then(r=>r.json()).then(d=>{ const t = d.output||'No response'; chatHistory.push({role:'assistant',content:t}); appendChat('tork', t); }).catch(()=>appendChat('tork', torkPersonaReply(msg)));
   }
 }
 function appendChat(role, txt) {
@@ -1053,7 +1162,7 @@ function fetchEvoLog() {
     log.textContent = entries.map(e => {
       const gen = String(e.generation||'?').padStart(3);
       const strat = (e.strategy||e.file||'?').padEnd(20);
-      const ok = e.success === true || e.status === 'success';
+      const ok = e.success === true || e.status === 'success' || e.result === 'success';
       const result = ok ? 'SUCCESS' : 'FAIL';
       const desc = e.description||e.advice||'';
       return `Gen ${gen} | ${strat} | ${result} | ${desc.substring(0,60)}`;
@@ -1065,15 +1174,69 @@ document.getElementById('btn-evolve').addEventListener('click', () => {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({type:'evolve', data:{}}));
   } else {
-    fetch('/api/evolve', {method:'POST'}).then(r=>r.json()).then(d=>{ fetchEvoLog(); });
+    appendChat('tork', 'Starting evolution (REST)...');
+    fetch('/api/evolve', {method:'POST'}).then(r=>r.json()).then(d=>{
+      fetchEvoLog();
+      if (d.error) appendChat('tork', 'Evolution error: ' + d.error);
+      else appendChat('tork', 'Evolution done (code ' + (d.code??'?') + ')');
+    }).catch(err => appendChat('tork', 'Evolution failed: ' + err.message));
   }
 });
 document.getElementById('btn-evo-refresh').addEventListener('click', fetchEvoLog);
+
+// ── Settings ──────────────────────────────────────────────────
+function loadConfig() {
+  fetch('/api/config').then(r=>r.json()).then(d => {
+    document.getElementById('cfg-model').value = d.model || '';
+    document.getElementById('cfg-base-url').value = d.base_url || '';
+    document.getElementById('cfg-api-key').value = d.api_key ? '•••••' : '';
+    document.getElementById('cfg-temperature').value = d.temperature ?? 0.7;
+    document.getElementById('cfg-max-tokens').value = d.max_tokens ?? 4096;
+  }).catch(()=>{});
+}
+document.getElementById('cfg-save').addEventListener('click', () => {
+  const body = {
+    model: document.getElementById('cfg-model').value.trim(),
+    base_url: document.getElementById('cfg-base-url').value.trim(),
+    temperature: parseFloat(document.getElementById('cfg-temperature').value) || 0.7,
+    max_tokens: parseInt(document.getElementById('cfg-max-tokens').value) || 4096,
+    configured: true,
+  };
+  const keyInput = document.getElementById('cfg-api-key').value.trim();
+  if (keyInput && keyInput !== '•••••') body.api_key = keyInput;
+  const st = document.getElementById('cfg-status');
+  st.textContent = 'Saving...'; st.style.color = 'var(--dim)';
+  fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+    .then(r => r.json())
+    .then(() => { st.textContent = 'Saved'; st.style.color = 'var(--success)'; loadConfig(); })
+    .catch(() => { st.textContent = 'Failed'; st.style.color = 'var(--danger)'; });
+});
+document.getElementById('cfg-test').addEventListener('click', () => {
+  const st = document.getElementById('cfg-status');
+  st.textContent = 'Testing...'; st.style.color = 'var(--dim)';
+  fetch('/api/exec', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({command:'echo hello'})})
+    .then(r => r.json())
+    .then(d => { st.textContent = d.output?.includes('hello') ? 'OK' : 'Error'; st.style.color = d.output?.includes('hello') ? 'var(--success)' : 'var(--warn)'; })
+    .catch(() => { st.textContent = 'Connection failed'; st.style.color = 'var(--danger)'; });
+});
+document.getElementById('cfg-start').addEventListener('click', () => {
+  const st = document.getElementById('engine-status');
+  st.textContent = 'Starting...';
+  fetch('/api/exec', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({command:'bash tork.sh start'})})
+    .then(r=>r.json()).then(()=>{ st.textContent = 'Sent'; }).catch(()=>{ st.textContent = 'Failed'; });
+});
+document.getElementById('cfg-stop').addEventListener('click', () => {
+  const st = document.getElementById('engine-status');
+  st.textContent = 'Stopping...';
+  fetch('/api/exec', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({command:'pkill tork_engine'})})
+    .then(r=>r.json()).then(()=>{ st.textContent = 'Sent'; }).catch(()=>{ st.textContent = 'Failed'; });
+});
 
 // ── Init ───────────────────────────────────────────────────
 connectWS();
 fetchEvoLog();
 drawWave();
+loadConfig();
 </script>
 </body>
 </html>

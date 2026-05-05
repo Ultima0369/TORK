@@ -376,6 +376,7 @@ _start:
     # init soul
     mov     $SOUL_ADDR, %r13
     movb    $1, S_AGREED(%r13)
+    movw    $100, S_HEARTBEAT_MS(%r13)
 
     # boot
     mov     $SYS_WRITE, %eax
@@ -471,10 +472,19 @@ _start:
     movq    $0, stall_cnt(%rip)
 
 .sleep:
-    # nanosleep({0, 100000000})
+    # nanosleep({0, heartbeat_ms * 1000000})
+    # 从 Soul 读取心跳间隔，大脑可改写此值
+    movzwl  S_HEARTBEAT_MS(%r13), %eax
+    test    %eax, %eax
+    jnz     .use_soul_ms
+    mov     $100, %eax              # 默认100ms（Soul为0时）
+.use_soul_ms:
+    # eax = ms, 转为纳秒: ms * 1000000
+    mov     %eax, %ecx
+    imulq   $1000000, %rcx, %rcx
     subq    $32, %rsp
-    movq    $0, (%rsp)
-    movq    $100000000, 8(%rsp)
+    movq    $0, (%rsp)              # tv_sec = 0
+    movq    %rcx, 8(%rsp)           # tv_nsec = ms * 1000000
     mov     %rsp, %rdi
     mov     $SYS_NANOSLEEP, %eax
     xor     %esi, %esi

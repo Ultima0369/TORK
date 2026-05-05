@@ -169,6 +169,32 @@ void tune_apply_tln_hints(int action, int modify, int explore, int energy) {
     }
 }
 
+void tune_set_param(const char *name, float value) {
+    if (!g_initialized || !name) return;
+    if (strcmp(name, "exploration_rate") == 0) {
+        g_params.exploration_rate = (int)value;
+        if (g_params.exploration_rate < 5) g_params.exploration_rate = 5;
+        if (g_params.exploration_rate > 60) g_params.exploration_rate = 60;
+    } else if (strcmp(name, "learning_rate") == 0) {
+        g_params.learning_rate = value;
+        if (g_params.learning_rate < 0.01f) g_params.learning_rate = 0.01f;
+        if (g_params.learning_rate > 0.5f) g_params.learning_rate = 0.5f;
+    } else if (strcmp(name, "curiosity_weight") == 0) {
+        g_params.curiosity_weight = value;
+        if (g_params.curiosity_weight > 2.0f) g_params.curiosity_weight = 2.0f;
+    } else if (strcmp(name, "desire_weight") == 0) {
+        g_params.desire_weight = value;
+        if (g_params.desire_weight > 2.0f) g_params.desire_weight = 2.0f;
+    } else if (strcmp(name, "fear_weight") == 0) {
+        g_params.fear_weight = value;
+        if (g_params.fear_weight > 2.0f) g_params.fear_weight = 2.0f;
+    } else if (strcmp(name, "heartbeat_interval") == 0) {
+        g_params.heartbeat_interval = (int)value;
+        if (g_params.heartbeat_interval < 50) g_params.heartbeat_interval = 50;
+        if (g_params.heartbeat_interval > 2000) g_params.heartbeat_interval = 2000;
+    }
+}
+
 void tune_print(void) {
     if (!g_initialized) return;
     printf("  TUNE: fear=%.2f desire=%.2f curiosity=%.2f | lr=%.2f hb=%dms explore=%d%% (adjusts=%d)\n",

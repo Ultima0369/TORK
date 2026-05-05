@@ -112,6 +112,9 @@ build/self_build.o: src/learning/self_build.c src/learning/self_build.h
 build/self_tune.o: src/learning/self_tune.c src/learning/self_tune.h
 	$(CC) $(CFLAGS) -c -o build/self_tune.o src/learning/self_tune.c
 
+build/mentor.o: src/learning/mentor.c src/learning/mentor.h src/learning/self_tune.h
+	$(CC) $(CFLAGS) -c -o build/mentor.o src/learning/mentor.c
+
 build/mutation_guide.o: src/learning/mutation_guide.c src/learning/mutation_guide.h
 	$(CC) $(CFLAGS) -c -o build/mutation_guide.o src/learning/mutation_guide.c -lm
 
@@ -147,7 +150,7 @@ build/torkd.o: src/engine/torkd.c src/engine/torkd.h
 
 # ── Engine link ─────────────────────────────────────────────────────
 
-ENGINE_OBJS = build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/self_cal.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/self_tune.o build/distributed.o build/pi_seed.o build/pi_index.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o build/task.o build/auditor.o build/dispatch.o build/codegen.o build/tln.o build/scheduler.o
+ENGINE_OBJS = build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/self_cal.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/self_tune.o build/mentor.o build/distributed.o build/pi_seed.o build/pi_index.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o build/task.o build/auditor.o build/dispatch.o build/codegen.o build/tln.o build/scheduler.o
 
 build/tork_engine: $(ENGINE_OBJS)
 	$(CC) -o build/tork_engine $(ENGINE_OBJS) -lm

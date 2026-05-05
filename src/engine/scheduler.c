@@ -15,6 +15,7 @@
 #include "../learning/branch.h"
 #include "../learning/pattern.h"
 #include "../learning/self_tune.h"
+#include "../learning/mentor.h"
 #include "../learning/observer.h"
 #include "../learning/snapshot.h"
 #include "../learning/energy.h"
@@ -51,6 +52,10 @@ void scheduler_init(sched_ctx_t *ctx, soul_t *soul, int quiet) {
         ctx->tln_enabled = 1;
         printf("  TLN: initialized with sparse random weights\n");
     }
+
+    /* 师徒阶段管理器 */
+    mentor_init();
+    printf("  MENTOR: stage=%s\n", mentor_stage_name(mentor_get_stage()));
 }
 
 /* ── Per-tick services ── */
@@ -83,6 +88,11 @@ static void tick_services(sched_ctx_t *ctx) {
     torkd_tick();
     task_process_one();
     dist_tick();
+
+    /* 师徒阶段更新 (每 100 tick) */
+    if (ctx->round % 100 == 0) {
+        mentor_tick(exp_count(), ctx->inp.pattern_confidence, 0.5f);
+    }
 
     /* TLN: 每 tick 做一步三值逻辑推理 */
     if (ctx->tln_enabled) {

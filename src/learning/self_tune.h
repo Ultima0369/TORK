@@ -34,6 +34,9 @@ int tune_load(void);
 /* TLN 三值提示调制参数: +1 激进, -1 保守, 0 悬置不动 */
 void tune_apply_tln_hints(int action, int modify, int explore, int energy);
 
+/* 按名称设置参数 (师徒阶段转换用) */
+void tune_set_param(const char *name, float value);
+
 /* 打印当前参数 */
 void tune_print(void);
 

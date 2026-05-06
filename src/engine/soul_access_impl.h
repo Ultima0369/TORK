@@ -79,18 +79,16 @@ static inline int soul_verify_detach(soul_t *s) {
 
 /*
  * soul_heartbeat_pipe_confirm — 心跳双通道确认
- * C 引擎写 S_HEARTBEAT_MS 后，向 /proc/core_pid/fd/0 发确认信号
+ * C 引擎写 S_HEARTBEAT_MS 后，通过 pipe 向 ASM 内核发确认信号
  * ASM 内核在 nanosleep 前交叉验证 Soul 值 vs 管道确认值
  */
+extern int hb_confirm_fd;
 static inline int soul_heartbeat_pipe_confirm(soul_t *s, uint16_t ms) {
-    char fd_path[64];
-    snprintf(fd_path, sizeof(fd_path), "/proc/%d/fd/0", s->pid);
-    int fd = open(fd_path, O_WRONLY | O_NONBLOCK);
-    if (fd < 0) return -1;
-    /* 写入 2 字节心跳确认: "HB" + uint16 ms (little-endian) */
+    (void)s;
+    if (hb_confirm_fd < 0) return -1;
+    /* 写入 4 字节心跳确认: "HB" + uint16 ms (little-endian) */
     uint8_t msg[4] = {'H', 'B', (uint8_t)(ms & 0xFF), (uint8_t)(ms >> 8)};
-    ssize_t w = write(fd, msg, 4);
-    close(fd);
+    ssize_t w = write(hb_confirm_fd, msg, 4);
     return (w == 4) ? 0 : -1;
 }
 

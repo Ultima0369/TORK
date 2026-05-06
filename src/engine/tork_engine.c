@@ -43,6 +43,7 @@ static int restored_files = 0;
 static int golden_exists = 0;           /* 不可变：一旦生成，不再自动覆盖 */
 static int crc_fail_count = 0;          /* CRC 连续失败计数 */
 static int golden_observe_remaining = 0;/* 恢复后500拍内禁止变异 */
+int hb_confirm_fd = -1;     /* 铁律S2: 心跳管道确认 fd */
 
 static void cleanup_core(int sig) {
     (void)sig;
@@ -70,20 +71,28 @@ static void cleanup_core(int sig) {
 }
 
 static int start_core(void) {
+    int hb_pipe[2];
+    if (pipe(hb_pipe) != 0) return -1;
     core_pid = fork();
     if (core_pid == 0) {
+        close(hb_pipe[1]);
+        dup2(hb_pipe[0], STDIN_FILENO);
+        close(hb_pipe[0]);
         FILE *dn = fopen("/dev/null", "w");
         if (dn) { dup2(fileno(dn), STDOUT_FILENO); fclose(dn); }
         execl("build/tork_core", "tork_core", NULL);
         _exit(1);
     }
-    if (core_pid < 0) return -1;
+    if (core_pid < 0) { close(hb_pipe[0]); close(hb_pipe[1]); return -1; }
+    close(hb_pipe[0]);
+    hb_confirm_fd = hb_pipe[1];
     usleep(200000);
     return 0;
 }
 
 /* ── Subsystem initialization ── */
 static void init_subsystems(soul_t *soul) {
+    (void)soul;
     if (bb_init() != 0)
         fprintf(stderr, "warning: bb_init failed — blackboard unavailable\n");
     exp_init();
@@ -278,14 +287,6 @@ static instinct_input_t build_instinct_input(soul_t *soul) {
     return inp;
 }
 
-/* ── Compute drive from instinct ── */
-static int compute_drive(tork_instinct_t *inst) {
-    int drive = (int)((inst->desire - inst->fear + inst->curiosity) * 100.0f);
-    if (drive > 127) drive = 127;
-    if (drive < -128) drive = -128;
-    return drive;
-}
-
 /* ── Pattern query ── */
 static void query_pattern(soul_t *soul, instinct_input_t *inp, int quiet) {
     float pat_conf = 0.0f;
@@ -380,22 +381,19 @@ int main(int argc, char **argv) {
             golden_observe_remaining--;
 
         instinct_input_t inp = build_instinct_input(&soul);
-        tork_instinct_t inst = instinct_evaluate(&inp);
-        int drive = compute_drive(&inst);
-        soul_set_drive(&soul, (int8_t)drive);
 
         query_pattern(&soul, &inp, quiet);
 
         sched.round = i;
         sched.inp = inp;
-        sched.inst = inst;
         sched.golden_observe_remaining = golden_observe_remaining;
-        sched.drive = drive;
 
         scheduler_tick(&sched);
 
-        drive = sched.drive;
+        int drive = sched.drive;
         inp = sched.inp;
+
+        soul_set_drive(&soul, (int8_t)drive);
 
         sync_heartbeat(&soul, i);
 

@@ -275,8 +275,23 @@ TEST_OBJS = build/sandbox.o build/agreement.o build/code_reader.o build/code_mod
 build/test_core: tests/test_core.c $(TEST_OBJS)
 	$(CC) $(CFLAGS) -o build/test_core tests/test_core.c $(TEST_OBJS) -lm
 
-test: build/test_core
+build/test_blackboard: tests/test_blackboard.c build/blackboard.o
+	$(CC) $(CFLAGS) -o build/test_blackboard tests/test_blackboard.c build/blackboard.o -lm
+
+build/stub_self_tune.o: tests/stub_self_tune.c
+	$(CC) $(CFLAGS) -c -o build/stub_self_tune.o tests/stub_self_tune.c
+
+build/test_instinct: tests/test_instinct.c build/instinct.o build/stub_self_tune.o
+	$(CC) $(CFLAGS) -o build/test_instinct tests/test_instinct.c build/instinct.o build/stub_self_tune.o -lm
+
+build/test_tln: tests/test_tln.c build/tln.o build/pi_seed.o
+	$(CC) $(CFLAGS) -o build/test_tln tests/test_tln.c build/tln.o build/pi_seed.o -lm
+
+test: build/test_core build/test_blackboard build/test_instinct build/test_tln
 	@./build/test_core
+	@./build/test_blackboard
+	@./build/test_instinct
+	@./build/test_tln
 # ── 系统健康验证 ──────────────────────────────────────────────────
 
 verify:

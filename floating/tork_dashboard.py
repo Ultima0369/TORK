@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 #!/usr/bin/env python3
 """
 TORK AI Dashboard v2.3
@@ -15,16 +17,17 @@ import time
 import threading
 import sys
 import signal
+from types import FrameType
 
 # ─── 路径 ────────────────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(BASE_DIR, 'shared'))
 from soul_parser import parse_soul_full
 
 sys.path.insert(0, os.path.join(BASE_DIR, 'api'))
 
 # ─── 配置 ────────────────────────────────────────────
-CONFIG = {
+CONFIG: dict[str, object] = {
     "refresh_ms": 1000,
     "cloud_script": os.path.join(BASE_DIR, "cloud", "cloud_protocol.py"),
     "persist_dir": os.path.join(BASE_DIR, "persist"),
@@ -32,7 +35,7 @@ CONFIG = {
 }
 
 # ─── 颜色主题 (VS Code 配色) ─────────────────────────────
-THEME = {
+THEME: dict[str, object] = {
     "bg": "#1e1e1e", "fg": "#d4d4d4",
     "accent": "#0078D4", "accent2": "#569cd6",
     "warn": "#dcdcaa", "danger": "#f44747",
@@ -46,19 +49,19 @@ THEME = {
 # ─── API 加载器 ──────────────────────────────────────
 
 # ─── torkd socket 直连 ────────────────────────────
-TORKD_SOCKET = "/tmp/torkd.sock"
+TORKD_SOCKET: str = "/tmp/torkd.sock"
 
-def read_soul_from_torkd():
+def read_soul_from_torkd() -> str | None:
     """通过 torkd socket 快速读取 Soul 数据 (免 subprocess)"""
     import socket as _socket
     try:
-        sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        sock: _socket.socket = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
         sock.settimeout(2)
         sock.connect(TORKD_SOCKET)
         sock.sendall(b"soul\n")
-        resp = b""
+        resp: bytes = b""
         while True:
-            chunk = sock.recv(4096)
+            chunk: bytes = sock.recv(4096)
             if not chunk:
                 break
             resp += chunk
@@ -69,63 +72,64 @@ def read_soul_from_torkd():
     except Exception:
         return None
 
-def read_evolution_daemon_status():
+def read_evolution_daemon_status() -> tuple[bool, list[str]]:
     """检查进化守护进程是否在运行"""
     import glob as _glob
-    pid_file = os.path.join(CONFIG["persist_dir"], "evolution_daemon.pid")
+    pid_file: str = os.path.join(CONFIG["persist_dir"], "evolution_daemon.pid")
     if os.path.exists(pid_file):
         try:
             with open(pid_file) as f:
-                pid = int(f.read().strip())
+                pid: int = int(f.read().strip())
             # Check if process exists
             try:
                 os.kill(pid, 0)  # Test existence
                 return True, [str(pid)]
-            except:
+            except Exception:
                 pass
-        except:
+        except Exception:
             pass
     
     # Fallback: try pgrep
     try:
-        result = subprocess.run(
+        result: subprocess.CompletedProcess[str] = subprocess.run(
             ["pgrep", "-f", "evolution_daemon"],
             capture_output=True, text=True, timeout=3
         )
-        pids = result.stdout.strip().split()
+        pids: list[str] = result.stdout.strip().split()
         return len(pids) > 0, pids[:3]
-    except:
+    except Exception:
         return False, []
 
-def get_evolution_stats():
+def get_evolution_stats() -> dict[str, int | float | list[dict[str, object]]]:
     """计算进化成功率统计"""
-    evo_file = os.path.join(CONFIG["persist_dir"], "evolution.json")
+    evo_file: str = os.path.join(CONFIG["persist_dir"], "evolution.json")
     if not os.path.exists(evo_file):
         return {"total": 0, "success": 0, "rate": 0, "recent": []}
     try:
         with open(evo_file) as f:
-            data = json.load(f)
-    except:
+            data: object = json.load(f)
+    except Exception:
         return {"total": 0, "success": 0, "rate": 0, "recent": []}
     
     if isinstance(data, list) and len(data) > 0:
-        total = len(data)
-        success = sum(1 for e in data if e.get("success"))
-        rate = (success / total * 100) if total > 0 else 0
-        recent = data[-5:] if isinstance(data, list) else []
+        total: int = len(data)
+        success: int = sum(1 for e in data if e.get("success"))
+        rate: float = (success / total * 100) if total > 0 else 0
+        recent: list[dict[str, object]] = data[-5:] if isinstance(data, list) else []
         return {"total": total, "success": success, "rate": rate, "recent": recent}
     elif isinstance(data, dict) and "mutations" in data:
-        total = len(data["mutations"])
-        success = sum(1 for m in data["mutations"] if m.get("result") == "success")
+        mutations: list[dict[str, object]] = data["mutations"]
+        total = len(mutations)
+        success = sum(1 for m in mutations if m.get("result") == "success")
         rate = (success / total * 100) if total > 0 else 0
-        return {"total": total, "success": success, "rate": rate, "recent": data["mutations"][-5:]}
+        return {"total": total, "success": success, "rate": rate, "recent": mutations[-5:]}
     return {"total": 0, "success": 0, "rate": 0, "recent": []}
 
-def load_api():
+def load_api() -> tuple[object | None, str | None]:
     """加载 TorkAPI，返回 (api, error_msg)"""
     try:
         from tork_api import TorkAPI
-        api = TorkAPI()
+        api: TorkAPI = TorkAPI()
         if not api.api_key:
             return None, "API Key 未配置"
         return api, None
@@ -133,19 +137,19 @@ def load_api():
         return None, str(e)
 
 
-def load_api_config():
+def load_api_config() -> dict[str, str]:
     """读取 API 配置文件"""
-    cfg_path = CONFIG["api_config_path"]
+    cfg_path: str = CONFIG["api_config_path"]
     if os.path.exists(cfg_path):
         try:
             with open(cfg_path) as f:
                 return json.load(f)
-        except:
+        except Exception:
             pass
     return {"base_url": "https://api.deepseek.com", "model": "deepseek-v4-pro", "api_key": ""}
 
 
-def save_api_config(cfg):
+def save_api_config(cfg: dict[str, str]) -> None:
     """保存 API 配置文件"""
     os.makedirs(os.path.dirname(CONFIG["api_config_path"]), exist_ok=True)
     with open(CONFIG["api_config_path"], "w") as f:
@@ -154,37 +158,37 @@ def save_api_config(cfg):
 
 # ─── 全局状态 ────────────────────────────────────────
 class TORKState:
-    def __init__(self):
-        self.soul = {}
-        self.cloud_status = "disconnected"
-        self.evolution_log = []
-        self.chat_history = []
-        self.engine_running = False
-        self.pid = 0
-        self.generation = 0
-        self.mutation_success = 0
-        self.mutation_total = 0
-        self.instincts = {"fear": 0.0, "desire": 0.0, "curiosity": 0.0}
-        self.last_error = ""
-        self.agreement_status = "unknown"
-        self.sandbox_level_name = "none"
-        self.api = None
-        self.api_error = ""
+    def __init__(self) -> None:
+        self.soul: dict[str, object] = {}
+        self.cloud_status: str = "disconnected"
+        self.evolution_log: list[dict[str, object]] = []
+        self.chat_history: list[tuple[str, str]] = []
+        self.engine_running: bool = False
+        self.pid: int = 0
+        self.generation: int = 0
+        self.mutation_success: int = 0
+        self.mutation_total: int = 0
+        self.instincts: dict[str, float] = {"fear": 0.0, "desire": 0.0, "curiosity": 0.0}
+        self.last_error: str = ""
+        self.agreement_status: str = "unknown"
+        self.sandbox_level_name: str = "none"
+        self.api: object | None = None
+        self.api_error: str = ""
 
-    def load_identity(self):
-        id_file = os.path.join(CONFIG["persist_dir"], "identity.json")
+    def load_identity(self) -> None:
+        id_file: str = os.path.join(CONFIG["persist_dir"], "identity.json")
         if os.path.exists(id_file):
             try:
                 with open(id_file) as f:
-                    data = json.load(f)
+                    data: dict[str, object] = json.load(f)
                     self.generation = data.get("generation", 0)
                     self.mutation_success = data.get("mutation_success", 0)
                     self.mutation_total = data.get("mutation_total", 0)
-            except: pass
+            except Exception: pass
 
-    def save_identity(self):
+    def save_identity(self) -> None:
         os.makedirs(CONFIG["persist_dir"], exist_ok=True)
-        data = {
+        data: dict[str, object] = {
             "generation": self.generation,
             "mutation_success": self.mutation_success,
             "mutation_total": self.mutation_total,
@@ -195,75 +199,75 @@ class TORKState:
 
 
 # ─── Soul 解析 ──────────────────────────────────────
-def parse_soul_hex(hex_str):
+def parse_soul_hex(hex_str: str | None) -> dict[str, object] | None:
     """解析 Soul hex 字符串为字典"""
     if not hex_str or len(hex_str) < 192:
         return None
     try:
-        raw = bytes.fromhex(hex_str[:384])
+        raw: bytes = bytes.fromhex(hex_str[:384])
         return parse_soul_full(raw)
-    except:
+    except Exception:
         return None
 
 
-def update_instincts_from_soul(state):
+def update_instincts_from_soul(state: TORKState) -> None:
     """从 soul 数据推导本能值"""
-    d = state.soul.get("drive", 0)
+    d: object = state.soul.get("drive", 0)
     if isinstance(d, int):
         state.instincts["fear"] = min(1.0, max(0.0, (-d) / 100.0)) if d < 0 else 0.1
         state.instincts["desire"] = min(1.0, max(0.0, d / 100.0)) if d > 0 else 0.1
         state.instincts["curiosity"] = min(1.0, abs(d) / 100.0 + 0.2)
 
-    level = state.soul.get("sandbox_level", 0)
-    level_map = {0: "none", 1: "read", 2: "safe", 3: "normal", 4: "full"}
-    state.sandbox_level_name = level_map.get(level, "unknown")
+    level: object = state.soul.get("sandbox_level", 0)
+    level_map: dict[int, str] = {0: "none", 1: "read", 2: "safe", 3: "normal", 4: "full"}
+    state.sandbox_level_name = level_map.get(level, "unknown") if isinstance(level, int) else "unknown"
     state.agreement_status = "已签署 ✅" if state.soul.get("agreed", 0) else "未签署 ❌"
     state.cloud_status = "已连接 ☁️" if state.soul.get("cloud_connected", 0) else "未连接 📡"
     state.generation = state.soul.get("gen_count", 0)
 
 
-def refresh_via_api(state):
+def refresh_via_api(state: TORKState) -> bool:
     """通过 torkd socket 或 dashboard_status 获取全量状态"""
     # Try torkd socket first (fast path)
-    soul_raw = read_soul_from_torkd()
+    soul_raw: str | None = read_soul_from_torkd()
     if soul_raw and len(soul_raw) > 20:
-        state.soul = parse_soul_hex(soul_raw)
+        state.soul = parse_soul_hex(soul_raw) or {}
         update_instincts_from_soul(state)
         state.engine_running = True
-        return
+        return True
     
     # Fallback: cloud_protocol subprocess
-    script = CONFIG["cloud_script"]
+    script: str = CONFIG["cloud_script"]
     try:
-        result = subprocess.run(
+        result: subprocess.CompletedProcess[str] = subprocess.run(
             ["python3", script],
             input='{"tool":"dashboard_status"}\n',
             capture_output=True, text=True, timeout=10
         )
         if result.returncode == 0:
-            lines = result.stdout.strip().split('\n')
+            lines: list[str] = result.stdout.strip().split('\n')
             for line in lines:
                 if not line:
                     continue
                 try:
-                    data = json.loads(line)
-                except:
+                    data: dict[str, object] = json.loads(line)
+                except Exception:
                     continue
                 # Skip banner
                 if data.get("type") == "ready":
                     continue
-                d = data.get("data", {})
+                d: dict[str, object] = data.get("data", {})
                 state.engine_running = d.get("tork_core_running", False) or d.get("tork_engine_running", False)
                 state.pid = d.get("engine_pid", 0)
 
-                soul_hex = d.get("soul_hex", "")
+                soul_hex: str = d.get("soul_hex", "")
                 if soul_hex:
-                    soul = parse_soul_hex(soul_hex)
+                    soul: dict[str, object] | None = parse_soul_hex(soul_hex)
                     if soul:
                         state.soul = soul
                         update_instincts_from_soul(state)
 
-                evo = d.get("evolution_log", [])
+                evo: list[dict[str, object]] = d.get("evolution_log", [])
                 if evo:
                     state.evolution_log = evo[-20:]
 
@@ -280,33 +284,33 @@ def refresh_via_api(state):
     return False
 
 
-def read_evolution_log(state):
-    evo_file = os.path.join(CONFIG["persist_dir"], "evolution.json")
+def read_evolution_log(state: TORKState) -> None:
+    evo_file: str = os.path.join(CONFIG["persist_dir"], "evolution.json")
     if os.path.exists(evo_file):
         try:
             with open(evo_file) as f:
-                entries = json.load(f)
+                entries: object = json.load(f)
                 if isinstance(entries, list):
                     state.evolution_log = entries[-20:]
-        except: pass
+        except Exception: pass
 
 
 # ─── 设置对话框 ──────────────────────────────────────
 class SettingsDialog:
-    def __init__(self, parent, state):
-        self.dialog = tk.Toplevel(parent)
+    def __init__(self, parent: tk.Tk, state: TORKState) -> None:
+        self.dialog: tk.Toplevel = tk.Toplevel(parent)
         self.dialog.title("⚙️ TORK 设置")
         self.dialog.geometry("520x340")
         self.dialog.configure(bg=THEME["bg"])
         self.dialog.resizable(False, False)
         self.dialog.transient(parent)
         self.dialog.grab_set()
-        self.state = state
-        self.result = None
+        self.state: TORKState = state
+        self.result: object | None = None
 
-        cfg = load_api_config()
+        cfg: dict[str, str] = load_api_config()
 
-        main = tk.Frame(self.dialog, bg=THEME["bg"], padx=16, pady=12)
+        main: tk.Frame = tk.Frame(self.dialog, bg=THEME["bg"], padx=16, pady=12)
         main.pack(fill=tk.BOTH, expand=True)
 
         # 标题
@@ -316,7 +320,7 @@ class SettingsDialog:
         # Base URL
         tk.Label(main, text="Base URL:", font=THEME["font"],
                  bg=THEME["bg"], fg=THEME["dim"]).pack(anchor=tk.W)
-        self.url_var = tk.StringVar(value=cfg.get("base_url", "https://api.deepseek.com"))
+        self.url_var: tk.StringVar = tk.StringVar(value=cfg.get("base_url", "https://api.deepseek.com"))
         tk.Entry(main, textvariable=self.url_var, font=THEME["font"],
                  bg="#2d2d2d", fg=THEME["fg"], relief=tk.FLAT, bd=1,
                  highlightbackground=THEME["border"]).pack(fill=tk.X, pady=(0, 8))
@@ -324,7 +328,7 @@ class SettingsDialog:
         # Model
         tk.Label(main, text="Model:", font=THEME["font"],
                  bg=THEME["bg"], fg=THEME["dim"]).pack(anchor=tk.W)
-        self.model_var = tk.StringVar(value=cfg.get("model", "deepseek-v4-pro"))
+        self.model_var: tk.StringVar = tk.StringVar(value=cfg.get("model", "deepseek-v4-pro"))
         tk.Entry(main, textvariable=self.model_var, font=THEME["font"],
                  bg="#2d2d2d", fg=THEME["fg"], relief=tk.FLAT, bd=1,
                  highlightbackground=THEME["border"]).pack(fill=tk.X, pady=(0, 8))
@@ -332,44 +336,44 @@ class SettingsDialog:
         # API Key
         tk.Label(main, text="API Key:", font=THEME["font"],
                  bg=THEME["bg"], fg=THEME["dim"]).pack(anchor=tk.W)
-        key_frame = tk.Frame(main, bg=THEME["bg"])
+        key_frame: tk.Frame = tk.Frame(main, bg=THEME["bg"])
         key_frame.pack(fill=tk.X, pady=(0, 8))
-        self.key_var = tk.StringVar(value=cfg.get("api_key", ""))
-        self.key_entry = tk.Entry(key_frame, textvariable=self.key_var, font=THEME["font"],
+        self.key_var: tk.StringVar = tk.StringVar(value=cfg.get("api_key", ""))
+        self.key_entry: tk.Entry = tk.Entry(key_frame, textvariable=self.key_var, font=THEME["font"],
                                   bg="#2d2d2d", fg=THEME["fg"], relief=tk.FLAT, bd=1,
                                   highlightbackground=THEME["border"], show="*")
         self.key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        self.show_key_btn = tk.Button(key_frame, text="👁", font=THEME["font_small"],
+        self.show_key_btn: tk.Button = tk.Button(key_frame, text="👁", font=THEME["font_small"],
                                       bg=THEME["panel_bg"], fg=THEME["dim"],
                                       relief=tk.FLAT, bd=0, padx=6,
                                       command=self._toggle_key_vis)
         self.show_key_btn.pack(side=tk.RIGHT, padx=(4, 0))
-        self.key_visible = False
+        self.key_visible: bool = False
 
         # 状态栏
-        self.status_var = tk.StringVar(value="")
-        status_label = tk.Label(main, textvariable=self.status_var, font=THEME["font_small"],
+        self.status_var: tk.StringVar = tk.StringVar(value="")
+        status_label: tk.Label = tk.Label(main, textvariable=self.status_var, font=THEME["font_small"],
                                 bg=THEME["bg"], fg=THEME["dim"])
         status_label.pack(fill=tk.X, pady=(0, 8))
 
         # 按钮行
-        btn_frame = tk.Frame(main, bg=THEME["bg"])
+        btn_frame: tk.Frame = tk.Frame(main, bg=THEME["bg"])
         btn_frame.pack(fill=tk.X)
 
-        test_btn = tk.Button(btn_frame, text="🔌 测试连接", font=THEME["font"],
+        test_btn: tk.Button = tk.Button(btn_frame, text="🔌 测试连接", font=THEME["font"],
                              bg=THEME["accent2"], fg=THEME["bg"],
                              relief=tk.FLAT, bd=0, padx=12, pady=4,
                              command=self._test_connection)
         test_btn.pack(side=tk.LEFT)
 
-        save_btn = tk.Button(btn_frame, text="💾 保存", font=THEME["font"],
+        save_btn: tk.Button = tk.Button(btn_frame, text="💾 保存", font=THEME["font"],
                              bg=THEME["accent"], fg=THEME["bg"],
                              relief=tk.FLAT, bd=0, padx=12, pady=4,
                              command=self._save)
         save_btn.pack(side=tk.RIGHT, padx=(6, 0))
 
-        cancel_btn = tk.Button(btn_frame, text="取消", font=THEME["font"],
+        cancel_btn: tk.Button = tk.Button(btn_frame, text="取消", font=THEME["font"],
                                bg=THEME["panel_bg"], fg=THEME["fg"],
                                relief=tk.FLAT, bd=0, padx=12, pady=4,
                                command=self.dialog.destroy)
@@ -377,28 +381,28 @@ class SettingsDialog:
 
         self.dialog.wait_window()
 
-    def _toggle_key_vis(self):
+    def _toggle_key_vis(self) -> None:
         self.key_visible = not self.key_visible
         self.key_entry.config(show="" if self.key_visible else "*")
         self.show_key_btn.config(text="🙈" if self.key_visible else "👁")
 
-    def _test_connection(self):
+    def _test_connection(self) -> None:
         self.status_var.set("🔌 测试中…")
         self.dialog.update()
 
-        def do_test():
+        def do_test() -> None:
             try:
                 import requests
-                headers = {
+                headers: dict[str, str] = {
                     "Authorization": f"Bearer {self.key_var.get().strip()}",
                     "Content-Type": "application/json"
                 }
-                payload = {
+                payload: dict[str, object] = {
                     "model": self.model_var.get().strip(),
                     "messages": [{"role": "user", "content": "Respond with: OK"}],
                     "max_tokens": 10
                 }
-                resp = requests.post(
+                resp: requests.Response = requests.post(
                     f"{self.url_var.get().strip()}/v1/chat/completions",
                     json=payload, headers=headers, timeout=15
                 )
@@ -414,8 +418,8 @@ class SettingsDialog:
 
         threading.Thread(target=do_test, daemon=True).start()
 
-    def _save(self):
-        cfg = {
+    def _save(self) -> None:
+        cfg: dict[str, str] = {
             "base_url": self.url_var.get().strip(),
             "model": self.model_var.get().strip(),
             "api_key": self.key_var.get().strip(),
@@ -427,9 +431,9 @@ class SettingsDialog:
 
 # ─── 仪表盘 GUI ────────────────────────────────────
 class TORKDashboard:
-    def __init__(self, root, state):
-        self.root = root
-        self.state = state
+    def __init__(self, root: tk.Tk, state: TORKState) -> None:
+        self.root: tk.Tk = root
+        self.state: TORKState = state
         self.root.title("TORK AI Dashboard")
         self.root.geometry("820x660")
         self.root.configure(bg=THEME["bg"])
@@ -440,163 +444,169 @@ class TORKDashboard:
 
         self._build_ui()
         self._bind_keys()
-        self.running = True
+        self.running: bool = True
         self._start_refresh()
 
-    def _build_ui(self):
-        main = tk.Frame(self.root, bg=THEME["bg"])
+    def _build_ui(self) -> None:
+        main: tk.Frame = tk.Frame(self.root, bg=THEME["bg"])
         main.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
         # ── 顶部: 标题栏 ──
         self._build_header(main)
         # ── 中间: 双列 ──
-        center = tk.Frame(main, bg=THEME["bg"])
+        center: tk.Frame = tk.Frame(main, bg=THEME["bg"])
         center.pack(fill=tk.BOTH, expand=True)
 
-        left = tk.Frame(center, bg=THEME["bg"])
+        left: tk.Frame = tk.Frame(center, bg=THEME["bg"])
         left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 4))
         self._build_instinct_panel(left)
         self._build_soul_panel(left)
 
-        right = tk.Frame(center, bg=THEME["bg"])
+        right: tk.Frame = tk.Frame(center, bg=THEME["bg"])
         right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(4, 0))
         self._build_evo_panel(right)
 
         # ── 底部: 状态栏 ──
         self._build_statusbar(main)
 
-    def _build_header(self, parent):
-        header = tk.Frame(parent, bg=THEME["panel_bg"], height=36)
+    def _build_header(self, parent: tk.Frame) -> None:
+        header: tk.Frame = tk.Frame(parent, bg=THEME["panel_bg"], height=36)
         header.pack(fill=tk.X, pady=(0, 6))
         header.pack_propagate(False)
 
-        self.title_label = tk.Label(
+        self.title_label: tk.Label = tk.Label(
             header, text="TORK AI — Self-Evolving Engine",
             font=THEME["font_bold"], bg=THEME["panel_bg"], fg=THEME["accent"]
         )
         self.title_label.pack(side=tk.LEFT, padx=12, pady=6)
 
         # 设置按钮
-        settings_btn = tk.Button(header, text="⚙️", font=THEME["font_bold"],
+        settings_btn: tk.Button = tk.Button(header, text="⚙️", font=THEME["font_bold"],
                                  bg=THEME["panel_bg"], fg=THEME["fg"],
                                  relief=tk.FLAT, bd=0, padx=6, pady=2,
                                  command=self._open_settings)
         settings_btn.pack(side=tk.RIGHT, padx=(0, 4))
 
-        self.pid_label = tk.Label(
+        self.pid_label: tk.Label = tk.Label(
             header, text="PID: —", font=THEME["font_small"],
             bg=THEME["panel_bg"], fg=THEME["dim"]
         )
         self.pid_label.pack(side=tk.RIGHT, padx=4, pady=6)
 
-    def _open_settings(self):
+    def _open_settings(self) -> None:
         SettingsDialog(self.root, self.state)
 
-    def _build_instinct_panel(self, parent):
-        frame = tk.LabelFrame(parent, text="🧠 本能状态", font=THEME["font_bold"],
+    def _build_instinct_panel(self, parent: tk.Frame) -> None:
+        frame: tk.LabelFrame = tk.LabelFrame(parent, text="🧠 本能状态", font=THEME["font_bold"],
                               bg=THEME["panel_bg"], fg=THEME["accent2"],
                               relief=tk.FLAT, bd=1, padx=6, pady=4)
         frame.pack(fill=tk.X, pady=(0, 4))
 
-        self.instinct_bars = {}
+        self.instinct_bars: dict[str, tuple[ttk.Progressbar, tk.Label]] = {}
         for key, label, color in zip(
             ["fear", "desire", "curiosity"],
             ["恐惧", "欲望", "好奇心"],
             [THEME["danger"], THEME["warn"], THEME["accent"]]
         ):
-            row = tk.Frame(frame, bg=THEME["panel_bg"])
+            row: tk.Frame = tk.Frame(frame, bg=THEME["panel_bg"])
             row.pack(fill=tk.X, pady=2)
 
             tk.Label(row, text=label, width=6, anchor=tk.W,
                      font=THEME["font"], bg=THEME["panel_bg"], fg=THEME["fg"]).pack(side=tk.LEFT)
 
-            bar = ttk.Progressbar(row, length=160, mode="determinate",
+            bar: ttk.Progressbar = ttk.Progressbar(row, length=160, mode="determinate",
                                   style="TORK.Horizontal.TProgressbar")
             bar.pack(side=tk.LEFT, padx=4)
 
-            val = tk.Label(row, text="0.00", width=5, anchor=tk.E,
+            val: tk.Label = tk.Label(row, text="0.00", width=5, anchor=tk.E,
                            font=THEME["font_small"], bg=THEME["panel_bg"], fg=THEME["dim"])
             val.pack(side=tk.LEFT)
 
             self.instinct_bars[key] = (bar, val)
 
         # 末行: 心跳 + 应力
-        bottom = tk.Frame(frame, bg=THEME["panel_bg"])
+        bottom: tk.Frame = tk.Frame(frame, bg=THEME["panel_bg"])
         bottom.pack(fill=tk.X, pady=(4, 0))
 
         tk.Label(bottom, text="♡ 心跳", width=6, anchor=tk.W,
                  font=THEME["font"], bg=THEME["panel_bg"], fg=THEME["danger"]).pack(side=tk.LEFT)
-        self.heart_label = tk.Label(bottom, text="—", font=THEME["font_bold"],
+        self.heart_label: tk.Label = tk.Label(bottom, text="—", font=THEME["font_bold"],
                                     bg=THEME["panel_bg"], fg=THEME["danger"])
         self.heart_label.pack(side=tk.LEFT, padx=4)
 
         tk.Label(bottom, text="🌡️ 应力", width=6, anchor=tk.W,
                  font=THEME["font"], bg=THEME["panel_bg"], fg=THEME["warn"]).pack(side=tk.LEFT, padx=(12, 0))
-        self.stress_label = tk.Label(bottom, text="—", font=THEME["font"],
+        self.stress_label: tk.Label = tk.Label(bottom, text="—", font=THEME["font"],
                                      bg=THEME["panel_bg"], fg=THEME["warn"])
         self.stress_label.pack(side=tk.LEFT, padx=4)
 
-    def _build_soul_panel(self, parent):
-        frame = tk.LabelFrame(parent, text="💾 Soul 状态", font=THEME["font_bold"],
+    def _build_soul_panel(self, parent: tk.Frame) -> None:
+        frame: tk.LabelFrame = tk.LabelFrame(parent, text="💾 Soul 状态", font=THEME["font_bold"],
                               bg=THEME["panel_bg"], fg=THEME["accent2"],
                               relief=tk.FLAT, bd=1, padx=6, pady=4)
         frame.pack(fill=tk.X, pady=(0, 4))
 
-        def add_row(parent, label1, var1, label2=None, var2=None):
-            row = tk.Frame(parent, bg=THEME["panel_bg"])
+        def add_row(parent: tk.Frame, label1: str, var1: None, label2: str | None = None, var2: None = None) -> tk.Label | tuple[tk.Label, tk.Label]:
+            row: tk.Frame = tk.Frame(parent, bg=THEME["panel_bg"])
             row.pack(fill=tk.X, pady=1)
             tk.Label(row, text=label1, font=THEME["font"], width=8, anchor=tk.W,
                      bg=THEME["panel_bg"], fg=THEME["dim"]).pack(side=tk.LEFT)
-            lbl1 = tk.Label(row, text="—", font=THEME["font"],
+            lbl1: tk.Label = tk.Label(row, text="—", font=THEME["font"],
                             bg=THEME["panel_bg"], fg=THEME["fg"])
             lbl1.pack(side=tk.LEFT)
             if label2:
                 tk.Label(row, text=label2, font=THEME["font"], width=8, anchor=tk.W,
                          bg=THEME["panel_bg"], fg=THEME["dim"]).pack(side=tk.LEFT, padx=(12, 0))
-                lbl2 = tk.Label(row, text="—", font=THEME["font"],
+                lbl2: tk.Label = tk.Label(row, text="—", font=THEME["font"],
                                 bg=THEME["panel_bg"], fg=THEME["fg"])
                 lbl2.pack(side=tk.LEFT)
                 return lbl1, lbl2
             return lbl1
 
+        self.agreement_label: tk.Label | tuple[tk.Label, tk.Label]
+        self.sandbox_label: tk.Label | tuple[tk.Label, tk.Label]
         self.agreement_label, self.sandbox_label = add_row(frame, "协议:", None, "沙箱:", None)
+        self.cloud_label: tk.Label | tuple[tk.Label, tk.Label]
+        self.gen_label: tk.Label | tuple[tk.Label, tk.Label]
         self.cloud_label, self.gen_label = add_row(frame, "云端:", None, "世代:", None)
+        self.mut_label: tk.Label | tuple[tk.Label, tk.Label]
+        self.learn_label: tk.Label | tuple[tk.Label, tk.Label]
         self.mut_label, self.learn_label = add_row(frame, "变异:", None, "学习:", None)
         # 额外行: 最佳评分
-        self.score_label = add_row(frame, "最佳评分:", None)
+        self.score_label: tk.Label | tuple[tk.Label, tk.Label] = add_row(frame, "最佳评分:", None)
 
-    def _build_evo_panel(self, parent):
-        frame = tk.LabelFrame(parent, text="🧬 进化日志", font=THEME["font_bold"],
+    def _build_evo_panel(self, parent: tk.Frame) -> None:
+        frame: tk.LabelFrame = tk.LabelFrame(parent, text="🧬 进化日志", font=THEME["font_bold"],
                               bg=THEME["panel_bg"], fg=THEME["accent2"],
                               relief=tk.FLAT, bd=1, padx=6, pady=4)
         frame.pack(fill=tk.BOTH, expand=True, pady=(0, 4))
 
         # ── 进化统计栏 ──
-        stats_frame = tk.Frame(frame, bg=THEME["panel_bg"])
+        stats_frame: tk.Frame = tk.Frame(frame, bg=THEME["panel_bg"])
         stats_frame.pack(fill=tk.X, pady=(0, 4))
         
-        self.evo_total_label = tk.Label(stats_frame, text="总计: —", font=THEME["font_small"],
+        self.evo_total_label: tk.Label = tk.Label(stats_frame, text="总计: —", font=THEME["font_small"],
                                         bg=THEME["panel_bg"], fg=THEME["dim"])
         self.evo_total_label.pack(side=tk.LEFT, padx=2)
         
-        self.evo_rate_label = tk.Label(stats_frame, text="成功率: —", font=THEME["font_small"],
+        self.evo_rate_label: tk.Label = tk.Label(stats_frame, text="成功率: —", font=THEME["font_small"],
                                        bg=THEME["panel_bg"], fg=THEME["dim"])
         self.evo_rate_label.pack(side=tk.LEFT, padx=8)
         
-        self.evo_daemon_label = tk.Label(stats_frame, text="守护进程: —", font=THEME["font_small"],
+        self.evo_daemon_label: tk.Label = tk.Label(stats_frame, text="守护进程: —", font=THEME["font_small"],
                                          bg=THEME["panel_bg"], fg=THEME["dim"])
         self.evo_daemon_label.pack(side=tk.LEFT, padx=8)
         
-        self.evo_last_label = tk.Label(stats_frame, text="上次: —", font=THEME["font_small"],
+        self.evo_last_label: tk.Label = tk.Label(stats_frame, text="上次: —", font=THEME["font_small"],
                                        bg=THEME["panel_bg"], fg=THEME["dim"])
         self.evo_last_label.pack(side=tk.RIGHT, padx=2)
 
         # ── 进化日志文本框 ──
-        evo_frame = tk.LabelFrame(frame, text="", font=THEME["font_bold"],
+        evo_frame: tk.LabelFrame = tk.LabelFrame(frame, text="", font=THEME["font_bold"],
                               bg=THEME["panel_bg"], fg=THEME["accent2"],
                               relief=tk.FLAT, bd=0, padx=0, pady=0)
 
-        self.evo_text = scrolledtext.ScrolledText(
+        self.evo_text: scrolledtext.ScrolledText = scrolledtext.ScrolledText(
             frame, font=THEME["font_small"], bg="#2d2d2d", fg=THEME["fg"],
             relief=tk.FLAT, bd=0, height=10, wrap=tk.WORD,
             highlightbackground=THEME["border"], highlightcolor=THEME["border"],
@@ -605,24 +615,24 @@ class TORKDashboard:
         self.evo_text.pack(fill=tk.BOTH, expand=True)
 
         # 标签页
-        tab_frame = tk.Frame(frame, bg=THEME["panel_bg"])
+        tab_frame: tk.Frame = tk.Frame(frame, bg=THEME["panel_bg"])
         tab_frame.pack(fill=tk.X, pady=(2, 0))
 
-        evo_btn = tk.Button(tab_frame, text="🧬 进化", font=THEME["font_small"],
+        evo_btn: tk.Button = tk.Button(tab_frame, text="🧬 进化", font=THEME["font_small"],
                             bg=THEME["panel_bg"], fg=THEME["accent"],
                             relief=tk.FLAT, bd=0,
                             command=lambda: self._switch_tab("evolution"))
         evo_btn.pack(side=tk.LEFT, padx=2)
 
-        chat_btn = tk.Button(tab_frame, text="💬 对话", font=THEME["font_small"],
+        chat_btn: tk.Button = tk.Button(tab_frame, text="💬 对话", font=THEME["font_small"],
                              bg=THEME["panel_bg"], fg=THEME["fg"],
                              relief=tk.FLAT, bd=0,
                              command=lambda: self._switch_tab("chat"))
         chat_btn.pack(side=tk.LEFT, padx=2)
 
         # 对话输入区 (先隐藏)
-        self.chat_frame = tk.Frame(frame, bg=THEME["panel_bg"])
-        self.chat_entry = tk.Entry(self.chat_frame, font=THEME["font"],
+        self.chat_frame: tk.Frame = tk.Frame(frame, bg=THEME["panel_bg"])
+        self.chat_entry: tk.Entry = tk.Entry(self.chat_frame, font=THEME["font"],
                                    bg="#2d2d2d", fg=THEME["fg"],
                                    relief=tk.FLAT, bd=1,
                                    highlightbackground=THEME["border"],
@@ -632,15 +642,15 @@ class TORKDashboard:
         # 让 Entry 能获取焦点
         self.chat_entry.bind("<Button-1>", lambda e: self.chat_entry.focus_set())
 
-        send_btn = tk.Button(self.chat_frame, text="发送", font=THEME["font_small"],
+        send_btn: tk.Button = tk.Button(self.chat_frame, text="发送", font=THEME["font_small"],
                              bg=THEME["accent"], fg=THEME["bg"],
                              relief=tk.FLAT, bd=0, padx=8,
                              command=self._send_chat_cmd)
         send_btn.pack(side=tk.RIGHT)
 
-        self.current_tab = "evolution"
+        self.current_tab: str = "evolution"
 
-    def _switch_tab(self, tab):
+    def _switch_tab(self, tab: str) -> None:
         self.current_tab = tab
         if tab == "evolution":
             self.chat_frame.pack_forget()
@@ -651,11 +661,11 @@ class TORKDashboard:
             # 自动聚焦输入框
             self.chat_entry.focus_set()
 
-    def _send_chat(self, event=None):
+    def _send_chat(self, event: tk.Event | None = None) -> None:
         self._send_chat_cmd()
 
-    def _send_chat_cmd(self):
-        msg = self.chat_entry.get().strip()
+    def _send_chat_cmd(self) -> None:
+        msg: str = self.chat_entry.get().strip()
         if not msg:
             return
         self.chat_entry.delete(0, tk.END)
@@ -666,14 +676,14 @@ class TORKDashboard:
         self._refresh_chat()
 
         # 异步通过 TorkAPI 直接发送
-        def do_chat():
+        def do_chat() -> None:
             try:
                 # 直接使用 TorkAPI，不走 subprocess
                 sys.path.insert(0, os.path.join(BASE_DIR, 'api'))
                 from tork_api import TorkAPI
-                api = TorkAPI()
+                api: TorkAPI = TorkAPI()
                 if not api.api_key:
-                    reply = "⚠️ API Key 未配置。请点击 ⚙️ 设置。"
+                    reply: str = "⚠️ API Key 未配置。请点击 ⚙️ 设置。"
                 else:
                     api.system_prompt = (
                         "你是 TORK 的云端导师，一个AI 引擎的伙伴。\n"
@@ -692,13 +702,13 @@ class TORKDashboard:
 
         threading.Thread(target=do_chat, daemon=True).start()
 
-    def _refresh_chat(self):
+    def _refresh_chat(self) -> None:
         if self.current_tab != "chat":
             return
         self.evo_text.config(state=tk.NORMAL)
         self.evo_text.delete(1.0, tk.END)
         for who, msg in self.state.chat_history[-40:]:
-            tag = "user" if who == "你" else "tork"
+            tag: str = "user" if who == "你" else "tork"
             self.evo_text.insert(tk.END, f"{who}: ", tag)
             # 处理较长的回复，自动换行
             if len(msg) > 200:
@@ -709,21 +719,21 @@ class TORKDashboard:
         self.evo_text.see(tk.END)
         self.evo_text.config(state=tk.DISABLED)
 
-    def _build_statusbar(self, parent):
-        bar = tk.Frame(parent, bg=THEME["panel_bg"], height=24)
+    def _build_statusbar(self, parent: tk.Frame) -> None:
+        bar: tk.Frame = tk.Frame(parent, bg=THEME["panel_bg"], height=24)
         bar.pack(fill=tk.X, pady=(4, 0))
         bar.pack_propagate(False)
 
-        self.status_label = tk.Label(bar, text="🌱 就绪", font=THEME["font_small"],
+        self.status_label: tk.Label = tk.Label(bar, text="🌱 就绪", font=THEME["font_small"],
                                      bg=THEME["panel_bg"], fg=THEME["dim"])
         self.status_label.pack(side=tk.LEFT, padx=8)
 
-        self.time_label = tk.Label(bar, text="", font=THEME["font_small"],
+        self.time_label: tk.Label = tk.Label(bar, text="", font=THEME["font_small"],
                                    bg=THEME["panel_bg"], fg=THEME["dim"])
         self.time_label.pack(side=tk.RIGHT, padx=8)
 
         # 快速操作
-        btn_frame = tk.Frame(bar, bg=THEME["panel_bg"])
+        btn_frame: tk.Frame = tk.Frame(bar, bg=THEME["panel_bg"])
         btn_frame.pack(side=tk.RIGHT, padx=4)
 
         for text, cmd in [
@@ -731,40 +741,40 @@ class TORKDashboard:
             ("🧬 进化", self._run_evolution),
             ("⏸ 休眠", self._suspend),
         ]:
-            btn = tk.Button(btn_frame, text=text, font=THEME["font_small"],
+            btn: tk.Button = tk.Button(btn_frame, text=text, font=THEME["font_small"],
                             bg=THEME["panel_bg"], fg=THEME["fg"],
                             relief=tk.FLAT, bd=0, padx=6, command=cmd)
             btn.pack(side=tk.LEFT, padx=2)
 
-    def _bind_keys(self):
+    def _bind_keys(self) -> None:
         self.root.bind("<Escape>", lambda e: self.on_close())
         self.root.bind("<Control-r>", lambda e: self._manual_refresh())
         self.root.bind("<Control-q>", lambda e: self.on_close())
         self.root.bind("<Control-comma>", lambda e: self._open_settings())
         self.root.bind("<Control-greater>", lambda e: self._open_settings())
 
-    def _start_refresh(self):
-        def loop():
+    def _start_refresh(self) -> None:
+        def loop() -> None:
             while self.running:
                 self._refresh_once()
                 time.sleep(CONFIG["refresh_ms"] / 1000.0)
         threading.Thread(target=loop, daemon=True).start()
 
-    def _refresh_once(self):
+    def _refresh_once(self) -> None:
         try:
             refresh_via_api(self.state)
             read_evolution_log(self.state)
             self.root.after(0, self._update_ui)
-        except:
+        except Exception:
             pass
 
-    def _update_ui(self):
+    def _update_ui(self) -> None:
         try:
-            s = self.state
+            s: TORKState = self.state
 
             # 本能条
             for key, (bar, val) in self.instinct_bars.items():
-                pct = s.instincts.get(key, 0.0)
+                pct: float = s.instincts.get(key, 0.0)
                 bar["value"] = pct * 100
                 val.config(text=f"{pct:.2f}")
 
@@ -782,7 +792,7 @@ class TORKDashboard:
             self.score_label.config(text=str(s.soul.get("best_score", 0)))
 
             # PID
-            pid_text = f"PID: {s.pid}" if s.pid else "PID: —"
+            pid_text: str = f"PID: {s.pid}" if s.pid else "PID: —"
             self.pid_label.config(text=pid_text)
 
             # 标题
@@ -796,21 +806,24 @@ class TORKDashboard:
                 self._refresh_evo_log()
             
             # 进化统计
-            evo_stats = get_evolution_stats()
+            evo_stats: dict[str, int | float | list[dict[str, object]]] = get_evolution_stats()
             self.evo_total_label.config(text=f"总计: {evo_stats['total']} | ✅ {evo_stats['success']}")
-            rate_color = THEME["success"] if evo_stats['rate'] >= 50 else THEME["warn"]
+            rate_color: str = THEME["success"] if evo_stats['rate'] >= 50 else THEME["warn"]
             self.evo_rate_label.config(text=f"成功率: {evo_stats['rate']:.0f}%", fg=rate_color)
             
+            is_running: bool
+            pids: list[str]
             is_running, pids = read_evolution_daemon_status()
-            daemon_text = f"守护进程: ✅ 运行中" if is_running else "守护进程: ❌ 未运行"
+            daemon_text: str = f"守护进程: ✅ 运行中" if is_running else "守护进程: ❌ 未运行"
             self.evo_daemon_label.config(text=daemon_text, 
                                           fg=THEME["success"] if is_running else THEME["dim"])
             
             if evo_stats['recent']:
-                last = evo_stats['recent'][-1]
+                last: dict[str, object] = evo_stats['recent'][-1]
                 if isinstance(last, dict):
-                    ts = last.get("timestamp", "")[:19] if isinstance(last.get("timestamp"), str) else str(last.get("generation", ""))
-                    strategy = last.get("strategy", last.get("description", ""))[:25]
+                    ts: object = last.get("timestamp", "")
+                    ts_str: str = ts[:19] if isinstance(ts, str) else str(last.get("generation", ""))
+                    strategy: str = last.get("strategy", last.get("description", ""))[:25]
                     self.evo_last_label.config(text=f"上次: {strategy}",
                                                 fg=THEME["accent"])
                 else:
@@ -830,23 +843,23 @@ class TORKDashboard:
         except Exception as e:
             self.status_label.config(text=f"⚠️ UI 错误: {str(e)[:40]}", fg=THEME["danger"])
 
-    def _refresh_evo_log(self):
+    def _refresh_evo_log(self) -> None:
         if self.current_tab != "evolution":
             return
         self.evo_text.config(state=tk.NORMAL)
         self.evo_text.delete(1.0, tk.END)
-        logs = self.state.evolution_log
+        logs: list[dict[str, object]] = self.state.evolution_log
         if not logs:
             self.evo_text.insert(tk.END, "还没有进化记录。\n点击底部「🧬 进化」按钮开始。\n")
             self.evo_text.insert(tk.END, "\n💡 提示: 先确保引擎在运行，然后配置 API Key (⚙️ 按钮)\n")
         else:
             for entry in logs[-20:]:
                 if isinstance(entry, dict):
-                    gen = entry.get("generation", "?")
-                    file = entry.get("file", "?")
-                    status = entry.get("status", "?")
-                    desc = entry.get("description", "")
-                    tag = "success" if status == "success" else "failure" if status == "failure" else "dim"
+                    gen: object = entry.get("generation", "?")
+                    file: object = entry.get("file", "?")
+                    status: object = entry.get("status", "?")
+                    desc: object = entry.get("description", "")
+                    tag: str = "success" if status == "success" else "failure" if status == "failure" else "dim"
                     self.evo_text.insert(tk.END, f"Gen {gen:>3} | {file:<20} | ", "dim")
                     self.evo_text.insert(tk.END, f"{status:>7}", tag)
                     self.evo_text.insert(tk.END, f" | {desc}\n")
@@ -858,23 +871,23 @@ class TORKDashboard:
         self.evo_text.see(tk.END)
         self.evo_text.config(state=tk.DISABLED)
 
-    def _manual_refresh(self):
+    def _manual_refresh(self) -> None:
         self.status_label.config(text="⟳ 刷新中…", fg=THEME["accent2"])
-        def do():
+        def do() -> None:
             time.sleep(0.3)
             self.root.after(0, lambda: self.status_label.config(text="🌱 已刷新", fg=THEME["success"]))
         threading.Thread(target=do, daemon=True).start()
 
-    def _run_evolution(self):
+    def _run_evolution(self) -> None:
         self.status_label.config(text="🧬 进化中…", fg=THEME["accent"])
         self.evo_text.config(state=tk.NORMAL)
         self.evo_text.insert(tk.END, "🧬 正在进化...\n")
         self.evo_text.see(tk.END)
         self.evo_text.config(state=tk.DISABLED)
-        def do():
-            evo_script = os.path.join(BASE_DIR, "cloud", "evolution_daemon.py")
+        def do() -> None:
+            evo_script: str = os.path.join(BASE_DIR, "cloud", "evolution_daemon.py")
             try:
-                result = subprocess.run(
+                result: subprocess.CompletedProcess[str] = subprocess.run(
                     ["python3", evo_script, "--once"],
                     capture_output=True, text=True, timeout=120
                 )
@@ -891,32 +904,32 @@ class TORKDashboard:
             self.root.after(0, self._refresh_once)
         threading.Thread(target=do, daemon=True).start()
 
-    def _suspend(self):
-        s = self.state
+    def _suspend(self) -> None:
+        s: TORKState = self.state
         if s.pid and s.engine_running:
             try:
                 os.kill(s.pid, signal.SIGSTOP)
                 self.status_label.config(text="⏸ 已暂停", fg=THEME["warn"])
-            except:
+            except Exception:
                 self.status_label.config(text="⚠️ 暂停失败", fg=THEME["danger"])
         elif s.pid:
             try:
                 os.kill(s.pid, signal.SIGCONT)
                 self.status_label.config(text="▶️ 已恢复", fg=THEME["success"])
-            except:
+            except Exception:
                 self.status_label.config(text="⚠️ 恢复失败", fg=THEME["danger"])
         else:
             self.status_label.config(text="⚠️ 引擎未运行", fg=THEME["warn"])
 
-    def on_close(self):
+    def on_close(self) -> None:
         self.running = False
         self.state.save_identity()
         self.root.destroy()
 
 
 # ─── 入口 ────────────────────────────────────────────
-def main():
-    style = ttk.Style()
+def main() -> None:
+    style: ttk.Style = ttk.Style()
     style.theme_use("default")
     style.configure("TORK.Horizontal.TProgressbar",
                     background=THEME["accent"],
@@ -926,11 +939,11 @@ def main():
                     darkcolor=THEME["accent"],
                     thickness=12)
 
-    root = tk.Tk()
-    state = TORKState()
+    root: tk.Tk = tk.Tk()
+    state: TORKState = TORKState()
     state.load_identity()
 
-    app = TORKDashboard(root, state)
+    app: TORKDashboard = TORKDashboard(root, state)
 
     try:
         root.mainloop()

@@ -2,14 +2,17 @@
 Soul 解析 — 唯一权威定义，与 engine/soul_access.h 严格同步。
 所有 Python 文件必须通过此模块解析 Soul，禁止独立实现。
 """
+from __future__ import annotations
+
 import struct
 import json
+import logging
 
-SOUL_SIZE = 192
-SOUL_ADDR = 0x200000
+SOUL_SIZE: int = 208  # bytes, matches soul_access.h (v3.17)
+SOUL_ADDR: int = 0x200000
 
 # ── Offset 定义 (与 soul_access.h 一一对应) ──
-OFFSETS = {
+OFFSETS: dict[str, tuple[int, str]] = {
     "tick":              (0x00, "<I"),  # uint32
     "last_tsc":          (0x04, "<Q"),  # uint64
     "cur_tsc":           (0x0C, "<Q"),  # uint64
@@ -62,9 +65,11 @@ OFFSETS = {
     "branch_ticks":      (0xA0, "<I"),  # uint32
     "branch_drive_peak": (0xA4, "<h"),  # int16
     "branch_drive_end":  (0xA6, "<h"),  # int16
+    "node_id":           (0xA8, "16s"), # u8[16] — RDRAND+TSC+PID
+    "consensus_vector":  (0xB8, "16s"), # u8[16]
 }
 
-SIMPLE_FIELDS = [
+SIMPLE_FIELDS: list[str] = [
     "tick", "hw_stress", "mode", "drive", "self_pid", "ppid",
     "code_insns", "code_ctrl", "fission_count", "wins",
     "agreed", "sandbox_level", "cloud_connected", "learn_count",
@@ -73,11 +78,11 @@ SIMPLE_FIELDS = [
 ]
 
 
-def parse_soul(data: bytes, fields: list[str] | None = None) -> dict:
+def parse_soul(data: bytes, fields: list[str] | None = None) -> dict[str, int | bytes]:
     if not data or len(data) < 0x58:
         return {}
-    result = {}
-    parse_fields = fields if fields is not None else SIMPLE_FIELDS
+    result: dict[str, int | bytes] = {}
+    parse_fields: list[str] = fields if fields is not None else SIMPLE_FIELDS
     for name in parse_fields:
         if name not in OFFSETS:
             continue
@@ -88,35 +93,39 @@ def parse_soul(data: bytes, fields: list[str] | None = None) -> dict:
     return result
 
 
-def parse_soul_full(data: bytes) -> dict:
+def parse_soul_full(data: bytes) -> dict[str, int | bytes]:
     return parse_soul(data, fields=list(OFFSETS.keys()))
 
 
-def parse_soul_hex(hex_str: str) -> dict:
+def parse_soul_hex(hex_str: str) -> dict[str, int | bytes]:
     hex_str = hex_str.strip()
     if hex_str.startswith(("0x", "0X")):
         hex_str = hex_str[2:]
     try:
-        data = bytes.fromhex(hex_str)
+        data: bytes = bytes.fromhex(hex_str)
         return parse_soul_full(data)
     except (ValueError, TypeError):
         return {}
 
 
-def read_soul_from_proc(pid: int) -> dict | None:
+def read_soul_from_proc(pid: int) -> dict[str, int | bytes] | None:
     try:
         pid = int(pid)
         if pid <= 0:
             return None
         with open(f"/proc/{pid}/maps", "r") as f:
+            found: bool = False
             for line in f:
                 if "200000" in line[:12]:
+                    found = True
                     break
+            if not found:
+                return None
         with open(f"/proc/{pid}/mem", "rb") as f:
             f.seek(SOUL_ADDR)
-            data = f.read(SOUL_SIZE)
+            data: bytes = f.read(SOUL_SIZE)
         if len(data) == SOUL_SIZE:
             return parse_soul_full(data)
-    except (OSError, ValueError):
-        pass
+    except (OSError, ValueError) as e:
+        logging.getLogger(__name__).debug("read_soul_from_proc(%s) failed: %s", pid, e)
     return None

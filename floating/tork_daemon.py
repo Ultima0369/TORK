@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 #!/usr/bin/env python3
 """
 TORK 后台守护进程
@@ -12,27 +14,29 @@ import time
 import signal
 import json
 import atexit
+from types import FrameType
 
 # ─── 路径 ────────────────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ENGINE_PATH = os.path.join(BASE_DIR, "build", "tork_engine")
-DASHBOARD_PATH = os.path.join(BASE_DIR, "floating", "tork_dashboard.py")
-CLOUD_PATH = os.path.join(BASE_DIR, "cloud", "cloud_protocol.py")
-PERSIST_DIR = os.path.join(BASE_DIR, "persist")
-PIDFILE = os.path.join(PERSIST_DIR, "daemon.pid")
+BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENGINE_PATH: str = os.path.join(BASE_DIR, "build", "tork_engine")
+DASHBOARD_PATH: str = os.path.join(BASE_DIR, "floating", "tork_dashboard.py")
+CLOUD_PATH: str = os.path.join(BASE_DIR, "cloud", "cloud_protocol.py")
+PERSIST_DIR: str = os.path.join(BASE_DIR, "persist")
+PIDFILE: str = os.path.join(PERSIST_DIR, "daemon.pid")
 
 
 class TORKDaemon:
-    def __init__(self):
-        self.engine_proc = None
-        self.dashboard_proc = None
-        self.running = True
+    def __init__(self) -> None:
+        self.engine_proc: subprocess.Popen[str] | None = None
+        self.dashboard_proc: subprocess.Popen[str] | None = None
+        self.running: bool = True
+        self._cleaned_up: bool = False
 
         # 信号处理
         signal.signal(signal.SIGTERM, self._cleanup)
         signal.signal(signal.SIGINT, self._cleanup)
 
-    def start_engine(self):
+    def start_engine(self) -> bool:
         """启动 TORK 引擎"""
         if not os.path.exists(ENGINE_PATH):
             print(f"⚠️ 引擎未编译: {ENGINE_PATH}")
@@ -52,7 +56,7 @@ class TORKDaemon:
             print(f"❌ 引擎启动失败: {e}")
             return False
 
-    def stop_engine(self):
+    def stop_engine(self) -> None:
         """停止 TORK 引擎"""
         if self.engine_proc and self.engine_proc.poll() is None:
             self.engine_proc.terminate()
@@ -62,7 +66,7 @@ class TORKDaemon:
                 self.engine_proc.kill()
             print("⏹️  引擎已停止")
 
-    def start_dashboard(self):
+    def start_dashboard(self) -> bool:
         """启动仪表盘 (非阻塞)"""
         try:
             self.dashboard_proc = subprocess.Popen(
@@ -77,7 +81,7 @@ class TORKDaemon:
             print(f"❌ 仪表盘启动失败: {e}")
             return False
 
-    def stop_dashboard(self):
+    def stop_dashboard(self) -> None:
         """停止仪表盘"""
         if self.dashboard_proc and self.dashboard_proc.poll() is None:
             self.dashboard_proc.terminate()
@@ -87,7 +91,7 @@ class TORKDaemon:
                 self.dashboard_proc.kill()
             print("⏹️  仪表盘已停止")
 
-    def get_status(self):
+    def get_status(self) -> dict[str, int | bool]:
         """获取守护进程状态"""
         return {
             "engine_running": self.engine_proc is not None and self.engine_proc.poll() is None,
@@ -96,17 +100,23 @@ class TORKDaemon:
             "dashboard_pid": self.dashboard_proc.pid if self.dashboard_proc else 0,
         }
 
-    def _cleanup(self, signum=None, frame=None):
+    def _cleanup(self, signum: int | None = None, frame: FrameType | None = None) -> None:
         """清理退出"""
+        if self._cleaned_up:
+            return
+        self._cleaned_up = True
         self.stop_dashboard()
         self.stop_engine()
         self.running = False
         # 清理 PID 文件
-        if os.path.exists(PIDFILE):
-            os.remove(PIDFILE)
+        try:
+            if os.path.exists(PIDFILE):
+                os.remove(PIDFILE)
+        except OSError:
+            pass
         sys.exit(0)
 
-    def run(self, mode="all"):
+    def run(self, mode: str = "all") -> None:
         """运行守护进程"""
         os.makedirs(PERSIST_DIR, exist_ok=True)
 
@@ -143,20 +153,20 @@ class TORKDaemon:
                 self._cleanup()
 
 
-def main():
+def main() -> None:
     import argparse
-    parser = argparse.ArgumentParser(description="TORK 守护进程")
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(description="TORK 守护进程")
     parser.add_argument("action", nargs="?", default="all",
                         choices=["all", "engine", "dashboard", "status", "stop"],
                         help="操作类型")
-    args = parser.parse_args()
+    args: argparse.Namespace = parser.parse_args()
 
-    daemon = TORKDaemon()
+    daemon: TORKDaemon = TORKDaemon()
 
     if args.action == "stop":
         if os.path.exists(PIDFILE):
             with open(PIDFILE) as f:
-                pid = int(f.read().strip())
+                pid: int = int(f.read().strip())
             try:
                 os.kill(pid, signal.SIGTERM)
                 print(f"⏹️  已发送停止信号到 PID {pid}")
@@ -168,7 +178,7 @@ def main():
         return
 
     if args.action == "status":
-        status = daemon.get_status()
+        status: dict[str, int | bool] = daemon.get_status()
         print(f"引擎: {'✅ 运行中' if status['engine_running'] else '⏹️ 已停止'} (PID: {status['engine_pid']})")
         print(f"仪表盘: {'✅ 运行中' if status['dashboard_running'] else '⏹️ 已停止'} (PID: {status['dashboard_pid']})")
         return

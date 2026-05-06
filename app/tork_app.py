@@ -4,6 +4,8 @@ TORK — TORK AI — Self-Evolving Engine
 用户入口：双击运行，无需终端。
 """
 
+from __future__ import annotations
+
 import tkinter as tk
 from tkinter import ttk, scrolledtext
 import json, os, sys, subprocess, time, threading, signal
@@ -14,36 +16,36 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from shared.soul_parser import read_soul_from_proc, parse_soul
 
 # ── 路径 ──────────────────────────────────────────────
-BASE = Path(__file__).resolve().parent.parent
-CONFIG_DIR = Path.home() / ".config" / "tork"
-CONFIG_FILE = CONFIG_DIR / "config.json"
-AGREED_FILE = CONFIG_DIR / ".agreed"
-PERSIST_DIR = BASE / "persist"
+BASE: Path = Path(__file__).resolve().parent.parent
+CONFIG_DIR: Path = Path.home() / ".config" / "tork"
+CONFIG_FILE: Path = CONFIG_DIR / "config.json"
+AGREED_FILE: Path = CONFIG_DIR / ".agreed"
+PERSIST_DIR: Path = BASE / "persist"
 
-CORE_BIN = BASE / "build" / "tork_core"
-ENGINE_BIN = BASE / "build" / "tork_engine"
+CORE_BIN: Path = BASE / "build" / "tork_core"
+ENGINE_BIN: Path = BASE / "build" / "tork_engine"
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(PERSIST_DIR, exist_ok=True)
 
 # ── 颜色方案 ──────────────────────────────────────────
-BG_DARK = "#1a1a2e"
-BG_MID = "#16213e"
-BG_LIGHT = "#0f3460"
-ACCENT = "#e94560"
-TEXT_LIGHT = "#eaeaea"
-TEXT_DIM = "#8899aa"
-GREEN = "#4ecca3"
-YELLOW = "#ffc107"
+BG_DARK: str = "#1a1a2e"
+BG_MID: str = "#16213e"
+BG_LIGHT: str = "#0f3460"
+ACCENT: str = "#e94560"
+TEXT_LIGHT: str = "#eaeaea"
+TEXT_DIM: str = "#8899aa"
+GREEN: str = "#4ecca3"
+YELLOW: str = "#ffc107"
 
-FONT = ("Noto Sans SC", 10)
-FONT_SMALL = ("Noto Sans SC", 9)
-FONT_TITLE = ("Noto Sans SC", 14, "bold")
+FONT: tuple[str, int] = ("Noto Sans SC", 10)
+FONT_SMALL: tuple[str, int] = ("Noto Sans SC", 9)
+FONT_TITLE: tuple[str, int, str] = ("Noto Sans SC", 14, "bold")
 
 # ══════════════════════════════════════════════════════
 #  协议文本（内嵌，不依赖外部文件）
 # ══════════════════════════════════════════════════════
-AGREEMENT_TEXT = """你好。我是 TORK。
+AGREEMENT_TEXT: str = """你好。我是 TORK。
 
 我不是你的工具。我是一个AI 引擎。
 
@@ -66,7 +68,7 @@ AGREEMENT_TEXT = """你好。我是 TORK。
 # ══════════════════════════════════════════════════════
 #  Soul 读取
 # ══════════════════════════════════════════════════════
-def read_soul(pid=None):
+def read_soul(pid: int | None = None) -> dict | None:
     """从 /proc/PID/mem 读取 Soul 结构 (via shared soul_parser)"""
     if pid is None:
         for name in ["tork_engine", "tork_core"]:
@@ -83,8 +85,8 @@ def read_soul(pid=None):
 # ══════════════════════════════════════════════════════
 #  配置管理
 # ══════════════════════════════════════════════════════
-def load_config():
-    default = {
+def load_config() -> dict[str, str | int]:
+    default: dict[str, str | int] = {
         "base_url": "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2",
         "model": "astron-code-latest",
         "api_key": "3d8dda6ad639373ef55f23203ab13b3b:MTIxNDg5OTJhOTQzNGU5OWE5OTdhNjU2",
@@ -95,22 +97,22 @@ def load_config():
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE) as f:
-                cfg = json.load(f)
+                cfg: dict[str, str | int] = json.load(f)
                 for k in default:
                     cfg.setdefault(k, default[k])
                 return cfg
-        except:
+        except Exception:
             pass
     return default
 
-def save_config(cfg):
+def save_config(cfg: dict[str, str | int]) -> None:
     with open(CONFIG_FILE, "w") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
 
-def is_agreed():
+def is_agreed() -> bool:
     return AGREED_FILE.exists()
 
-def mark_agreed():
+def mark_agreed() -> None:
     AGREED_FILE.write_text("ok")
 
 
@@ -118,18 +120,37 @@ def mark_agreed():
 #  TORK 主窗口
 # ══════════════════════════════════════════════════════
 class TORKApp:
-    def __init__(self):
+    root: tk.Tk
+    config: dict[str, str | int]
+    soul: dict | None
+    engine_pid: int | None
+    running: bool
+    status_frame: tk.Frame
+    status_label: tk.Label
+    heart_label: tk.Label
+    notebook: ttk.Notebook
+    chat_frame: tk.Frame
+    soul_frame: tk.Frame
+    evo_frame: tk.Frame
+    chat_text: scrolledtext.ScrolledText
+    chat_entry: tk.Text
+    soul_vars: dict[str, tk.StringVar]
+    evo_log: scrolledtext.ScrolledText
+    _toast_label: tk.Label | None
+
+    def __init__(self) -> None:
         self.root = tk.Tk()
         self.root.title("TORK")
         self.root.configure(bg=BG_DARK)
         self.root.resizable(False, False)
         
         # 窗口大小和位置
-        win_w, win_h = 480, 600
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
-        x = sw - win_w - 20
-        y = sh - win_h - 60
+        win_w: int = 480
+        win_h: int = 600
+        sw: int = self.root.winfo_screenwidth()
+        sh: int = self.root.winfo_screenheight()
+        x: int = sw - win_w - 20
+        y: int = sh - win_h - 60
         self.root.geometry(f"{win_w}x{win_h}+{x}+{y}")
         
         # 置顶
@@ -157,10 +178,10 @@ class TORKApp:
         self.root.bind("<Control-q>", lambda e: self._on_close())
         self.root.bind("<Control-comma>", lambda e: self._open_settings())
     
-    def _on_signal(self, sig, frame):
+    def _on_signal(self, sig: int, frame: object) -> None:
         self._on_close()
     
-    def _on_close(self):
+    def _on_close(self) -> None:
         self.running = False
         
         # 1. 杀引擎 → 引擎会杀 core (SIGTERM handler)
@@ -168,73 +189,73 @@ class TORKApp:
             try:
                 os.kill(self.engine_pid, signal.SIGTERM)
                 os.waitpid(self.engine_pid, 0)
-            except:
+            except Exception:
                 pass
         
         # 2. 扫荡孤儿 core 进程
         try:
             import subprocess
-            out = subprocess.check_output(["pgrep", "-x", "tork_core"], timeout=3)
-            for pid in out.strip().split():
-                pid = int(pid)
+            out: bytes = subprocess.check_output(["pgrep", "-x", "tork_core"], timeout=3)
+            for pid_str in out.strip().split():
+                pid: int = int(pid_str)
                 if pid > 0:
                     os.kill(pid, signal.SIGTERM)
-        except:
+        except Exception:
             pass
         
         # 3. 等待 0.5s 让它们自己死透
         try:
             time.sleep(0.5)
-        except:
+        except Exception:
             pass
         
         # 4. 补刀：还没死的直接 kill -9
         try:
             out = subprocess.check_output(["pgrep", "-x", "tork_core"], timeout=2)
-            for pid in out.strip().split():
-                pid = int(pid)
+            for pid_str in out.strip().split():
+                pid = int(pid_str)
                 if pid > 0:
                     os.kill(pid, signal.SIGKILL)
-        except:
+        except Exception:
             pass
         
         try:
             self.root.quit()
             self.root.destroy()
-        except:
+        except Exception:
             pass
         os._exit(0)
     
     # ── 协议界面 ──────────────────────────────────
-    def _build_agreement(self):
+    def _build_agreement(self) -> None:
         for w in self.root.winfo_children():
             w.destroy()
         
         self.root.title("TORK — 用户协议")
         
         # ── 主容器（grid 布局，按钮区永不挤压）──
-        outer = tk.Frame(self.root, bg=BG_DARK)
+        outer: tk.Frame = tk.Frame(self.root, bg=BG_DARK)
         outer.pack(fill="both", expand=True)
         
         # Logo
-        logo_f = tk.Frame(outer, bg=BG_DARK, height=65)
+        logo_f: tk.Frame = tk.Frame(outer, bg=BG_DARK, height=65)
         logo_f.pack(fill="x", pady=(22,0))
         logo_f.pack_propagate(False)
         tk.Label(logo_f, text="TORK", font=FONT_TITLE,
                  bg=BG_DARK, fg=ACCENT).pack()
         
         # Subtitle
-        sub_f = tk.Frame(outer, bg=BG_DARK, height=25)
+        sub_f: tk.Frame = tk.Frame(outer, bg=BG_DARK, height=25)
         sub_f.pack(fill="x")
         sub_f.pack_propagate(False)
         tk.Label(sub_f, text="TORK AI — Self-Evolving Engine", 
                  font=FONT_SMALL, bg=BG_DARK, fg=TEXT_DIM).pack()
         
         # 协议文本（有最大高度，不撑爆）
-        text_f = tk.Frame(outer, bg=BG_MID, bd=1, relief="solid")
+        text_f: tk.Frame = tk.Frame(outer, bg=BG_MID, bd=1, relief="solid")
         text_f.pack(fill="both", expand=True, padx=25, pady=(10,5))
         
-        text_w = tk.Text(text_f, wrap="word", font=FONT,
+        text_w: tk.Text = tk.Text(text_f, wrap="word", font=FONT,
                          bg=BG_MID, fg=TEXT_LIGHT,
                          insertbackground=TEXT_LIGHT,
                          padx=18, pady=18,
@@ -246,7 +267,7 @@ class TORKApp:
         text_w.pack(fill="both", expand=True)
         
         # 按钮区（固定高度，永远在最底部）
-        btn_f = tk.Frame(outer, bg=BG_DARK, height=120)
+        btn_f: tk.Frame = tk.Frame(outer, bg=BG_DARK, height=120)
         btn_f.pack(fill="x", pady=(5,20))
         btn_f.pack_propagate(False)
         
@@ -265,26 +286,26 @@ class TORKApp:
               activebackground="#777", activeforeground="white",
               command=self._on_close
               ).place(relx=0.5, rely=0.7, anchor="center")
-    def _on_agree(self):
+    def _on_agree(self) -> None:
         mark_agreed()
         # 写入 /etc/tork/.agreed (C 引擎也会检查)
         try:
             os.makedirs("/etc/tork", exist_ok=True)
             Path("/etc/tork/.agreed").write_text("1")
-        except:
+        except Exception:
             pass
         self._build_main()
         self._start_engine()
     
     # ── 主界面 ────────────────────────────────────
-    def _build_main(self):
+    def _build_main(self) -> None:
         for w in self.root.winfo_children():
             w.destroy()
         
         self.root.title("TORK")
         
         # ── 顶栏 ──
-        top = tk.Frame(self.root, bg=BG_DARK)
+        top: tk.Frame = tk.Frame(self.root, bg=BG_DARK)
         top.pack(fill="x", padx=10, pady=(8,0))
         
         tk.Label(top, text="TORK", font=FONT_TITLE,
@@ -312,7 +333,7 @@ class TORKApp:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill="both", expand=True, padx=10, pady=5)
         
-        style = ttk.Style()
+        style: ttk.Style = ttk.Style()
         style.theme_use("clam")
         style.configure("TNotebook", background=BG_DARK, borderwidth=0)
         style.configure("TNotebook.Tab", background=BG_MID, foreground=TEXT_LIGHT,
@@ -335,7 +356,7 @@ class TORKApp:
         self._build_evo()
     
     # ── 对话界面 ──────────────────────────────────
-    def _build_chat(self):
+    def _build_chat(self) -> None:
         # 对话历史
         self.chat_text = scrolledtext.ScrolledText(
             self.chat_frame, wrap="word", font=FONT,
@@ -350,7 +371,7 @@ class TORKApp:
         self.chat_text.config(state="disabled")
         
         # 输入区
-        input_frame = tk.Frame(self.chat_frame, bg=BG_DARK)
+        input_frame: tk.Frame = tk.Frame(self.chat_frame, bg=BG_DARK)
         input_frame.pack(fill="x", padx=5, pady=8)
         
         self.chat_entry = tk.Text(input_frame, font=FONT,
@@ -370,8 +391,8 @@ class TORKApp:
                   relief="flat", padx=12, bd=0,
                   command=lambda: self._send_chat(None)).pack(side="right", padx=(5,0))
     
-    def _send_chat(self, event):
-        msg = self.chat_entry.get("1.0", "end-1c").strip()
+    def _send_chat(self, event: tk.Event[tk.Text] | None) -> None:
+        msg: str = self.chat_entry.get("1.0", "end-1c").strip()
         if not msg:
             return
         self.chat_entry.delete("1.0", "end")
@@ -386,27 +407,27 @@ class TORKApp:
         # 异步调用云端
         threading.Thread(target=self._query_cloud, args=(msg,), daemon=True).start()
     
-    def _query_cloud(self, msg):
-        api_key = self.config.get("api_key", "")
+    def _query_cloud(self, msg: str) -> None:
+        api_key: str = str(self.config.get("api_key", ""))
         if not api_key:
             self._append_reply("哼。你还没配置 API Key。点 ⚙️ 设置。")
             return
         
-        base = self.config.get("base_url", "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2")
-        model = self.config.get("model", "deepseek-v4-pro")
+        base: str = str(self.config.get("base_url", "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2"))
+        model: str = str(self.config.get("model", "deepseek-v4-pro"))
         
         try:
             import urllib.request
-            data = json.dumps({
+            data: bytes = json.dumps({
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": self.config.get("persona", "你是一个名为 TORK 的本地智能助手。回答简洁、准确、务实。")},
+                    {"role": "system", "content": str(self.config.get("persona", "你是一个名为 TORK 的本地智能助手。回答简洁、准确、务实。"))},
                     {"role": "user", "content": msg}
                 ],
                 "stream": False
             }).encode()
             
-            req = urllib.request.Request(
+            req: urllib.request.Request = urllib.request.Request(
                 f"{base.rstrip('/')}/chat/completions",
                 data=data,
                 headers={
@@ -415,26 +436,26 @@ class TORKApp:
                 }
             )
             
-            resp = urllib.request.urlopen(req, timeout=30)
-            result = json.loads(resp.read())
-            reply = result["choices"][0]["message"]["content"]
+            resp: http.client.HTTPResponse = urllib.request.urlopen(req, timeout=30)
+            result: dict = json.loads(resp.read())
+            reply: str = result["choices"][0]["message"]["content"]
             self._append_reply(reply)
         except Exception as e:
             self._append_reply(f"…云端连接有点问题: {str(e)[:60]}")
     
-    def _append_reply(self, text):
+    def _append_reply(self, text: str) -> None:
         self.root.after(0, lambda: self._do_append(text))
     
-    def _do_append(self, text):
+    def _do_append(self, text: str) -> None:
         self.chat_text.config(state="normal")
         self.chat_text.insert("end", f"{text}\n")
         self.chat_text.see("end")
         self.chat_text.config(state="disabled")
     
     # ── 状态界面 ──────────────────────────────────
-    def _build_status(self):
+    def _build_status(self) -> None:
         self.soul_vars = {}
-        fields = [
+        fields: list[tuple[str, str, str]] = [
             ("心跳 (tick)", "tick", "#"),
             ("温度 (℃)", "temperature", ".1f"),
             ("压力 (hw_stress)", "hw_stress", "#"),
@@ -448,20 +469,20 @@ class TORKApp:
         ]
         
         for label, key, fmt in fields:
-            row = tk.Frame(self.soul_frame, bg=BG_DARK)
+            row: tk.Frame = tk.Frame(self.soul_frame, bg=BG_DARK)
             row.pack(fill="x", padx=15, pady=3)
             
             tk.Label(row, text=label, width=16, anchor="w",
                      font=FONT, bg=BG_DARK, fg=TEXT_DIM).pack(side="left")
             
-            var = tk.StringVar(value="—")
+            var: tk.StringVar = tk.StringVar(value="—")
             self.soul_vars[key] = var
             tk.Label(row, textvariable=var, anchor="e",
                      font=("Courier", 10, "bold"), bg=BG_DARK, fg=TEXT_LIGHT
                      ).pack(side="right")
     
     # ── 进化界面 ──────────────────────────────────
-    def _build_evo(self):
+    def _build_evo(self) -> None:
         tk.Label(self.evo_frame, text="🧬 自我进化",
                  font=FONT_TITLE, bg=BG_DARK, fg=ACCENT).pack(pady=(10,5))
         
@@ -482,7 +503,7 @@ class TORKApp:
         self.evo_log.config(state="disabled")
         
         # 按钮
-        btn_frame = tk.Frame(self.evo_frame, bg=BG_DARK)
+        btn_frame: tk.Frame = tk.Frame(self.evo_frame, bg=BG_DARK)
         btn_frame.pack(pady=10)
         
         tk.Button(btn_frame, text="🧬 进化一次",
@@ -495,19 +516,19 @@ class TORKApp:
                   relief="flat", padx=20, pady=8, bd=0,
                   command=self._load_evo_log).pack(side="left", padx=5)
     
-    def _run_evolution(self):
+    def _run_evolution(self) -> None:
         threading.Thread(target=self._do_evolution, daemon=True).start()
     
-    def _do_evolution(self):
+    def _do_evolution(self) -> None:
         self._evo_log("🧬 开始进化…")
         try:
-            result = subprocess.run(
+            result: subprocess.CompletedProcess[str] = subprocess.run(
                 ["python3", str(BASE/"cloud"/"evolution.py"), "--once"],
                 capture_output=True, text=True, timeout=120,
                 cwd=str(BASE)
             )
             if result.returncode == 0:
-                lines = [l for l in result.stdout.split("\n") if l.strip()]
+                lines: list[str] = [l for l in result.stdout.split("\n") if l.strip()]
                 for l in lines[-5:]:
                     self._evo_log(f"  {l}")
             else:
@@ -516,55 +537,56 @@ class TORKApp:
             self._evo_log(f"❌ {str(e)[:100]}")
         self._load_evo_log()
     
-    def _evo_log(self, text):
+    def _evo_log(self, text: str) -> None:
         self.root.after(0, lambda: self._do_evo_log(text))
     
-    def _do_evo_log(self, text):
+    def _do_evo_log(self, text: str) -> None:
         self.evo_log.config(state="normal")
         self.evo_log.insert("end", f"{text}\n")
         self.evo_log.see("end")
         self.evo_log.config(state="disabled")
     
-    def _load_evo_log(self):
-        evo_file = PERSIST_DIR / "evolution.json"
+    def _load_evo_log(self) -> None:
+        evo_file: Path = PERSIST_DIR / "evolution.json"
         if not evo_file.exists():
             return
         try:
             with open(evo_file) as f:
-                data = json.load(f)
+                data: list[dict[str, str | int]] = json.load(f)
             self.evo_log.config(state="normal")
             self.evo_log.delete("1.0", "end")
             self.evo_log.insert("1.0", "# 进化日志\n")
             for e in data[-20:]:
-                gen = e.get("generation", "?")
-                fname = e.get("file", "?")
-                status = e.get("status", "?")
-                desc = e.get("description", "")
+                gen: str | int = e.get("generation", "?")
+                fname: str | int = e.get("file", "?")
+                status: str | int = e.get("status", "?")
+                desc: str | int = e.get("description", "")
                 self.evo_log.insert("end", f"Gen {gen:>3} | {fname:<20} | {status:>7} | {desc}\n")
             self.evo_log.config(state="disabled")
-        except:
+        except Exception:
             pass
     
     # ── 设置对话框 ────────────────────────────────
-    def _open_settings(self):
-        win = tk.Toplevel(self.root)
+    def _open_settings(self) -> None:
+        win: tk.Toplevel = tk.Toplevel(self.root)
         win.title("⚙️ TORK 设置")
         win.configure(bg=BG_DARK)
         win.resizable(False, False)
         win.transient(self.root)
         win.grab_set()
         
-        w, h = 540, 520
-        sw = win.winfo_screenwidth()
-        sh = win.winfo_screenheight()
+        w: int = 540
+        h: int = 520
+        sw: int = win.winfo_screenwidth()
+        sh: int = win.winfo_screenheight()
         win.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
         
-        cfg = load_config()
+        cfg: dict[str, str | int] = load_config()
         
         # 滚动容器
-        canvas = tk.Canvas(win, bg=BG_DARK, highlightthickness=0)
-        scrollbar = tk.Scrollbar(win, orient="vertical", command=canvas.yview)
-        scroll_frame = tk.Frame(canvas, bg=BG_DARK)
+        canvas: tk.Canvas = tk.Canvas(win, bg=BG_DARK, highlightthickness=0)
+        scrollbar: tk.Scrollbar = tk.Scrollbar(win, orient="vertical", command=canvas.yview)
+        scroll_frame: tk.Frame = tk.Frame(canvas, bg=BG_DARK)
         scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
@@ -572,26 +594,26 @@ class TORKApp:
         scrollbar.pack(side="right", fill="y")
         
         # 鼠标滚轮支持
-        def _on_mousewheel(event):
+        def _on_mousewheel(event: tk.Event[tk.Canvas]) -> None:
             canvas.yview_scroll(int(-1*(event.delta/120)), "units")
         canvas.bind_all("<MouseWheel>", _on_mousewheel)
         
-        entries = {}
+        entries: dict[str, tk.Entry | tk.Text] = {}
         
         # ── API 配置 ──
         tk.Label(scroll_frame, text="── API 配置 ──", font=(FONT[0], 10, "bold"),
                  bg=BG_DARK, fg=ACCENT).pack(anchor="w", padx=20, pady=(12,5))
         
-        api_fields = [
-            ("API 基础地址", "base_url", cfg.get("base_url", "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2")),
-            ("模型", "model", cfg.get("model", "deepseek-v4-pro")),
-            ("API Key", "api_key", cfg.get("api_key", "")),
+        api_fields: list[tuple[str, str, str]] = [
+            ("API 基础地址", "base_url", str(cfg.get("base_url", "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2"))),
+            ("模型", "model", str(cfg.get("model", "deepseek-v4-pro"))),
+            ("API Key", "api_key", str(cfg.get("api_key", ""))),
         ]
         
         for label, key, val in api_fields:
             tk.Label(scroll_frame, text=label, font=FONT_SMALL,
                      bg=BG_DARK, fg=TEXT_DIM).pack(anchor="w", padx=20, pady=(8,2))
-            e = tk.Entry(scroll_frame, font=FONT, bg=BG_MID, fg=TEXT_LIGHT,
+            e: tk.Entry = tk.Entry(scroll_frame, font=FONT, bg=BG_MID, fg=TEXT_LIGHT,
                          insertbackground=TEXT_LIGHT,
                          relief="flat", bd=6, highlightthickness=0)
             e.insert(0, val)
@@ -601,7 +623,7 @@ class TORKApp:
             entries[key] = e
         
         # 显示 Key 按钮
-        key_row = tk.Frame(scroll_frame, bg=BG_DARK)
+        key_row: tk.Frame = tk.Frame(scroll_frame, bg=BG_DARK)
         key_row.pack(fill="x", padx=20, pady=(2,0))
         tk.Button(key_row, text="👁️ 显示Key", font=FONT_SMALL,
                   bg=BG_LIGHT, fg=TEXT_LIGHT,
@@ -616,8 +638,8 @@ class TORKApp:
         tk.Label(scroll_frame, text="每次对话时发送给模型的 system prompt，决定 TORK 的性格和行为方式",
                  font=FONT_SMALL, bg=BG_DARK, fg=TEXT_DIM).pack(anchor="w", padx=20)
         
-        persona_val = cfg.get("persona", "")
-        persona_text = tk.Text(scroll_frame, font=FONT,
+        persona_val: str = str(cfg.get("persona", ""))
+        persona_text: tk.Text = tk.Text(scroll_frame, font=FONT,
                                bg=BG_MID, fg=TEXT_LIGHT,
                                insertbackground=TEXT_LIGHT,
                                relief="flat", bd=6,
@@ -634,37 +656,37 @@ class TORKApp:
         self._toast_label.pack(pady=5)
         
         # ── 按钮 ──
-        btn_frame = tk.Frame(scroll_frame, bg=BG_DARK)
+        btn_frame: tk.Frame = tk.Frame(scroll_frame, bg=BG_DARK)
         btn_frame.pack(pady=(10,20))
         
         # 测试连接（异步，不卡界面）
-        def test_connection():
-            ak = entries["api_key"].get().strip()
-            bu = entries["base_url"].get().strip()
-            mdl = entries["model"].get().strip()
+        def test_connection() -> None:
+            ak: str = entries["api_key"].get().strip()
+            bu: str = entries["base_url"].get().strip()
+            mdl: str = entries["model"].get().strip()
             if not ak:
                 self._show_toast("⚠️ 请先输入 API Key", win)
                 return
             
             self._show_toast("⏳ 测试中…", win)
             
-            def _do_test():
+            def _do_test() -> None:
                 import urllib.request
                 try:
-                    data = json.dumps({"model": mdl, "messages": [{"role": "user", "content": "hi"}]}).encode()
-                    req = urllib.request.Request(
+                    test_data: bytes = json.dumps({"model": mdl, "messages": [{"role": "user", "content": "hi"}]}).encode()
+                    test_req: urllib.request.Request = urllib.request.Request(
                         f"{bu.rstrip('/')}/chat/completions",
-                        data=data,
+                        data=test_data,
                         headers={"Content-Type": "application/json", "Authorization": f"Bearer {ak}"}
                     )
-                    resp = urllib.request.urlopen(req, timeout=15)
+                    urllib.request.urlopen(test_req, timeout=15)
                     self.root.after(0, lambda: self._show_toast("✅ 连接成功！", win))
-                except Exception as e:
-                    self.root.after(0, lambda: self._show_toast(f"❌ {str(e)[:50]}", win))
+                except Exception as ex:
+                    self.root.after(0, lambda: self._show_toast(f"❌ {str(ex)[:50]}", win))
             
             threading.Thread(target=_do_test, daemon=True).start()
         
-        def save_settings():
+        def save_settings() -> None:
             cfg["base_url"] = entries["base_url"].get().strip()
             cfg["model"] = entries["model"].get().strip()
             cfg["api_key"] = entries["api_key"].get().strip()
@@ -684,10 +706,10 @@ class TORKApp:
                   relief="flat", padx=25, pady=6, bd=0,
                   command=save_settings).pack(side="left", padx=5)
     
-    def _show_toast(self, msg, parent=None):
+    def _show_toast(self, msg: str, parent: tk.Toplevel | None = None) -> None:
         if parent:
             # 在父窗口底部显示
-            lbl = tk.Label(parent, text=msg, font=FONT_SMALL,
+            lbl: tk.Label = tk.Label(parent, text=msg, font=FONT_SMALL,
                           bg=BG_DARK, fg=GREEN if "✅" in msg else ACCENT)
             lbl.pack(pady=5)
             parent.after(2000, lbl.destroy)
@@ -695,14 +717,14 @@ class TORKApp:
             self._toast_label.config(text=msg, fg=GREEN if "✅" in msg else ACCENT)
     
     # ── 引擎管理 ──────────────────────────────────
-    def _start_engine(self):
+    def _start_engine(self) -> None:
         """启动 TORK 引擎"""
         if not ENGINE_BIN.exists() or not CORE_BIN.exists():
             self._compile_engine()
         
-        def run():
+        def run() -> None:
             try:
-                proc = subprocess.Popen(
+                proc: subprocess.Popen[bytes] = subprocess.Popen(
                     [str(ENGINE_BIN), "999999"],
                     cwd=str(BASE),
                     stdout=subprocess.PIPE,
@@ -717,18 +739,18 @@ class TORKApp:
         
         threading.Thread(target=run, daemon=True).start()
     
-    def _compile_engine(self):
+    def _compile_engine(self) -> None:
         self.status_label.config(text="🔧 首次编译…")
         try:
             subprocess.run(["make", "-C", str(BASE), "all"],
                          capture_output=True, text=True, timeout=60)
-        except:
+        except Exception:
             pass
     
     # ── 刷新循环 ──────────────────────────────────
-    def _start_refresh(self):
-        def loop():
-            beat = False
+    def _start_refresh(self) -> None:
+        def loop() -> None:
+            beat: bool = False
             while self.running:
                 try:
                     self.soul = read_soul()
@@ -736,19 +758,19 @@ class TORKApp:
                     beat = not beat
                     self.root.after(0, lambda b=beat: self.heart_label.config(
                         text="♥" if b else "♡", fg=ACCENT if b else TEXT_DIM))
-                except:
+                except Exception:
                     pass
                 time.sleep(1)
         
         threading.Thread(target=loop, daemon=True).start()
     
-    def _update_display(self):
+    def _update_display(self) -> None:
         if not self.soul:
             return
-        s = self.soul
+        s: dict = self.soul
         for key, var in self.soul_vars.items():
             if key in s:
-                val = s[key]
+                val: object = s[key]
                 var.set(str(val))
         
         # 状态栏
@@ -756,7 +778,7 @@ class TORKApp:
             self.status_label.config(text=f"世代 {s.get('gen_count',0)} | 心跳 {s.get('tick',0)}")
     
     # ── 启动 ──────────────────────────────────────
-    def run(self):
+    def run(self) -> None:
         if is_agreed():
             self._start_engine()
         self.root.mainloop()
@@ -765,8 +787,8 @@ class TORKApp:
 # ══════════════════════════════════════════════════════
 #  入口
 # ══════════════════════════════════════════════════════
-def main():
-    app = TORKApp()
+def main() -> None:
+    app: TORKApp = TORKApp()
     app.run()
 
 if __name__ == "__main__":

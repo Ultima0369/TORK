@@ -277,3 +277,7 @@ build/test_core: tests/test_core.c $(TEST_OBJS)
 
 test: build/test_core
 	@./build/test_core
+# ── 系统健康验证 ──────────────────────────────────────────────────
+
+verify:
+	@bash scripts/verify.sh

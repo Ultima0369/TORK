@@ -15,6 +15,7 @@
 
 /* ── 全局同类表 ───────────────────────────────────────── */
 static peer_table_t g_peers;
+static volatile int g_beacon_initialized = 0;
 static int g_bcast_fd = -1;
 static int g_listen_fd = -1;
 static volatile int g_running = 0;
@@ -153,6 +154,7 @@ int beacon_peer_count(peer_table_t *t) {
 
 int beacon_global_count(void) {
     pthread_mutex_lock(&g_peers.lock);
+    if (!g_beacon_initialized) return 0;
     int c = g_peers.count;
     pthread_mutex_unlock(&g_peers.lock);
     return c;
@@ -289,6 +291,7 @@ int beacon_init(peer_table_t *table) {
         pthread_mutex_init(&table->lock, NULL);
     }
 
+    g_beacon_initialized = 1;
     return 0;
 }
 

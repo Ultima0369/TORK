@@ -122,6 +122,7 @@ void scheduler_tick(sched_ctx_t *ctx) {
     int i = ctx->round;
     soul_t *soul = ctx->soul;
     instinct_input_t *inp = &ctx->inp;
+    inp->peer_count = 0;  /* 确保首 tick 有初始值 */
 
     /* ── BEACON BROADCAST (every 1000 tick) ──
      *
@@ -272,7 +273,7 @@ void scheduler_tick(sched_ctx_t *ctx) {
     tick_persist(ctx);
 
     /* Swarm: 更新同类感知 */
-    inp->peer_count = swarm_peer_count();
+    inp->peer_count = swarm_beacon_count();
     /* Re-evaluate instinct (every 10 ticks) */
     if (ctx->round % 10 == 0) {
         ctx->inst = instinct_evaluate(inp);

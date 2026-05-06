@@ -59,16 +59,18 @@ void visual_tick(uint32_t tick, uint8_t drive, float fear, float desire,
         }
     }
 
-    /* 写入文件 */
-    FILE *fp = fopen(VIS_BMP_FILE, "wb");
+    /* 原子写入：临时文件 → rename */
+    FILE *fp = fopen(VIS_BMP_FILE ".tmp", "wb");
     if (!fp) return;
     fwrite(hdr, 1, 54, fp);
     fwrite(pixels, 1, VIS_SIZE, fp);
     fclose(fp);
+    rename(VIS_BMP_FILE ".tmp", VIS_BMP_FILE);
 
     /* 写入时间戳文件 */
-    fp = fopen(VIS_TS_FILE, "w");
+    fp = fopen(VIS_TS_FILE ".tmp", "w");
     if (!fp) return;
     fprintf(fp, "%u\n", tick);
     fclose(fp);
+    rename(VIS_TS_FILE ".tmp", VIS_TS_FILE);
 }

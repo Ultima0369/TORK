@@ -1,0 +1,24 @@
+{
+  "history": [
+    {
+      "mutagen": "engine_round_tracker",
+      "gen": 3,
+      "timestamp": 1777838105.0753133,
+      "survived": true
+    },
+    {
+      "mutagen": "instinct_gen_awareness",
+      "gen": 4,
+      "timestamp": 1777838110.6525116,
+      "survived": true
+    },
+    {
+      "mutagen": "instinct_cloud_curiosity",
+      "gen": 5,
+      "timestamp": 1777838115.9942825,
+      "survived": true
+    }
+  ],
+  "best_mutagen": null,
+  "best_score": 0
+}

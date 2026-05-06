@@ -312,6 +312,7 @@ static void sync_heartbeat(soul_t *soul, int tick) {
 /* ── Main ── */
 int main(int argc, char **argv) {
     int rounds = -1;
+    setlinebuf(stdout);
     int quiet = 0;
     for (int a = 1; a < argc; a++) {
         if (strcmp(argv[a], "--restore") == 0)

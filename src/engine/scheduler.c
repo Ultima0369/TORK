@@ -274,6 +274,8 @@ void scheduler_tick(sched_ctx_t *ctx) {
 
     /* Swarm: 更新同类感知 */
     inp->peer_count = swarm_beacon_count();
+    int dist_cnt = swarm_dist_count();
+    if (dist_cnt > inp->peer_count) inp->peer_count = dist_cnt;
     /* Re-evaluate instinct (every 10 ticks) */
     if (ctx->round % 10 == 0) {
         ctx->inst = instinct_evaluate(inp);

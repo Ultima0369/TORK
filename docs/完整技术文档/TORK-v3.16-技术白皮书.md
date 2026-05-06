@@ -1,3 +1,5 @@
+> **v3.17 更新**：本白皮书对应 TORK v3.16。v3.17 中 Soul 大小已从 192 字节扩展为 **208 字节**（新增 `S_NODE_ID` 和 `S_CONSENSUS_VECTOR` 字段）。详见 `architecture.md` 的 [v3.17 布局](./architecture.md#22-soul-v317-布局208-字节)。
+
 # TORK v3.16 技术白皮书
 
 **版本:** 3.16

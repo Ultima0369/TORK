@@ -40,6 +40,7 @@ typedef struct {
     int energy_mode;                     /* Current energy mode (0-3) */
     float energy_throttle;               /* Energy throttle level (0.0-1.0) */
     uint8_t env_changed;                 /* 1 if environment changed but drive didn't (stagnation) */
+    int peer_count;                  /* 0=独处, >0=有同类在场 */
 } instinct_input_t;
 
 tork_instinct_t instinct_evaluate(const instinct_input_t *in);

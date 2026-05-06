@@ -151,6 +151,13 @@ int beacon_peer_count(peer_table_t *t) {
     return c;
 }
 
+int beacon_global_count(void) {
+    pthread_mutex_lock(&g_peers.lock);
+    int c = g_peers.count;
+    pthread_mutex_unlock(&g_peers.lock);
+    return c;
+}
+
 /* ── 广播信标 ─────────────────────────────────────────── */
 int beacon_broadcast(const soul_t *soul,
                      const uint8_t pi_digest[16],

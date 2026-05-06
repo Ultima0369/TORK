@@ -35,6 +35,8 @@
 #include "../learning/pi_index.h"
 #include "../grid/grid_soul_connector.h"
 #include "beacon.h"
+#include "swarm.h"
+#include "visual.h"
 #include "fractal.h"
 #include "task.h"
 #include "auditor.h"
@@ -269,6 +271,8 @@ void scheduler_tick(sched_ctx_t *ctx) {
     /* Persistence (1000/5000/10000) */
     tick_persist(ctx);
 
+    /* Swarm: 更新同类感知 */
+    inp->peer_count = swarm_peer_count();
     /* Re-evaluate instinct (every 10 ticks) */
     if (ctx->round % 10 == 0) {
         ctx->inst = instinct_evaluate(inp);
@@ -356,6 +360,9 @@ void scheduler_tick(sched_ctx_t *ctx) {
             printf("[%4d] tick=%-6u TLN: evolved %d weights\n", i, inp->tick, m);
     }
 
+    /* Visual: 生成一帧状态画像 */
+    visual_tick(inp->tick, (uint8_t)ctx->drive, ctx->inst.fear, ctx->inst.desire,
+               ctx->inst.curiosity, inp->peer_count);
     /* Print state */
     tick_print(ctx);
 

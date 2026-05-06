@@ -74,3 +74,6 @@ void beacon_shutdown(void);
 void pi_compute_digest(const uint32_t colony_seed[16], uint8_t digest[16]);
 
 #endif /* BEACON_H */
+
+/* 获取全局同类数量（不依赖外部 peer_table_t 快照） */
+int beacon_global_count(void);

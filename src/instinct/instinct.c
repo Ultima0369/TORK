@@ -189,6 +189,14 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
         inst.desire += BONUS_ENV_DESIRE * dw;
     }
 
+    /* ── 社交本能：同类感知 ── */
+    if (in->peer_count > 0) {
+        inst.fear *= 0.95f;          /* 群聚减轻恐惧 */
+        inst.curiosity += 0.05f;     /* 同类刺激好奇 */
+        if (in->peer_count >= 3)
+            inst.desire += 0.08f;    /* 竞争意识：同类多则欲望升 */
+    }
+
     // TORK_EVOLVE: instinct_return_before
     return inst;
 }

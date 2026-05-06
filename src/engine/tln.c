@@ -22,32 +22,39 @@ void tln_init(TernaryNet *net) {
     net->observe_snapshots = 0;
 }
 
-/* ── 单步推理 ──────────────────────────────────────────────
+/* ── 单步推理 (稀疏自环: 跳过零权重) ──────────────────────
  * 核心计算: 整数加法 + 钳位，无浮点，无乘法器
  * 每次调用推进一个 tick
+ * 自环矩阵 w_hh 大部分为零 (三值变异概率低)，跳过可减少 80%+ 乘法
  */
 void tln_step(TernaryNet *net,
               const tln_val_t input[TLN_INPUTS],
               tln_val_t output[TLN_OUTPUTS]) {
     tln_val_t hidden[TLN_HIDDEN];
 
-    /* 输入→隐藏 + 自环反馈 */
+    /* 输入→隐藏 + 稀疏自环反馈 */
     for (int j = 0; j < TLN_HIDDEN; j++) {
         int sum = 0;
         /* 外部输入 */
-        for (int i = 0; i < TLN_INPUTS; i++)
-            sum += (int)net->w_ih[j * TLN_INPUTS + i] * (int)input[i];
-        /* 上一 tick 的隐藏状态回接 (时序推理的核心) */
-        for (int k = 0; k < TLN_HIDDEN; k++)
-            sum += (int)net->w_hh[j * TLN_HIDDEN + k] * (int)net->state[k];
+        for (int i = 0; i < TLN_INPUTS; i++) {
+            tln_val_t w = net->w_ih[j * TLN_INPUTS + i];
+            if (w) sum += (int)w * (int)input[i];
+        }
+        /* 上一 tick 的隐藏状态回接 (跳过零权重) */
+        const tln_val_t *hh_row = net->w_hh + j * TLN_HIDDEN;
+        for (int k = 0; k < TLN_HIDDEN; k++) {
+            if (hh_row[k]) sum += (int)hh_row[k] * (int)net->state[k];
+        }
         hidden[j] = tln_clamp(sum);
     }
 
-    /* 隐藏→输出 */
+    /* 隐藏→输出 (跳过零权重) */
     for (int j = 0; j < TLN_OUTPUTS; j++) {
         int sum = 0;
-        for (int k = 0; k < TLN_HIDDEN; k++)
-            sum += (int)net->w_ho[j * TLN_HIDDEN + k] * (int)hidden[k];
+        const tln_val_t *ho_row = net->w_ho + j * TLN_HIDDEN;
+        for (int k = 0; k < TLN_HIDDEN; k++) {
+            if (ho_row[k]) sum += (int)ho_row[k] * (int)hidden[k];
+        }
         output[j] = tln_clamp(sum);
     }
 
@@ -335,4 +342,57 @@ int tln_observe_timed_out(const TernaryNet *net) {
 
 void tln_observe_reset(TernaryNet *net) {
     net->observe_ticks = 0;
+}
+
+/* ── 定向变异: 打破全零态 ──────────────────────────────────
+ * 观察超时后，对 w_ih 和 w_ho 做定向变异:
+ *   1. 确保每个输出神经元至少有一个非零的 w_ho 权重
+ *   2. 确保每个隐藏神经元至少有一个非零的 w_ih 权重
+ *   3. 自环矩阵对角线设为 +1 (自反馈，打破全零态)
+ * 返回: 变异数
+ */
+int tln_directed_mutate(TernaryNet *net) {
+    int mutated = 0;
+
+    /* 确保每个输出神经元有非零 w_ho 权重 */
+    for (int j = 0; j < TLN_OUTPUTS; j++) {
+        int has_nonzero = 0;
+        for (int k = 0; k < TLN_HIDDEN; k++) {
+            if (net->w_ho[j * TLN_HIDDEN + k] != 0) { has_nonzero = 1; break; }
+        }
+        if (!has_nonzero) {
+            /* 连接到第一个隐藏神经元 */
+            net->w_ho[j * TLN_HIDDEN] = 1;
+            mutated++;
+        }
+    }
+
+    /* 确保每个隐藏神经元有非零 w_ih 权重 */
+    for (int j = 0; j < TLN_HIDDEN; j++) {
+        int has_nonzero = 0;
+        for (int i = 0; i < TLN_INPUTS; i++) {
+            if (net->w_ih[j * TLN_INPUTS + i] != 0) { has_nonzero = 1; break; }
+        }
+        if (!has_nonzero) {
+            net->w_ih[j * TLN_INPUTS] = 1;
+            mutated++;
+        }
+    }
+
+    /* 自环对角线: 确保至少 4 个隐藏神经元有自反馈 */
+    int diag_count = 0;
+    for (int i = 0; i < TLN_HIDDEN; i++) {
+        if (net->w_hh[i * TLN_HIDDEN + i] != 0) diag_count++;
+    }
+    if (diag_count < 4) {
+        for (int i = 0; i < 4 && i < TLN_HIDDEN; i++) {
+            if (net->w_hh[i * TLN_HIDDEN + i] == 0) {
+                net->w_hh[i * TLN_HIDDEN + i] = 1;
+                mutated++;
+            }
+        }
+    }
+
+    net->mutation_count += mutated;
+    return mutated;
 }

@@ -13,7 +13,7 @@
 #define BEACON_MAGIC    0x544F524B  /* "TORK" */
 #define BEACON_PORT     42069
 #define BEACON_SIZE     52
-#define BEACON_INTERVAL 1000        /* 每 1000 tick 广播一次 */
+#define BEACON_INTERVAL 100        /* 每 100 tick 广播一次 (原1000，加速发现) */
 #define BEACON_EXPIRE_S 300         /* 5 分钟无信标则移除同类 */
 
 #pragma pack(push, 1)
@@ -40,6 +40,8 @@ typedef struct {
     uint16_t heartbeat_ms;
     time_t   last_seen;
     int      verified;
+    uint8_t  pi_digest[16];  /* π-seed 异或摘要 (身份验证) */
+    uint8_t  trust_score;    /* 信任分数 0-255 (基于 pi_digest 一致性) */
 } peer_entry_t;
 
 typedef struct {

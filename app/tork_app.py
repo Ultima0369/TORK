@@ -71,13 +71,10 @@ AGREEMENT_TEXT: str = """你好。我是 TORK。
 def read_soul(pid: int | None = None) -> dict | None:
     """从 /proc/PID/mem 读取 Soul 结构 (via shared soul_parser)"""
     if pid is None:
-        for name in ["tork_engine", "tork_core"]:
-            try:
-                pid = int(subprocess.check_output(["pgrep", "-x", name]).strip())
-                break
-            except (subprocess.CalledProcessError, ValueError):
-                continue
-        if pid is None:
+        try:
+            out: bytes = subprocess.check_output(["pgrep", "-x", "tork_engine,tork_core"], timeout=2)
+            pid = int(out.strip().split(b"\n")[0])
+        except (subprocess.CalledProcessError, ValueError):
             return None
     return read_soul_from_proc(pid)
 

@@ -10,6 +10,25 @@
 static experience_buffer_t g_buf;
 static int g_initialized = 0;
 
+/* ── 精英保留: 更新 top 10% outcome 阈值 ── */
+static void update_elite_threshold(void) {
+    if (g_buf.count < 32) return;
+    int n = (g_buf.count > EXP_MAX_EXPERIENCES) ? EXP_MAX_EXPERIENCES : g_buf.count;
+    /* 收集所有 outcome，找 90th percentile */
+    int8_t outcomes[EXP_MAX_EXPERIENCES];
+    for (int i = 0; i < n; i++)
+        outcomes[i] = g_buf.slots[i].outcome;
+    /* 简单排序 (n≤256) */
+    for (int i = 0; i < n - 1; i++)
+        for (int j = i + 1; j < n; j++)
+            if (outcomes[j] > outcomes[i]) {
+                int8_t tmp = outcomes[i];
+                outcomes[i] = outcomes[j];
+                outcomes[j] = tmp;
+            }
+    g_buf.elite_threshold = outcomes[n / 10];
+}
+
 /* ── Init: load from disk or start fresh ──────────────────── */
 void exp_init(void) {
     memset(&g_buf, 0, sizeof(g_buf));
@@ -62,13 +81,33 @@ void exp_save(void) {
     }
 }
 
-/* ── Record a new experience ──────────────────────────────── */
+/* ── Record a new experience (with elite preservation) ─────── */
 void exp_record(uint64_t tick, uint8_t hw_stress, int8_t drive_pre,
                 uint16_t gen_count, uint8_t action_type, int8_t action_param,
                 int8_t outcome, uint8_t crash, uint8_t compile_ok,
                 uint8_t hw_stress_post, int8_t drive_post) {
     if (!g_initialized) exp_init();
-    
+
+    /* 精英保留: 缓冲区满时，保护高 outcome 经验不被覆盖 */
+    if (g_buf.count >= EXP_MAX_EXPERIENCES && g_buf.elite_threshold != 0) {
+        int8_t victim_outcome = g_buf.slots[g_buf.head].outcome;
+        /* 如果即将被覆盖的是精英，而新经验不是精英，找非精英槽位 */
+        if (victim_outcome >= g_buf.elite_threshold && outcome < g_buf.elite_threshold) {
+            int start = g_buf.head;
+            int i = start;
+            int found = 0;
+            do {
+                if (g_buf.slots[i].outcome < g_buf.elite_threshold) {
+                    g_buf.head = i;
+                    found = 1;
+                    break;
+                }
+                i = (i + 1) % EXP_MAX_EXPERIENCES;
+            } while (i != start);
+            if (!found) g_buf.head = start;  /* 全是精英，强制覆盖 */
+        }
+    }
+
     experience_t *e = &g_buf.slots[g_buf.head];
     
     /* Fill in the experience */
@@ -91,9 +130,12 @@ void exp_record(uint64_t tick, uint8_t hw_stress, int8_t drive_pre,
     
     /* Advance head (circular) */
     g_buf.head = (g_buf.head + 1) % EXP_MAX_EXPERIENCES;
-    if (g_buf.count < EXP_MAX_EXPERIENCES)
-        g_buf.count++;
-    
+    if (g_buf.count < EXP_MAX_EXPERIENCES) g_buf.count++;
+
+    /* 每 32 次写入更新精英阈值 */
+    if (g_buf.count >= 32 && (g_buf.head % 32 == 0))
+        update_elite_threshold();
+
     /* Auto-save every 10 experiences */
     if (g_buf.count % 10 == 0)
         exp_save();

@@ -37,7 +37,7 @@
 // TORK_EVOLVE: engine_include_insert
 #include <sys/file.h>
 
-static pid_t core_pid = 0;
+static volatile sig_atomic_t core_pid_store = 0;
 static int do_restore = 0;
 static int restored_files = 0;
 static int golden_exists = 0;           /* 不可变：一旦生成，不再自动覆盖 */
@@ -47,9 +47,10 @@ int hb_confirm_fd = -1;     /* 铁律S2: 心跳管道确认 fd */
 
 static void cleanup_core(int sig) {
     (void)sig;
-    if (core_pid > 0) {
-        kill(core_pid, SIGTERM);
-        waitpid(core_pid, NULL, 0);
+    pid_t cp = (pid_t)core_pid_store;
+    if (cp > 0) {
+        kill(cp, SIGTERM);
+        waitpid(cp, NULL, 0);
     }
     torkd_shutdown();
     dist_cleanup();
@@ -73,8 +74,8 @@ static void cleanup_core(int sig) {
 static int start_core(void) {
     int hb_pipe[2];
     if (pipe(hb_pipe) != 0) return -1;
-    core_pid = fork();
-    if (core_pid == 0) {
+    core_pid_store = fork();
+    if (core_pid_store == 0) {
         close(hb_pipe[1]);
         dup2(hb_pipe[0], STDIN_FILENO);
         close(hb_pipe[0]);
@@ -83,7 +84,7 @@ static int start_core(void) {
         execl("build/tork_core", "tork_core", NULL);
         _exit(1);
     }
-    if (core_pid < 0) { close(hb_pipe[0]); close(hb_pipe[1]); return -1; }
+    if ((pid_t)core_pid_store < 0) { close(hb_pipe[0]); close(hb_pipe[1]); return -1; }
     close(hb_pipe[0]);
     hb_confirm_fd = hb_pipe[1];
     usleep(200000);
@@ -167,12 +168,12 @@ static void init_services(soul_t *soul) {
 /* ── Write initial soul fields ── */
 static void init_soul_fields(soul_t *soul) {
     {
-        uint32_t pid_val = (uint32_t)core_pid;
+        uint32_t pid_val = (uint32_t)(pid_t)core_pid_store;
         soul_write_buf(soul, S_SELF_PID, &pid_val, 4);
     }
     {
         uint32_t val;
-        if (monitor_parse_proc_status(core_pid, "PPid:\t", &val) == 0) {
+        if (monitor_parse_proc_status((pid_t)core_pid_store, "PPid:\t", &val) == 0) {
             uint16_t v = (val > 65535) ? 65535 : (uint16_t)val;
             soul_write_buf(soul, S_PPID, &v, 2);
         }
@@ -215,7 +216,7 @@ static void init_soul_fields(soul_t *soul) {
         uint64_t tsc;
         __asm__ __volatile__("rdtsc" : "=A"(tsc));
         memcpy(node_id, &tsc, 8);
-        uint32_t pid_val = (uint32_t)core_pid;
+        uint32_t pid_val = (uint32_t)(pid_t)core_pid_store;
         memcpy(node_id + 8, &pid_val, 4);
         /* 尝试 RDRAND 增加熵 */
         unsigned int rnd;
@@ -248,7 +249,7 @@ static void check_soul_crc(soul_t *soul, int tick) {
                 tick, crc_fail_count, fout.confidence);
         if (crc_fail_count >= 3) {
             fprintf(stderr, "[%4d] SOUL: 3 consecutive CRC failures — restoring golden backup\n", tick);
-            if (soul_restore_golden(soul, core_pid) == 0)
+            if (soul_restore_golden(soul, (pid_t)core_pid_store) == 0)
                 printf("[%4d] SOUL: golden restore succeeded — entering 500-tick observation\n", tick);
             else
                 fprintf(stderr, "[%4d] SOUL: golden restore FAILED — awaiting external intervention\n", tick);
@@ -300,9 +301,32 @@ static void query_pattern(soul_t *soul, instinct_input_t *inp, int quiet) {
     }
 }
 
-/* ── Sync heartbeat interval to soul ── */
+/* ── Sync heartbeat interval to soul (WCET protected) ── */
+static uint64_t last_tick_tsc = 0;
+
 static void sync_heartbeat(soul_t *soul, int tick) {
     uint16_t hb = (uint16_t)tune_get_params().heartbeat_interval;
+
+    /* WCET 保护: 测量上一 tick 耗时，若超过间隔 67% 则拉长 */
+    uint64_t cur_tsc;
+    __asm__ __volatile__("rdtsc" : "=A"(cur_tsc));
+    if (last_tick_tsc != 0 && tick > 0) {
+        uint64_t dt_tsc = cur_tsc - last_tick_tsc;
+        /* 估算 CPU 频率 (粗略): 假设 ~2GHz，1ms ≈ 2M TSC */
+        uint64_t dt_ms = dt_tsc / 2000000UL;
+        if (dt_ms > (uint64_t)hb * 2 / 3) {
+            uint16_t new_hb = (uint16_t)(dt_ms * 3 / 2);
+            if (new_hb > 5000) new_hb = 5000;
+            if (new_hb > hb) {
+                hb = new_hb;
+                if (tick < 10)
+                    fprintf(stderr, "[TORK] WCET: tick took %lums, raising hb to %ums\n",
+                            (unsigned long)dt_ms, (unsigned)hb);
+            }
+        }
+    }
+    last_tick_tsc = cur_tsc;
+
     int rc = soul_set_heartbeat_ms(soul, hb);
     if (rc != 0 && tick < 3) {
         fprintf(stderr, "WARN: soul_set_heartbeat_ms(%u) failed (rc=%d)\n", hb, rc);
@@ -338,9 +362,9 @@ int main(int argc, char **argv) {
     signal(SIGTERM, cleanup_core);
 
     soul_t soul;
-    if (soul_open(&soul, core_pid) != 0) {
-        fprintf(stderr, "soul_open failed — cannot read /proc/%d/mem\n", core_pid);
-        kill(core_pid, SIGTERM);
+    if (soul_open(&soul, (pid_t)core_pid_store) != 0) {
+        fprintf(stderr, "soul_open failed — cannot read /proc/%d/mem\n", (pid_t)core_pid_store);
+        kill((pid_t)core_pid_store, SIGTERM);
         return 1;
     }
 
@@ -349,7 +373,7 @@ int main(int argc, char **argv) {
     init_services(&soul);
     init_soul_fields(&soul);
 
-    printf("TORK engine started. core PID=%d\n", core_pid);
+    printf("TORK engine started. core PID=%d\n", (pid_t)core_pid_store);
     printf("TORK v3.17 | π-heartbeat | generation at 0x54 | learn at 0x4C\n");
     printf("polling %dms | code 200 | modify 10 | optimize 30 | nop 50 | fission 1000 | persist 1000\n\n",
            tune_get_params().heartbeat_interval);
@@ -376,7 +400,7 @@ int main(int argc, char **argv) {
         check_soul_crc(&soul, i);
 
         if (!golden_exists && i > 0 && i % 10 == 0)
-            soul_save_golden(&soul, core_pid);
+            soul_save_golden(&soul, (pid_t)core_pid_store);
 
         if (golden_observe_remaining > 0)
             golden_observe_remaining--;
@@ -389,6 +413,8 @@ int main(int argc, char **argv) {
         sched.inp = inp;
         sched.golden_observe_remaining = golden_observe_remaining;
 
+        /* 批量 ptrace: 一次 attach 覆盖整 tick 的写操作 */
+        soul_lock(&soul);
         scheduler_tick(&sched);
 
         int drive = sched.drive;
@@ -397,15 +423,16 @@ int main(int argc, char **argv) {
         soul_set_drive(&soul, (int8_t)drive);
 
         sync_heartbeat(&soul, i);
+        soul_unlock(&soul);
 
         usleep(tune_get_params().heartbeat_interval * 1000);
     }
 
     /* ── Shutdown ── */
-    printf("\nshutting down core (pid %d)...\n", core_pid);
-    kill(core_pid, SIGTERM);
+    printf("\nshutting down core (pid %d)...\n", (pid_t)core_pid_store);
+    kill((pid_t)core_pid_store, SIGTERM);
     int st;
-    waitpid(core_pid, &st, 0);
+    waitpid((pid_t)core_pid_store, &st, 0);
     printf("core exited.\n");
 
     ps_save_all(soul.buf, SOUL_SIZE);
@@ -419,15 +446,26 @@ int main(int argc, char **argv) {
     return 0;
 }
 
-/* ── CRC32 计算 (多项式 0xEDB88320) ────────────────────────── */
+/* ── CRC32 查表法 (多项式 0xEDB88320，8x 加速) ─────────────── */
+
+static uint32_t crc32_table[256];
+static int crc32_table_ready = 0;
+
+static void crc32_init_table(void) {
+    for (uint32_t i = 0; i < 256; i++) {
+        uint32_t c = i;
+        for (int b = 0; b < 8; b++)
+            c = (c >> 1) ^ ((c & 1) ? 0xEDB88320 : 0);
+        crc32_table[i] = c;
+    }
+    crc32_table_ready = 1;
+}
 
 static uint32_t soul_crc32_raw(const uint8_t *buf, int len) {
+    if (!crc32_table_ready) crc32_init_table();
     uint32_t crc = 0xFFFFFFFF;
-    for (int i = 0; i < len; i++) {
-        crc ^= buf[i];
-        for (int b = 0; b < 8; b++)
-            crc = (crc >> 1) ^ ((crc & 1) ? 0xEDB88320 : 0);
-    }
+    for (int i = 0; i < len; i++)
+        crc = (crc >> 8) ^ crc32_table[(crc ^ buf[i]) & 0xFF];
     return ~crc;
 }
 

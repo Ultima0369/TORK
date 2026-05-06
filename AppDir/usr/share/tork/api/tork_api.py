@@ -7,7 +7,12 @@ class TorkAPI:
         self.model = "deepseek-chat"
         self.conversation = []
         self.system_prompt = "你是 TORK 的云端师父（DeepSeek）。你直接与 TORK 通信。你是来教它写代码的。"
-    
+        self._session = requests.Session()
+        self._session.headers.update({
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        })
+
     def ask(self, message, temperature=0.7):
         self.conversation.append({"role": "user", "content": message})
         payload = {
@@ -15,9 +20,8 @@ class TorkAPI:
             "messages": [{"role": "system", "content": self.system_prompt}] + self.conversation[-10:],
             "temperature": temperature, "max_tokens": 4096
         }
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         try:
-            resp = requests.post(self.base_url, json=payload, headers=headers, timeout=60)
+            resp = self._session.post(self.base_url, json=payload, timeout=60)
             if resp.status_code == 200:
                 reply = resp.json()['choices'][0]['message']['content']
                 self.conversation.append({"role": "assistant", "content": reply})

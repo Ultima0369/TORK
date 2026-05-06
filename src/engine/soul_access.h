@@ -97,6 +97,7 @@ typedef struct {
     uint8_t audit_token[16];  /* attach 审计令牌 (RDRAND+TSC) */
     int     audit_passed;     /* 审计是否通过 */
     uint8_t pre_snapshot[SOUL_SIZE]; /* detach 前快照，用于回滚 */
+    int     ptrace_locked;    /* 批量模式: 1=核心已被 ptrace 挂起 */
 } soul_t;
 
 /* ── Inline implementations (macros, accessors, ptrace protocol) ── */

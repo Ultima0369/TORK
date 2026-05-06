@@ -20,6 +20,7 @@ static int g_bcast_fd = -1;
 static int g_listen_fd = -1;
 static volatile int g_running = 0;
 static uint8_t g_self_node_id[16];
+static pthread_mutex_t g_self_node_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t g_listener_tid;
 
 /* ── π-seed 异或摘要 ────────────────────────────────────
@@ -114,6 +115,11 @@ static void peer_fill(peer_entry_t *p, const beacon_frame_t *frame) {
     p->heartbeat_ms = ntohs(frame->heartbeat_ms);
     p->last_seen    = time(NULL);
     p->verified     = 1;
+    memcpy(p->pi_digest, frame->pi_digest, 16);
+    /* 信任分数: pi_digest 非全零 → +50, 已验证 → +50 */
+    int digest_nonzero = 0;
+    for (int i = 0; i < 16; i++) if (frame->pi_digest[i]) { digest_nonzero = 1; break; }
+    p->trust_score = (digest_nonzero ? 50 : 0) + (p->verified ? 50 : 0);
 }
 
 static void peer_upsert(peer_table_t *t, const beacon_frame_t *frame) {
@@ -179,7 +185,9 @@ int beacon_broadcast(const soul_t *soul,
     memcpy(frame.node_id, soul->buf + S_NODE_ID, 16);
 
     /* 记住自身 node_id，供 listener 过滤回声 */
+    pthread_mutex_lock(&g_self_node_lock);
     memcpy(g_self_node_id, soul->buf + S_NODE_ID, 16);
+    pthread_mutex_unlock(&g_self_node_lock);
 
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
@@ -209,7 +217,10 @@ void *beacon_listener(void *arg) {
         }
 
         /* 忽略自己发出的信标 (node_id 匹配) */
-        if (memcmp(frame.node_id, g_self_node_id, 16) == 0)
+        pthread_mutex_lock(&g_self_node_lock);
+        int is_self = (memcmp(frame.node_id, g_self_node_id, 16) == 0);
+        pthread_mutex_unlock(&g_self_node_lock);
+        if (is_self)
             continue;
 
         if (beacon_verify(&frame) != 0)

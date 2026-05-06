@@ -578,11 +578,13 @@ class TorkEvolution:
             
             # 濒危剪枝（每 100 代）
             gen: int = assessment["generation"]
+            scores: list[float] | None = None
             if gen > 0 and gen % 100 == 0:
                 mutagen_scores: dict[str, float] = self._compute_mutagen_scores()
                 self._mark_endangered(mutagen_scores, gen)
-                self._prune_endangered(gen)
-            
+                scores = self._compute_mutagen_scores()
+                self._prune_endangered(gen, scores)
+
             strategy: dict[str, Any] = self._pick_mutation_strategy(assessment)
             self.apply_mutation(strategy)
             time.sleep(0.5)

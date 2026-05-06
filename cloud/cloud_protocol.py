@@ -14,6 +14,20 @@ sys.path.insert(0, os.path.join(BASE, 'shared'))
 sys.path.insert(0, os.path.join(BASE, 'api'))
 from soul_parser import parse_soul_full, SOUL_SIZE
 
+
+def _find_tork_pid() -> tuple[str | None, int | None]:
+    """单次 pgrep 查找 TORK 进程 PID"""
+    try:
+        r: subprocess.CompletedProcess[str] = subprocess.run(
+            ["pgrep", "-x", "tork_core,tork_engine"],
+            capture_output=True, text=True)
+        if r.returncode != 0:
+            return None, None
+        first_line: str = r.stdout.strip().split("\n")[0]
+        return first_line, int(first_line)
+    except (OSError, ValueError):
+        return None, None
+
 class TorkCloudAgent:
     """云端代理：接收云端指令，执行本地操作，返回结果"""
 
@@ -99,16 +113,13 @@ class TorkCloudAgent:
     def _read_soul_raw(self) -> tuple[str | None, int | None]:
         """读取 Soul 原始字节 hex"""
         try:
-            r: subprocess.CompletedProcess[str] = subprocess.run(["pgrep", "-x", "tork_core"], capture_output=True, text=True)
-            if r.returncode != 0:
-                r = subprocess.run(["pgrep", "-x", "tork_engine"], capture_output=True, text=True)
-                if r.returncode != 0:
-                    return None, None
-            pid: str = r.stdout.strip().split("\n")[0]
+            pid_str, pid = _find_tork_pid()
+            if pid_str is None:
+                return None, None
             with open(f"/proc/{pid}/mem", "rb") as f:
                 f.seek(0x200000)
                 data: bytes = f.read(SOUL_SIZE)
-            return data.hex(), int(pid)
+            return data.hex(), pid
         except (OSError, ValueError):
             return None, None
 
@@ -131,12 +142,9 @@ class TorkCloudAgent:
         if not isinstance(offset, int) or offset < 0 or offset >= SOUL_SIZE:
             return {"type": "error", "data": {"msg": f"Invalid offset: {offset}"}}
         try:
-            r: subprocess.CompletedProcess[str] = subprocess.run(["pgrep", "-x", "tork_core"], capture_output=True, text=True)
-            if r.returncode != 0:
-                r = subprocess.run(["pgrep", "-x", "tork_engine"], capture_output=True, text=True)
-            if r.returncode != 0:
+            pid_str, pid = _find_tork_pid()
+            if pid_str is None:
                 return {"type": "error", "data": {"msg": "TORK 未运行"}}
-            pid: str = r.stdout.strip().split("\n")[0]
             import ctypes
             libc: ctypes.CDLL = ctypes.CDLL("libc.so.6")
             libc.ptrace(16, int(pid), None, None)
@@ -249,11 +257,22 @@ class TorkCloudAgent:
 
     def _status(self) -> dict:
         info: dict = {"project": "TORK", "base": BASE}
-        for proc_name in ["tork_core", "tork_engine"]:
-            r: subprocess.CompletedProcess[str] = subprocess.run(["pgrep", "-x", proc_name], capture_output=True, text=True)
-            info[f"{proc_name}_running"] = r.returncode == 0
+        try:
+            r: subprocess.CompletedProcess[str] = subprocess.run(
+                ["pgrep", "-x", "tork_core,tork_engine"],
+                capture_output=True, text=True)
             if r.returncode == 0:
-                info[f"{proc_name}_pid"] = r.stdout.strip()
+                pids: list[str] = r.stdout.strip().split("\n")
+                info["tork_core_running"] = any("tork_core" in p for p in pids) or True
+                info["tork_engine_running"] = True
+                info["tork_core_pid"] = pids[0] if pids else ""
+                info["tork_engine_pid"] = pids[-1] if len(pids) > 1 else pids[0] if pids else ""
+            else:
+                info["tork_core_running"] = False
+                info["tork_engine_running"] = False
+        except Exception:
+            info["tork_core_running"] = False
+            info["tork_engine_running"] = False
         r = subprocess.run(["git", "-C", BASE, "log", "--oneline", "-1"], capture_output=True, text=True)
         info["last_commit"] = r.stdout.strip() if r.returncode == 0 else "unknown"
         info["agreement"] = os.path.exists("/etc/tork/.agreed")
@@ -268,11 +287,18 @@ class TorkCloudAgent:
         """仪表盘专用：一次性拉取所有状态"""
         info: dict = {}
 
-        # 引擎状态
-        for proc_name in ["tork_core", "tork_engine"]:
-            r: subprocess.CompletedProcess[str] = subprocess.run(["pgrep", "-x", proc_name], capture_output=True, text=True)
-            info[f"{proc_name}_running"] = r.returncode == 0
-            info[f"{proc_name}_pid"] = r.stdout.strip() if r.returncode == 0 else 0
+        # 引擎状态 (单次 pgrep)
+        try:
+            r: subprocess.CompletedProcess[str] = subprocess.run(
+                ["pgrep", "-x", "tork_core,tork_engine"],
+                capture_output=True, text=True)
+            info["tork_core_running"] = r.returncode == 0
+            info["tork_engine_running"] = r.returncode == 0
+            info["tork_core_pid"] = r.stdout.strip().split("\n")[0] if r.returncode == 0 else 0
+            info["tork_engine_pid"] = r.stdout.strip().split("\n")[-1] if r.returncode == 0 else 0
+        except Exception:
+            info["tork_core_running"] = False
+            info["tork_engine_running"] = False
 
         # Soul 原始 hex
         raw_hex: str | None

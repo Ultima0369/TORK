@@ -49,10 +49,11 @@ _Static_assert(sizeof(experience_t) == 33, "experience_t must be 33 bytes");
 typedef struct {
     uint32_t  head;              /* Write position (mod EXP_MAX_EXPERIENCES) */
     uint32_t  count;             /* Total experiences written */
+    int16_t   elite_threshold;   /* 精英保留: top 10% outcome 阈值 */
     experience_t slots[EXP_MAX_EXPERIENCES];
 } experience_buffer_t;
 
-_Static_assert(sizeof(experience_buffer_t) == 8 + EXP_MAX_EXPERIENCES * 33, 
+_Static_assert(sizeof(experience_buffer_t) == 12 + EXP_MAX_EXPERIENCES * 33,
                "experience_buffer_t size check");
 
 /* ── Public API ─────────────────────────────────────────────── */

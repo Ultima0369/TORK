@@ -96,6 +96,7 @@ static inline int soul_heartbeat_pipe_confirm(soul_t *s, uint16_t ms) {
 static inline int soul_open(soul_t *s, pid_t pid) {
     s->pid = pid;
     s->audit_passed = 0;
+    s->ptrace_locked = 0;
     memset(s->audit_token, 0, sizeof(s->audit_token));
     memset(s->pre_snapshot, 0, sizeof(s->pre_snapshot));
     char path[64];
@@ -133,7 +134,41 @@ static inline void soul_close(soul_t *s) {
     s->wr_fd = -1;
 }
 
+/* ── 批量 ptrace 模式 ───────────────────────────────────────
+ * scheduler_tick 开始时 attach，结束时 detach。
+ * 所有写操作在 locked 状态下完成，避免每 tick 5-8 次独立 attach/detach。
+ * 用法: soul_lock(s) → 多次 soul_write_byte_locked / soul_write_buf_locked
+ *       → soul_unlock(s)
+ */
+
+/* 前向声明: _locked 变体在下方定义，但 soul_write_byte/buf 需提前引用 */
+static inline int soul_write_byte_locked(soul_t *s, uint32_t offset, uint8_t val);
+static inline int soul_write_buf_locked(soul_t *s, uint32_t offset, const void *data, size_t len);
+
+static inline int soul_lock(soul_t *s) {
+    if (s->wr_fd < 0) return -1;
+    if (s->ptrace_locked) return 0;  /* 已锁定，幂等 */
+    /* 保存写前快照 (用于回滚) */
+    if (lseek(s->mem_fd, SOUL_ADDR_VAL, SEEK_SET) == (off_t)-1) return -1;
+    if (read(s->mem_fd, s->pre_snapshot, SOUL_SIZE) != SOUL_SIZE) return -1;
+    if (ptrace(PTRACE_ATTACH, s->pid, NULL, NULL) != 0) return -1;
+    waitpid(s->pid, NULL, 0);
+    s->ptrace_locked = 1;
+    return 0;
+}
+
+static inline int soul_unlock(soul_t *s) {
+    if (!s->ptrace_locked) return 0;  /* 未锁定，幂等 */
+    /* detach 前验证，失败则回滚 */
+    soul_verify_detach(s);
+    int rc = (ptrace(PTRACE_DETACH, s->pid, NULL, NULL) == 0) ? 0 : -1;
+    s->ptrace_locked = 0;
+    return rc;
+}
+
 static inline int soul_write_byte(soul_t *s, uint32_t offset, uint8_t val) {
+    if (s->ptrace_locked)
+        return soul_write_byte_locked(s, offset, val);
     if (s->wr_fd < 0) return -1;
     /* 铁律: 保存写前快照 (用于回滚) */
     if (lseek(s->mem_fd, SOUL_ADDR_VAL, SEEK_SET) == (off_t)-1) return -1;
@@ -161,6 +196,8 @@ static inline int soul_write_byte_locked(soul_t *s, uint32_t offset, uint8_t val
 }
 
 static inline int soul_write_buf(soul_t *s, uint32_t offset, const void *data, size_t len) {
+    if (s->ptrace_locked)
+        return soul_write_buf_locked(s, offset, data, len);
     if (s->wr_fd < 0) return -1;
     if (offset + len > SOUL_SIZE) return -1;
     /* 铁律: 保存写前快照 (用于回滚) */

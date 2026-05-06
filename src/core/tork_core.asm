@@ -35,6 +35,7 @@
 
 # 时序防御: 正常频率下两次心跳间最低 TSC 增量
 # 2GHz × 100ms × 50%安全边际 = 100,000,000 cycles
+# 降频容错: 连续异常 < 5 次不熔断 (原3次在降频时易误判)
 .equ TSC_SAFE_MIN,  100000000
 
 # ══════════════════════════════════════════════════════════════════
@@ -482,8 +483,8 @@ _start:
 
     incq    timing_fault_cnt(%rip)
     movq    timing_fault_cnt(%rip), %rax
-    cmpq    $3, %rax
-    jl      .timing_ok              # 连续 < 3 次，暂不熔断
+    cmpq    $5, %rax
+    jl      .timing_ok              # 连续 < 5 次，暂不熔断 (降频容错)
 
     jmp     fuse_self_destruct      # 连续 3 次异常 → 自毁
 
@@ -495,7 +496,13 @@ _start:
     mov     $SOUL_ADDR, %rsi
     call    heartbeat
 
-    # 2. Sense temperature
+    # 2. Sense temperature (every 10 ticks — thermal changes slowly)
+    movl    S_TICK(%r13), %eax
+    xor     %edx, %edx
+    mov     $10, %ecx
+    div     %ecx
+    test    %edx, %edx
+    jnz     .temp_skip
     call    sense_temperature
     mov     $SOUL_ADDR, %r13
     test    %rax, %rax

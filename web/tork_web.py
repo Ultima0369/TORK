@@ -74,15 +74,9 @@ async def _find_tork_pid() -> int | None:
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
     try:
         r: asyncio.subprocess.Process = await asyncio.create_subprocess_exec(
-            "pgrep", "-x", "tork_core",
+            "pgrep", "-x", "tork_core,tork_engine",
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         stdout: bytes
-        stdout, _ = await asyncio.wait_for(r.communicate(), timeout=1)
-        if stdout.strip():
-            return int(stdout.strip().split(b"\n")[0])
-        r = await asyncio.create_subprocess_exec(
-            "pgrep", "-x", "tork_engine",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         stdout, _ = await asyncio.wait_for(r.communicate(), timeout=1)
         if stdout.strip():
             return int(stdout.strip().split(b"\n")[0])
@@ -403,14 +397,16 @@ async def _push_update() -> None:
                     logger.debug("Soul hex parse failed", exc_info=True)
     instincts: dict[str, int] = _derive_instincts(soul)
     evo: dict[str, int | list[dict[str, Any]]] = _evolution_stats()
-    mentor_raw: str | None = await torkd_query("mentor")
+    mentor_raw: str | None
+    dispatch_raw: str | None
+    mentor_raw, dispatch_raw = await asyncio.gather(
+        torkd_query("mentor"), torkd_query("dispatch"))
     mentor: dict[str, Any] | None = None
     if mentor_raw:
         try:
             mentor = json.loads(mentor_raw)
         except json.JSONDecodeError:
             logger.debug("Mentor parse failed")
-    dispatch_raw: str | None = await torkd_query("dispatch")
     dispatch: dict[str, Any] | None = None
     if dispatch_raw:
         try:

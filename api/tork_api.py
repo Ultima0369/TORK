@@ -31,6 +31,11 @@ class TorkAPI:
         self.max_tokens: int = self.config.get('max_tokens', 4096)
         self.timeout: int = self.config.get('timeout', 10)  # P0: timeout=10s
         self.max_retries: int = self.config.get('max_retries', 3)  # P0: retry=3
+        self._session: requests.Session = requests.Session()
+        self._session.headers.update({
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        })
         self.conversation: list[dict[str, str]] = []
         self.system_prompt: str = (
             "你是 TORK 的云端导师。\n\n"
@@ -60,17 +65,11 @@ class TorkAPI:
             "stream": False
         }
         
-        headers: dict[str, str] = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        
         for attempt in range(self.max_retries):
             try:
-                resp: requests.Response = requests.post(
+                resp: requests.Response = self._session.post(
                     f"{self.base_url.rstrip('/')}/chat/completions",
                     json=payload,
-                    headers=headers,
                     timeout=self.timeout
                 )
                 if resp.status_code == 200:
@@ -111,17 +110,11 @@ class TorkAPI:
             "stream": False
         }
         
-        headers: dict[str, str] = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        
         for attempt in range(self.max_retries):
             try:
-                resp: requests.Response = requests.post(
+                resp: requests.Response = self._session.post(
                     f"{self.base_url.rstrip('/')}/chat/completions",
                     json=payload,
-                    headers=headers,
                     timeout=self.timeout
                 )
                 if resp.status_code == 200:

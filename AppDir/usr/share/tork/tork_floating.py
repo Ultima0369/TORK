@@ -509,12 +509,14 @@ class TorkFloating:
             
             import requests
             import json as json_module
-            
-            headers = {
-                "Authorization": f"Bearer {API_KEY}",
-                "Content-Type": "application/json"
-            }
-            
+
+            if not hasattr(self, '_api_session'):
+                self._api_session = requests.Session()
+                self._api_session.headers.update({
+                    "Authorization": f"Bearer {API_KEY}",
+                    "Content-Type": "application/json"
+                })
+
             # 构建消息历史
             messages = [{"role": "system", "content": "你叫 TORK，是一个运行在用户本地的 AI 助手。回复简洁（<300字），如需执行命令用 ```bash 标注。"}]
             for m in self._messages[:-1]:  # 排除当前正在生成的
@@ -529,9 +531,9 @@ class TorkFloating:
                 "max_tokens": 2048
             }
             
-            resp = requests.post(
+            resp = self._api_session.post(
                 "https://api.deepseek.com/v1/chat/completions",
-                json=payload, headers=headers, stream=True, timeout=60
+                json=payload, stream=True, timeout=60
             )
             
             if resp.status_code != 200:
@@ -656,7 +658,7 @@ class TorkFloating:
 
     def _find_tork(self):
         try:
-            r = subprocess.run(['pgrep', '-x', 'tork_core'], capture_output=True, text=True, timeout=2)
+            r = subprocess.run(['pgrep', '-x', 'tork_core,tork_engine'], capture_output=True, text=True, timeout=2)
             if r.stdout.strip():
                 return int(r.stdout.strip().split('\n')[0])
         except: pass

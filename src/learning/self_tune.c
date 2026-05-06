@@ -8,6 +8,7 @@
 static tune_params_t g_params;
 static int g_initialized = 0;
 static int g_adjust_count = 0;
+static int g_curiosity_consecutive_up = 0;  /* 正反馈阻尼: 连续增长计数 */
 #define TUNE_PATH "persist/tune_params.bin"
 
 /* 默认参数 */
@@ -62,9 +63,19 @@ void tune_adjust_from_patterns(void) {
     
     /* 1. If many patterns exist with high avg_outcome, increase curiosity */
     /*    (patterns are working → explore more) */
+    /*    正反馈阻尼: 连续增长3次后衰减增量，5次后反转 */
     if (pattern_count >= 3) {
-        g_params.curiosity_weight += 0.02f;
+        g_curiosity_consecutive_up++;
+        float delta = 0.02f;
+        if (g_curiosity_consecutive_up >= 5)
+            delta = -0.01f;  /* 反转: 过度好奇 → 收敛 */
+        else if (g_curiosity_consecutive_up >= 3)
+            delta = 0.005f;  /* 衰减: 增量减半 */
+        g_params.curiosity_weight += delta;
         if (g_params.curiosity_weight > 2.0f) g_params.curiosity_weight = 2.0f;
+        if (g_params.curiosity_weight < 0.5f) g_params.curiosity_weight = 0.5f;
+    } else {
+        g_curiosity_consecutive_up = 0;
     }
     
     /* 2. Every 5 adjusts, nudge exploration rate up */

@@ -97,7 +97,9 @@ def parse_soul_full(data: bytes) -> dict[str, int | bytes]:
     return parse_soul(data, fields=list(OFFSETS.keys()))
 
 
-def parse_soul_hex(hex_str: str) -> dict[str, int | bytes]:
+def parse_soul_hex(hex_str: str | None) -> dict[str, int | bytes]:
+    if not isinstance(hex_str, str):
+        return {}
     hex_str = hex_str.strip()
     if hex_str.startswith(("0x", "0X")):
         hex_str = hex_str[2:]

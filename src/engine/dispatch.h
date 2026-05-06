@@ -73,6 +73,7 @@ void dispatch_init(void);
  * 这是闭环的关键：所有行为经此发出，所有结果经此回流
  */
 dispatch_output_t tork_dispatch(const dispatch_input_t *in);
+void dispatch_get_stats(uint32_t *total, uint32_t *success, uint32_t *fail);
 
 /* 获取 action 名称 */
 const char *dispatch_action_name(dispatch_action_t action);

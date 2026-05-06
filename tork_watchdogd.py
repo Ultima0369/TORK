@@ -108,7 +108,7 @@ def clear_alert():
     try:
         if ALERT_FILE.exists():
             ALERT_FILE.unlink()
-    except:
+    except OSError:
         pass
 
 def main():
@@ -167,23 +167,32 @@ def main():
                         
                     elif cmd.startswith('watchdog_no:'):
                         pid = int(cmd.split(':')[1])
+                        if pid not in alerted_pids:
+                            print(f"  WATCHDOGD: PID {pid} was not alerted, ignoring", file=sys.stderr)
+                            continue
                         # 干掉它
                         try:
                             os.kill(pid, signal.SIGTERM)
                             print(f"  WATCHDOGD: ✗ 已干掉 PID={pid}")
                             time.sleep(0.5)
-                            # 还没死就强制
+                            # 还没死就强制 — 但先验证进程身份
                             try:
                                 os.kill(pid, 0)
-                                os.kill(pid, signal.SIGKILL)
-                                print(f"  WATCHDOGD: ✗ 已强制杀死 PID={pid}")
-                            except:
+                                try:
+                                    with open(f"/proc/{pid}/comm") as f:
+                                        proc_name = f.read().strip()
+                                    if proc_name == name:
+                                        os.kill(pid, signal.SIGKILL)
+                                        print(f"  WATCHDOGD: ✗ 已强制杀死 PID={pid}", file=sys.stderr)
+                                except FileNotFoundError:
+                                    pass
+                            except ProcessLookupError:
                                 pass
-                        except:
+                        except ProcessLookupError:
                             pass
                         alerted_pids.discard(pid)
                         clear_alert()
-            except:
+            except Exception:
                 pass
             
         except Exception as e:

@@ -153,11 +153,21 @@ int obs_load_baseline(void) {
     FILE *f = fopen("persist/baseline.bin", "rb");
     if (!f) return -1;
     
-    fread(&g_obs.baseline, sizeof(baseline_t), 1, f);
-    fread(&g_obs.count, sizeof(g_obs.count), 1, f);
-    
+    if (fread(&g_obs.baseline, sizeof(baseline_t), 1, f) != 1 ||
+        fread(&g_obs.count, sizeof(g_obs.count), 1, f) != 1) {
+        fclose(f);
+        memset(&g_obs, 0, sizeof(g_obs));
+        fprintf(stderr, "  OBS: load failed (truncated file)\n");
+        return -1;
+    }
+
     int n;
-    fread(&n, sizeof(n), 1, f);
+    if (fread(&n, sizeof(n), 1, f) != 1) {
+        fclose(f);
+        memset(&g_obs, 0, sizeof(g_obs));
+        fprintf(stderr, "  OBS: load failed (truncated samples count)\n");
+        return -1;
+    }
     if (n > 60) n = 60;
     g_obs.head = 0;
     for (int i = 0; i < n; i++) {

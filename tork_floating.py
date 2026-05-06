@@ -36,7 +36,7 @@ class TorkFloating:
             o = subprocess.run(['xdotool', 'getmouselocation'], capture_output=True, text=True, timeout=1)
             p = o.stdout.strip().split()
             x, y = int(p[0].split(':')[1]) - self.W//2, int(p[1].split(':')[1]) - 20
-        except:
+        except Exception:
             x, y = 400, 300
         self.root.geometry(f'{self.W}x{self.H}+{max(0,x)}+{max(0,y)}')
 
@@ -162,7 +162,7 @@ class TorkFloating:
             try:
                 with open(FLAG_FILE, 'w') as f:
                     f.write(cmd)
-            except:
+            except Exception:
                 pass
         self._alert_active = False
         self.alert_frame.pack_forget()
@@ -178,7 +178,7 @@ class TorkFloating:
             try:
                 with open(FLAG_FILE, 'w') as f:
                     f.write(cmd)
-            except:
+            except Exception:
                 pass
         self._alert_active = False
         self.alert_frame.pack_forget()
@@ -284,7 +284,7 @@ class TorkFloating:
                         os.remove(sig)
                         if cmd in ('toggle', 'show'):
                             self.root.after(0, self.toggle if cmd=='toggle' else self.show)
-                except: pass
+                except Exception: pass
                 time.sleep(0.3)
         threading.Thread(target=poll, daemon=True).start()
 
@@ -301,7 +301,7 @@ class TorkFloating:
                             with open(WATCHDOG_ALERT) as f:
                                 data = json.load(f)
                             self.root.after(0, lambda d=data: self._show_watchdog_alert(d))
-                except: pass
+                except Exception: pass
                 time.sleep(1)
         threading.Thread(target=poll, daemon=True).start()
 

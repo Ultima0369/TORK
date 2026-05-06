@@ -201,7 +201,7 @@ body {
 
 /* ── State Fields ── */
 .fields-section {
-  display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:16px;
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:16px;
 }
 .field-card {
   background:var(--panel); border:1px solid var(--border);
@@ -529,6 +529,25 @@ body {
         <div class="field-row"><span class="k">Cloud</span><span class="v" id="f-mentor-cloud">--</span></div>
         <div class="field-row"><span class="k">Local</span><span class="v" id="f-mentor-local">--</span></div>
         <div class="field-row"><span class="k">Auto</span><span class="v" id="f-mentor-auto">--</span></div>
+        <div class="field-row"><span class="k">Cloud Q</span><span class="v" id="f-mentor-cq">--</span></div>
+        <div class="field-row"><span class="k">Local D</span><span class="v" id="f-mentor-ld">--</span></div>
+        <div class="field-row"><span class="k">Auto M</span><span class="v" id="f-mentor-am">--</span></div>
+        <div class="field-row"><span class="k">Conf</span><span class="v" id="f-mentor-conf">--</span></div>
+        <div class="field-row"><span class="k">TLN</span><span class="v" id="f-mentor-tln">--</span></div>
+      </div>
+      <div class="field-card">
+        <h4>TLN 三值逻辑</h4>
+        <div class="field-row"><span class="k">Action</span><span class="v" id="f-tln-act">--</span></div>
+        <div class="field-row"><span class="k">Modify</span><span class="v" id="f-tln-mod">--</span></div>
+        <div class="field-row"><span class="k">Explore</span><span class="v" id="f-tln-exp">--</span></div>
+        <div class="field-row"><span class="k">Energy</span><span class="v" id="f-tln-nrg">--</span></div>
+      </div>
+      <div class="field-card">
+        <h4>Dispatch</h4>
+        <div class="field-row"><span class="k">Calls</span><span class="v" id="f-disp-total">--</span></div>
+        <div class="field-row"><span class="k">OK</span><span class="v" id="f-disp-ok">--</span></div>
+        <div class="field-row"><span class="k">Fail</span><span class="v" id="f-disp-fail">--</span></div>
+        <div class="field-row"><span class="k">Rate</span><span class="v" id="f-disp-rate">--</span></div>
       </div>
       <div class="field-card">
         <h4>System</h4>
@@ -695,7 +714,7 @@ window.cmGetContent = cmGetContent;
 window.cmEditor = cmEditor;
 
 // ── State ──────────────────────────────────────────────────
-let ws = null, currentFile = null;
+let ws = null, currentFile = null, execToken = '';
 let reconnectTimer = null, reconnectDelay = 1000;
 const driveHistory = [];
 const WAVE_SAMPLES = 200;
@@ -1030,6 +1049,10 @@ function onUpdate(d) {
   const tlnSym = {1:'+', 0:'0', '-1':'-'};
   const tlnBg  = {1:'#1a3a1a', 0:'var(--border)', '-1':'#3a1a1a'};
   const tlnClr = {1:'var(--success)', 0:'var(--dim)', '-1':'var(--danger)'};
+  const tlnLabel = {1:'激进', 0:'悬置', '-1':'保守'};
+  const tlnModLabel = {1:'可变异', 0:'悬置', '-1':'禁变异'};
+  const tlnExpLabel = {1:'探索', 0:'悬置', '-1':'收敛'};
+  const tlnNrgLabel = {1:'高功率', 0:'平衡', '-1':'省电'};
   setTlnBadge('tln-act', tlnA, tlnSym);
   setTlnBadge('tln-mod', tlnM, tlnSym);
   setTlnBadge('tln-exp', tlnE, tlnSym);
@@ -1038,6 +1061,11 @@ function onUpdate(d) {
   if (tlnA != null || tlnM != null) {
     text('f-tln', `${tlnSym[tlnA]??'?'}${tlnSym[tlnM]??'?'}${tlnSym[tlnE]??'?'}${tlnSym[tlnN]??'?'}`);
   }
+  // TLN card with semantic labels
+  tlnField('f-tln-act', tlnA, tlnLabel);
+  tlnField('f-tln-mod', tlnM, tlnModLabel);
+  tlnField('f-tln-exp', tlnE, tlnExpLabel);
+  tlnField('f-tln-nrg', tlnN, tlnNrgLabel);
   text('f-gen', evo.generation ?? soul.gen_count ?? '--');
   text('f-learn', soul.learn_count ?? '--');
   text('f-mutations', evo.total_mutations ?? soul.mutation_count ?? '--');
@@ -1101,6 +1129,14 @@ function setTlnBadge(id, val, symMap) {
   el.style.color = clrMap[val] ?? 'var(--dim)';
 }
 function text(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+function tlnField(id, val, labelMap) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const sym = {1:'+', 0:'0', '-1':'-'};
+  const clr = {1:'var(--success)', 0:'var(--dim)', '-1':'var(--danger)'};
+  el.textContent = `${sym[val]??'?'} ${labelMap[val]??'?'}`;
+  el.style.color = clr[val] ?? 'var(--dim)';
+}
 
 // ── Tabs ───────────────────────────────────────────────────
 document.querySelectorAll('#tabs button').forEach(btn => {

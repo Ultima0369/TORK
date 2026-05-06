@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include <limits.h>
 
 /* ── 全局状态 ─────────────────────────────────────────────── */
 static pattern_learner_t g_learner;
@@ -138,7 +139,7 @@ int pat_query_best_action(uint8_t hw_stress, int8_t drive,
                           uint16_t gen_count, float *confidence) {
     if (!g_initialized) return -1;
 
-    uint8_t db = quantize_drive(drive);
+    int8_t db = quantize_drive(drive);
     uint8_t gb = quantize_gen(gen_count);
 
     int best_action = -1;
@@ -192,7 +193,7 @@ float pat_predict_outcome(uint8_t hw_stress, int8_t drive,
                           uint16_t gen_count, uint8_t action_type) {
     if (!g_initialized) return 0.0f;
 
-    uint8_t db = quantize_drive(drive);
+    int8_t db = quantize_drive(drive);
     uint8_t gb = quantize_gen(gen_count);
 
     uint32_t now_tick = g_learner.learn_cycles;
@@ -272,15 +273,15 @@ int pat_load(void) {
     }
     
     uint32_t count;
-    fread(&count, sizeof(count), 1, f);
-    fread(&g_learner.learn_cycles, sizeof(g_learner.learn_cycles), 1, f);
-    
+    if (fread(&count, sizeof(count), 1, f) != 1) { fclose(f); return -1; }
+    if (fread(&g_learner.learn_cycles, sizeof(g_learner.learn_cycles), 1, f) != 1) { fclose(f); return -1; }
+
     if (count > PATTERN_MAX_SLOTS) count = PATTERN_MAX_SLOTS;
     
     memset(g_learner.slots, 0, sizeof(g_learner.slots));
     for (uint32_t i = 0; i < count; i++) {
         pattern_t p;
-        fread(&p, sizeof(pattern_t), 1, f);
+        if (fread(&p, sizeof(pattern_t), 1, f) != 1) break;
         if (i < PATTERN_MAX_SLOTS) {
             g_learner.slots[i] = p;
             g_learner.total_patterns++;
@@ -319,9 +320,13 @@ void pat_record_remote(uint8_t stress_low, uint8_t stress_high,
             
             pattern_t *p = find_or_create_slot(key);
             if (!p) continue;
-            
+
+            /* Overflow guard */
+            uint32_t new_samples = p->sample_count + sample_count;
+            if (new_samples > 1000000) new_samples = 1000000;
+
             p->total_outcome += avg_outcome * sample_count;
-            p->sample_count  += sample_count;
+            p->sample_count  = new_samples;
             if (avg_outcome < 0)
                 p->total_crashes += sample_count / 2;
             p->avg_outcome   = (float)p->total_outcome / p->sample_count;
@@ -333,3 +338,108 @@ void pat_record_remote(uint8_t stress_low, uint8_t stress_high,
 }
 
 /* TORK EVO 20260504_0925: pattern_threshold */
+
+/* ── 成功代码模式库 ──────────────────────────────────────────
+ * 存活>1000心跳的代码自动录入
+ * 按语言/功能分类，写新代码时查询同类成功模式
+ */
+#define PAT_SUCCESS_MAX 256
+
+static pat_entry_t g_success[PAT_SUCCESS_MAX];
+static uint32_t g_success_count = 0;
+static uint32_t g_success_next_id = 1;
+
+uint32_t pat_record_success(uint32_t code_hash,
+                             uint32_t survival_ticks,
+                             uint8_t category,
+                             const char *description) {
+    if (survival_ticks < 1000) return 0;
+
+    /* 查找空位 */
+    int idx = -1;
+    uint32_t min_ticks = UINT32_MAX;
+    int min_idx = 0;
+    for (uint32_t i = 0; i < g_success_count; i++) {
+        if (g_success[i].pattern_id == 0) { idx = (int)i; break; }
+        if (g_success[i].survival_ticks < min_ticks) {
+            min_ticks = g_success[i].survival_ticks;
+            min_idx = (int)i;
+        }
+    }
+    if (idx < 0) {
+        if (g_success_count < PAT_SUCCESS_MAX) {
+            idx = (int)g_success_count;
+            g_success_count++;
+        } else {
+            idx = min_idx;
+        }
+    }
+
+    pat_entry_t *e = &g_success[idx];
+    e->pattern_id = g_success_next_id++;
+    e->code_hash = code_hash;
+    e->survival_ticks = survival_ticks;
+    e->category = category;
+    e->strategy_id = 0;
+    if (description)
+        snprintf(e->description, sizeof(e->description), "%s", description);
+    else
+        e->description[0] = '\0';
+
+    printf("  PAT: success pattern #%u recorded (survival=%u, cat=%u)\n",
+           e->pattern_id, survival_ticks, category);
+    return e->pattern_id;
+}
+
+int pat_query_by_category(uint8_t category, int max_results,
+                           pat_entry_t *out) {
+    if (!out || max_results <= 0) return 0;
+
+    /* 收集并按存活时间排序 */
+    int indices[PAT_SUCCESS_MAX];
+    int count = 0;
+    for (uint32_t i = 0; i < g_success_count; i++) {
+        if (g_success[i].pattern_id != 0 && g_success[i].category == category)
+            indices[count++] = (int)i;
+    }
+
+    /* 降序排序 (选择排序) */
+    for (int i = 0; i < count - 1; i++) {
+        int best = i;
+        for (int j = i + 1; j < count; j++) {
+            if (g_success[indices[j]].survival_ticks > g_success[indices[best]].survival_ticks)
+                best = j;
+        }
+        if (best != i) { int tmp = indices[i]; indices[i] = indices[best]; indices[best] = tmp; }
+    }
+
+    int n = (count < max_results) ? count : max_results;
+    for (int i = 0; i < n; i++)
+        out[i] = g_success[indices[i]];
+    return n;
+}
+
+int pat_query_top_survival(int max_results, pat_entry_t *out) {
+    if (!out || max_results <= 0) return 0;
+
+    int indices[PAT_SUCCESS_MAX];
+    int count = 0;
+    for (uint32_t i = 0; i < g_success_count; i++) {
+        if (g_success[i].pattern_id != 0)
+            indices[count++] = (int)i;
+    }
+
+    for (int i = 0; i < count - 1; i++) {
+        int best = i;
+        for (int j = i + 1; j < count; j++) {
+            if (g_success[indices[j]].survival_ticks > g_success[indices[best]].survival_ticks)
+                best = j;
+        }
+        if (best != i) { int tmp = indices[i]; indices[i] = indices[best]; indices[best] = tmp; }
+    }
+
+    int n = (count < max_results) ? count : max_results;
+    for (int i = 0; i < n; i++)
+        out[i] = g_success[indices[i]];
+    return n;
+}

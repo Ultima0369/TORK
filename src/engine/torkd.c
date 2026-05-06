@@ -1,7 +1,8 @@
+#define _GNU_SOURCE
+#include "dispatch.h"
 #include "torkd.h"
 #include "task.h"
 #include "auditor.h"
-#include "dispatch.h"
 #include "codegen.h"
 #include "query.h"
 #include "soul_access.h"
@@ -49,7 +50,11 @@ static void full_write(int fd, const void *buf, size_t len) {
     const char *p = buf;
     while (len > 0) {
         ssize_t w = write(fd, p, len);
-        if (w <= 0) break;
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (w == 0) break;
         p += w; len -= w;
     }
 }
@@ -85,13 +90,13 @@ int torkd_init(void *vsoul) {
     
     /* Non-blocking */
     int flags = fcntl(g_server_fd, F_GETFL, 0);
-    fcntl(g_server_fd, F_SETFL, flags | O_NONBLOCK);
+    if (flags >= 0) fcntl(g_server_fd, F_SETFL, flags | O_NONBLOCK);
     
     signal(SIGPIPE, SIG_IGN);
     g_soul = (soul_t *)vsoul;
     g_started = 1;
     
-    printf("  TORKD: listening on %s (non-blocking, integrated)\\n", TORKD_SOCKET_PATH);
+    printf("  TORKD: listening on %s (non-blocking, integrated)\n", TORKD_SOCKET_PATH);
     return 0;
 }
 
@@ -128,18 +133,24 @@ static void handle_client(int client_fd) {
     } else if (strcmp(buf, "status") == 0 || strcmp(buf, "状态") == 0) {
         char sb_sum[256] = "";
         sb_summary(sb_sum, sizeof(sb_sum));
-        
+
         int active_branches = br_active_count();
         uint32_t exp_cnt = exp_count();
+        uint8_t ms_cw, ms_lw, ms_aw;
+        uint32_t ds_total, ds_ok, ds_fail;
+        mentor_decision_weights(&ms_cw, &ms_lw, &ms_aw);
+        dispatch_get_stats(&ds_total, &ds_ok, &ds_fail);
         
         snprintf(response, sizeof(response),
-            "TORK v3.16 TLN 反馈回路已集成\n"
+            "TORK v3.17 师徒阶段 + TLN 反馈回路\n"
             "   心跳: %u tick | 驱动: %+d\n"
             "   压力: %u | 世代: %u\n"
             "   分支: %d 个活跃 | 经验: %u 条\n"
             "   快照: %d 层, 回滚 %d 次\n"
             "   能量: 模式 %d, 节流 %d%%\n"
             "   TLN: act=%+d mod=%+d exp=%+d nrg=%+d\n"
+            "   师徒: %s (云=%d%% 本=%d%% 自=%d%%)\n"
+            "   Dispatch: %u calls, %u ok, %u fail\n"
             "   %s\n",
             g_soul ? soul_tick(g_soul) : 0,
             g_soul ? soul_drive(g_soul) : 0,
@@ -152,6 +163,8 @@ static void handle_client(int client_fd) {
             g_soul ? (int)soul_tln_modify(g_soul) : 0,
             g_soul ? (int)soul_tln_explore(g_soul) : 0,
             g_soul ? (int)soul_tln_energy(g_soul) : 0,
+            mentor_stage_name(mentor_get_stage()), ms_cw, ms_lw, ms_aw,
+            ds_total, ds_ok, ds_fail,
             sb_sum);
     } else if (strcmp(buf, "exit") == 0 || strcmp(buf, "quit") == 0) {
         snprintf(response, sizeof(response), "bye\n");
@@ -164,7 +177,9 @@ static void handle_client(int client_fd) {
             snprintf(response, sizeof(response), "{\"error\":\"empty command\"}\n");
         } else {
             dispatch_output_t dout = dispatch_quick(DISP_EXEC_CMD, cmd, NULL);
-            snprintf(response, sizeof(response), "%s\n", dout.output);
+            int len = snprintf(response, sizeof(response), "%s\n", dout.output);
+            if (len >= (int)sizeof(response))
+                snprintf(response, sizeof(response), "{\"error\":\"response truncated (%d bytes)\"}\n", len);
         }
     } else if (strncmp(buf, "audit:", 6) == 0) {
         /* audit:<filepath>[:funcname] — 通过 dispatch 闭环审计 */
@@ -189,7 +204,9 @@ static void handle_client(int client_fd) {
             snprintf(response, sizeof(response), "{\"error\":\"empty path\"}\n");
         } else {
             dispatch_output_t dout = dispatch_quick(DISP_AUDIT_CODE, filepath, funcname[0] ? funcname : NULL);
-            snprintf(response, sizeof(response), "%s\n", dout.output);
+            int len = snprintf(response, sizeof(response), "%s\n", dout.output);
+            if (len >= (int)sizeof(response))
+                snprintf(response, sizeof(response), "{\"error\":\"response truncated (%d bytes)\"}\n", len);
         }
     } else if (strncmp(buf, "codegen:", 8) == 0) {
         /* codegen:<action>:<template>
@@ -214,13 +231,19 @@ static void handle_client(int client_fd) {
                 "{\"error\":\"usage: codegen:<search|compile|bench>:<template>\"}\n");
         } else if (strcmp(action, "search") == 0) {
             dispatch_output_t dout = dispatch_quick(DISP_CODEGEN_SEARCH, tmpl_name, NULL);
-            snprintf(response, sizeof(response), "%s\n", dout.output);
+            int clen = snprintf(response, sizeof(response), "%s\n", dout.output);
+            if (clen >= (int)sizeof(response))
+                snprintf(response, sizeof(response), "{\"error\":\"response truncated\"}\n");
         } else if (strcmp(action, "compile") == 0) {
             dispatch_output_t dout = dispatch_quick(DISP_CODEGEN_COMPILE, tmpl_name, NULL);
-            snprintf(response, sizeof(response), "%s\n", dout.output);
+            int clen = snprintf(response, sizeof(response), "%s\n", dout.output);
+            if (clen >= (int)sizeof(response))
+                snprintf(response, sizeof(response), "{\"error\":\"response truncated\"}\n");
         } else if (strcmp(action, "bench") == 0) {
             dispatch_output_t dout = dispatch_quick(DISP_CODEGEN_BENCH, tmpl_name, NULL);
-            snprintf(response, sizeof(response), "%s\n", dout.output);
+            int clen = snprintf(response, sizeof(response), "%s\n", dout.output);
+            if (clen >= (int)sizeof(response))
+                snprintf(response, sizeof(response), "{\"error\":\"response truncated\"}\n");
         } else {
             snprintf(response, sizeof(response),
                 "{\"error\":\"unknown codegen action '%s'\"}\n", action);
@@ -247,7 +270,7 @@ static void handle_client(int client_fd) {
         }
     } else if (strncmp(buf, "result:", 7) == 0) {
         /* result:<task_id> — 查询任务结果 */
-        uint32_t tid = (uint32_t)atoi(buf + 7);
+        uint32_t tid = (uint32_t)strtoul(buf + 7, NULL, 10);
         if (tid == 0) {
             snprintf(response, sizeof(response), "{\"error\":\"invalid task_id\"}\n");
         } else {
@@ -306,6 +329,12 @@ static void handle_client(int client_fd) {
             cw, lw, aw,
             ms->cloud_queries, ms->local_decisions, ms->autonomous_mutations,
             ms->pattern_confidence, ms->tln_consistency);
+    } else if (strcmp(buf, "dispatch") == 0) {
+        uint32_t dt, ds, df;
+        dispatch_get_stats(&dt, &ds, &df);
+        snprintf(response, sizeof(response),
+            "{\"total_calls\":%u,\"success\":%u,\"fail\":%u,\"success_rate\":%.1f}\n",
+            dt, ds, df, dt > 0 ? (float)ds / (float)dt * 100.0f : 0.0f);
     } else {
         /* Normal question */
         query_handle(buf, g_soul, response, sizeof(response));
@@ -323,7 +352,7 @@ void torkd_tick(void) {
     while (1) {
         struct sockaddr_un client_addr;
         socklen_t client_len = sizeof(client_addr);
-        int client_fd = accept(g_server_fd, (struct sockaddr*)&client_addr, &client_len);
+        int client_fd = accept4(g_server_fd, (struct sockaddr*)&client_addr, &client_len, SOCK_CLOEXEC);
         if (client_fd < 0) break;  /* EAGAIN or EWOULDBLOCK → no more clients */
         
         /* Set 2s timeout for client communication */
@@ -363,6 +392,12 @@ int torkd_query(const char *question, char *response, int max_len) {
         close(fd);
         return -1;
     }
+
+    /* 5s send/receive timeout to avoid blocking indefinitely */
+    struct timeval tv;
+    tv.tv_sec = 5; tv.tv_usec = 0;
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     
     char buf[TORKD_MAX_MSG];
     snprintf(buf, sizeof(buf), "%s\n", question);

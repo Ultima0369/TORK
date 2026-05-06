@@ -178,9 +178,15 @@ int watcher_load(void) {
     if (!g_initialized) watcher_init();
     FILE *f = fopen("persist/watcher.bin", "rb");
     if (!f) return -1;
-    fread(&g_watcher, sizeof(g_watcher), 1, f);
+    if (fread(&g_watcher, sizeof(g_watcher), 1, f) != 1) {
+        fclose(f);
+        return -1;
+    }
     fclose(f);
-    printf("  WATCH: loaded %u events, %u patterns from disk\n", 
+    if (g_watcher.head >= WATCH_MAX_EVENTS) g_watcher.head = 0;
+    if (g_watcher.pattern_count >= WATCH_MAX_PATTERNS) g_watcher.pattern_count = 0;
+    if (g_watcher.count > WATCH_MAX_EVENTS) g_watcher.count = WATCH_MAX_EVENTS;
+    printf("  WATCH: loaded %u events, %u patterns from disk\n",
            g_watcher.count, g_watcher.pattern_count);
     return 0;
 }

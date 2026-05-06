@@ -1,5 +1,5 @@
 #ifndef SOUL_SIZE
-#define SOUL_SIZE 192
+#define SOUL_SIZE 208
 #endif
 #ifndef SNAPSHOT_H
 #define SNAPSHOT_H

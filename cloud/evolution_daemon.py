@@ -49,13 +49,13 @@ def gather_learning_state():
             try:
                 eff = struct.unpack('<d', d[72:80])[0]
                 state["cal_status"] = f"best_eff={eff:.2f}"
-            except: pass
+            except Exception: pass
     if os.path.exists(EVOLUTION_LOG):
         try:
             with open(EVOLUTION_LOG) as f:
                 evo = json.load(f)
                 state["recent_evolution"] = evo[-3:] if isinstance(evo, list) else []
-        except: pass
+        except Exception: pass
     return state
 
 def check_source_changes():
@@ -63,7 +63,7 @@ def check_source_changes():
         r = subprocess.run(['git', 'diff', '--stat'], cwd=PROJECT_DIR,
                           capture_output=True, text=True, timeout=10)
         return r.stdout.strip()
-    except: return ""
+    except Exception: return ""
 
 def make_evolution_prompt(state, changes):
     strategies_str = "\n".join([f"  - {k}: {v}" for k, v in STRATEGIES.items()])
@@ -139,7 +139,7 @@ def log_evolution(strategy, success, advice, output):
             loaded = json.load(open(EVOLUTION_LOG))
             if isinstance(loaded, list):
                 history = loaded
-        except: pass
+        except Exception: pass
     history.append(log_entry)
     if len(history) > 100:
         history = history[-100:]
@@ -294,7 +294,7 @@ def stop_daemon():
             print(f"  Error stopping daemon: {e}")
             try:
                 os.remove(PID_FILE)
-            except: pass
+            except Exception: pass
             return False
     else:
         # Try pgrep
@@ -307,7 +307,7 @@ def stop_daemon():
                 os.kill(int(pid), signal.SIGTERM)
             print(f"  Stopped {len(result.stdout.strip().split())} daemon processes")
             return True
-        except: pass
+        except Exception: pass
         print("  No running daemon found")
         return False
 
@@ -320,7 +320,7 @@ def status_daemon():
             os.kill(pid, 0)  # Check if alive
             print(f"  TORK Evolution Daemon: RUNNING (PID={pid})")
             return True
-        except:
+        except Exception:
             print(f"  TORK Evolution Daemon: STALE PID (no process)")
             os.remove(PID_FILE)
             return False
@@ -335,7 +335,7 @@ def status_daemon():
             if pids:
                 print(f"  TORK Evolution Daemon: RUNNING (PIDs={','.join(pids)})")
                 return True
-        except: pass
+        except Exception: pass
         print(f"  TORK Evolution Daemon: NOT RUNNING")
         return False
 

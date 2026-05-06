@@ -36,10 +36,10 @@
 .equ S_MUTATION_COUNT,    0x4E    # uint16
 .equ S_BEST_SCORE,        0x50    # uint32
 .equ S_GEN_COUNT,         0x54    # uint32
-.equ S_RESERVED3,         0x58    # uint8[8]
+.equ S_RESERVED3,         0x58    # uint8[6]
 
 # 心跳间隔：大脑改写此值控制心跳速度
-.equ S_HEARTBEAT_MS,      0x58    # uint16 — 心跳间隔(ms)，默认100，大脑可改写
+.equ S_HEARTBEAT_MS,      0x5E    # uint16 — 心跳间隔(ms)，默认100，大脑可改写
 
 # v3.0 学习字段
 .equ S_EXPERIENCE_COUNT,  0x60    # uint32
@@ -62,7 +62,9 @@
 .equ S_BRANCH_TICKS,      0xA0    # uint32
 .equ S_BRANCH_DRIVE_PEAK, 0xA4    # int16
 .equ S_BRANCH_DRIVE_END,  0xA6    # int16
-.equ S_RESERVED5,         0xA8    # uint8[24]
+# v3.17 P0 接口约束: node_id + consensus_vector
+.equ S_NODE_ID,           0xA8    # uint8[16] — 节点唯一标识
+.equ S_CONSENSUS_VECTOR,  0xB8    # uint8[16] — 共识向量
 
 # Soul 总大小
-.equ SOUL_SIZE_BYTES,     192
+.equ SOUL_SIZE_BYTES,     208

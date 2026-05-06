@@ -27,6 +27,9 @@ void ps_emergency_save(void);
 /* Register soul snapshot buffer for emergency_save (avoids reading unmapped 0x200000). */
 void ps_register_soul_buf(const void *buf, size_t len);
 
+/* Mark that cal_init() has completed (PARAM_ADDR is now mapped). */
+void ps_mark_cal_initialized(void);
+
 /* Cleanup .bak files. */
 void ps_cleanup_baks(void);
 

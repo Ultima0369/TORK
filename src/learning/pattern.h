@@ -36,6 +36,20 @@ typedef struct {
     uint8_t  active;             /* 1=有效模式 */
 } pattern_t;
 
+/* ── 成功代码模式条目 ──────────────────────────────────────────
+ *  存活>1000心跳的代码自动录入，按语言/功能分类
+ */
+#define PAT_DESC_MAX 64
+
+typedef struct {
+    uint32_t pattern_id;        /* 自增ID */
+    uint32_t code_hash;         /* 代码哈希 */
+    uint32_t survival_ticks;    /* 存活心跳数 */
+    uint8_t  category;          /* 语言/功能分类 */
+    uint16_t strategy_id;       /* 关联策略ID */
+    char     description[PAT_DESC_MAX];
+} pat_entry_t;
+
 /* ── 模式学习器 ────────────────────────────────────────────── */
 typedef struct {
     pattern_t slots[PATTERN_MAX_SLOTS];
@@ -75,6 +89,16 @@ int pat_save(void);
 
 /* 从二进制文件加载模式库 */
 int pat_load(void);
+/* 成功代码模式：存活>1000心跳的代码自动录入 */
+uint32_t pat_record_success(uint32_t code_hash, uint32_t survival_ticks,
+                            uint8_t category, const char *description);
+
+/* 按分类查询成功模式，返回按存活时间降序排列的结果 */
+int pat_query_by_category(uint8_t category, int max_results, pat_entry_t *out);
+
+/* 查询全局存活最久的成功模式 */
+int pat_query_top_survival(int max_results, pat_entry_t *out);
+
 /* Record a remote pattern (from distributed blackboard) */
 void pat_record_remote(uint8_t stress_low, uint8_t stress_high,
                         int8_t drive_min, int8_t drive_max,

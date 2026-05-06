@@ -30,6 +30,8 @@ typedef struct {
     tln_val_t output[TLN_OUTPUTS];              /* 最新输出 */
     uint32_t ticks;                             /* 推理 tick 计数 */
     uint32_t mutation_count;                    /* 累计变异次数 */
+    uint32_t observe_ticks;                     /* 累计观察 tick 数 (悬置态) */
+    uint32_t observe_snapshots;                 /* 观察期间记录的环境快照数 */
 } TernaryNet;
 
 /* 初始化: 零权重 (全悬置态) */
@@ -68,6 +70,18 @@ int tln_diff(const TernaryNet *a, const TernaryNet *b);
 /* 持久化 */
 int tln_save(const TernaryNet *net, const char *path);
 int tln_load(TernaryNet *net, const char *path);
+
+/* 观察模式: 当所有 hint=0 时进入，暂停变异，加速学习 */
+#define TLN_OBSERVE_TIMEOUT 120  /* 120心跳周期后强制退出 */
+
+int tln_is_observing(const TernaryNet *net);
+void tln_observe_tick(TernaryNet *net);
+
+/* 检查是否超时: observe_ticks >= TLN_OBSERVE_TIMEOUT */
+int tln_observe_timed_out(const TernaryNet *net);
+
+/* 重置观察计数器 (退出观察模式时调用) */
+void tln_observe_reset(TernaryNet *net);
 
 /* 调试输出 */
 void tln_print_state(const TernaryNet *net);

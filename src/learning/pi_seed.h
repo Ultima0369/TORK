@@ -2,6 +2,7 @@
 #define PI_SEED_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 /*
  * π-Seed: 可靠的不确定性
@@ -19,6 +20,16 @@ uint8_t pi_bbp_digit(uint64_t n);
 
 /* 以当前 TSC 为种子，从 π 序列取一个值 [0, 255] */
 uint8_t pi_seed_from_tsc(void);
+
+/* HMAC-SHA256 混合种子: Seed = HMAC-SHA256(TSC低位扰动, π序列偏移值)
+ * P0-3: 密码学质量混合，多项式时间不可预测 */
+uint8_t pi_seed_hmac(void);
+
+/* SHA-256 上下文和接口 (P0-3 内部使用) */
+void pi_sha256(const uint8_t *msg, size_t len, uint8_t out[32]);
+void pi_hmac_sha256(const uint8_t *key, size_t key_len,
+                    const uint8_t *msg, size_t msg_len,
+                    uint8_t out[32]);
 
 /* 以 TSC 为基地，从 π 取一个 float ∈ (0, 1) — 中间态 */
 float pi_seed_float(void);

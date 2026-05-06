@@ -18,6 +18,8 @@ void tln_init(TernaryNet *net) {
     /* state 初始化为 0 (悬置) */
     net->ticks = 0;
     net->mutation_count = 0;
+    net->observe_ticks = 0;
+    net->observe_snapshots = 0;
 }
 
 /* ── 单步推理 ──────────────────────────────────────────────
@@ -249,7 +251,8 @@ int tln_load(TernaryNet *net, const char *path) {
 
 /* ── 调试输出 ────────────────────────────────────────────── */
 void tln_print_state(const TernaryNet *net) {
-    printf("  TLN: tick=%u mutations=%u\n", net->ticks, net->mutation_count);
+    printf("  TLN: tick=%u mutations=%u observe=%u snapshots=%u\n",
+           net->ticks, net->mutation_count, net->observe_ticks, net->observe_snapshots);
     /* 统计权重分布 */
     int pos = 0, neg = 0, zero = 0;
     int total = TLN_INPUTS * TLN_HIDDEN +
@@ -282,4 +285,54 @@ void tln_print_output(const tln_val_t output[TLN_OUTPUTS]) {
            sym[output[0]+1], sym[output[1]+1], sym[output[2]+1], sym[output[3]+1],
            sym[output[4]+1], sym[output[5]+1], sym[output[6]+1], sym[output[7]+1],
            sym[ah+1], sym[mh+1], sym[eh+1], sym[enh+1]);
+}
+
+/* ── 观察模式 ──────────────────────────────────────────────
+ * 三值悬置不是"什么都不做"——是"停下来看"
+ *
+ * 当所有 hint=0 时，TLN 认为信息不足，无法决策。
+ * 此时进入观察模式：
+ *   1. 暂停代码变异（不动手）
+ *   2. 加速 soul_read（多看）
+ *   3. 记录环境快照（记住看到了什么）
+ *   4. 增强好奇心权重（准备下一次决策）
+ *
+ * "悬置"是三值逻辑的核心价值：
+ *   不是犹豫，是自知不够——而自知不够，本身就是一种判断
+ */
+int tln_is_observing(const TernaryNet *net) {
+    /* 所有输出都是 0 = 全悬置 = 观察模式 */
+    for (int i = 0; i < TLN_OUTPUTS; i++) {
+        if (net->output[i] != 0) return 0;
+    }
+    return 1;
+}
+
+void tln_observe_tick(TernaryNet *net) {
+    net->observe_ticks++;
+
+    /* 蓄积：悬置不是空转，是蓄势待发
+     * 每个观察 tick 微调隐藏层权重，向"更多输入"方向偏移
+     * 这样当观察结束，网络不是回到原点，而是带着积累的倾向
+     * 蓄积量 = observe_ticks / TLN_OBSERVE_TIMEOUT，归一化到 [0,1]
+     * 每 20 tick 对一个随机权重做 +1 偏移（增强感知通道）
+     */
+    if (net->observe_ticks % 20 == 0) {
+        /* 用 observe_ticks 做确定性索引，避免引入额外随机源 */
+        int idx = (net->observe_ticks / 20) % (TLN_INPUTS * TLN_HIDDEN);
+        if (net->w_ih[idx] < 1)
+            net->w_ih[idx]++;
+    }
+
+    /* 每 100 观察tick 记录一次快照 */
+    if (net->observe_ticks % 100 == 0)
+        net->observe_snapshots++;
+}
+
+int tln_observe_timed_out(const TernaryNet *net) {
+    return net->observe_ticks >= TLN_OBSERVE_TIMEOUT;
+}
+
+void tln_observe_reset(TernaryNet *net) {
+    net->observe_ticks = 0;
 }

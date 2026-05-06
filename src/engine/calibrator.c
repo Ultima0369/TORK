@@ -1,5 +1,6 @@
 #include "calibrator.h"
 #include "blackboard.h"
+#include "persistor.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -95,6 +96,7 @@ int cal_init(void) {
         memcpy(&live_params, (const void *)(pmem + PARAM_OFF_DATA), sizeof(live_params));
     }
 
+    ps_mark_cal_initialized();
     return 0;
 }
 

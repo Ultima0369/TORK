@@ -228,8 +228,16 @@ int sb_load(void) {
     if (!g_initialized) sb_init();
     FILE *f = fopen("persist/self_build.bin", "rb");
     if (!f) return -1;
-    fread(&g_sb, sizeof(g_sb), 1, f);
+    if (fread(&g_sb, sizeof(g_sb), 1, f) != 1) {
+        fclose(f);
+        memset(&g_sb, 0, sizeof(g_sb));
+        g_sb.state = SB_MONITORING;
+        fprintf(stderr, "  SELF: load failed (truncated file)\n");
+        return -1;
+    }
     fclose(f);
+    /* Clamp state to valid enum range to prevent out-of-bounds access */
+    if (g_sb.state < SB_IDLE || g_sb.state > SB_FAILED) g_sb.state = SB_MONITORING;
     printf("  SELF: loaded state (builds=%d ok=%d fail=%d)\n", 
            g_sb.build_count, g_sb.success_count, g_sb.fail_count);
     return 0;

@@ -186,11 +186,15 @@ int mg_load(void) {
     if (!g_initialized) mg_init();
     FILE *f = fopen("persist/mutation_guide.bin", "rb");
     if (!f) return -1;
-    fread(&g_mg, sizeof(g_mg), 1, f);
+    if (fread(&g_mg, sizeof(g_mg), 1, f) != 1) {
+        fclose(f);
+        return -1;
+    }
     fclose(f);
-    printf("  MGUIDE: loaded %d records (%.0f%% success rate)\n", 
+    if (g_mg.strategy_count > MG_MAX_STRATEGIES) g_mg.strategy_count = MG_MAX_STRATEGIES;
+    printf("  MGUIDE: loaded %d records (%.0f%% success rate)\n",
            g_mg.total_attempts,
-           g_mg.total_attempts > 0 ? 
+           g_mg.total_attempts > 0 ?
                (float)g_mg.total_successes / g_mg.total_attempts * 100 : 0);
     return 0;
 }

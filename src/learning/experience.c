@@ -19,13 +19,18 @@ void exp_init(void) {
         size_t got = fread(&g_buf, 1, sizeof(g_buf), f);
         fclose(f);
         if (got == sizeof(g_buf) && g_buf.count > 0) {
+            /* Validate head/count to prevent out-of-bounds from corrupted data */
+            if (g_buf.head >= EXP_MAX_EXPERIENCES) g_buf.head = 0;
+            if (g_buf.count > EXP_MAX_EXPERIENCES) g_buf.count = 0;
+            if (g_buf.count == 0) goto fresh;
             printf("  EXP: loaded %u experiences from %s\n", g_buf.count, EXP_PATH);
             g_initialized = 1;
             return;
         }
     }
-    
+
     /* Fresh start */
+fresh:
     g_buf.head = 0;
     g_buf.count = 0;
     g_initialized = 1;

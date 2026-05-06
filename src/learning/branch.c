@@ -192,8 +192,9 @@ void br_advance_all(void) {
             reap_report_t r = br_reap(i, DEATH_TIMEOUT);
             printf("  BR: branch #%u reaped (TIMEOUT, lived=%lu ticks, final_drive=%d)\n",
                    r.branch_id, r.ticks_lived, r.final_drive);
+            continue;  /* Skip further checks for reaped branch */
         }
-        
+
         /* 检查驱动值崩溃 */
         int8_t drive = (int8_t)branch->soul.buf[S_DRIVE];
         if (drive < -100) {

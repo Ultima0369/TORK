@@ -11,6 +11,23 @@
 #include <stdio.h>
 #include <string.h>
 
+/* ── JSON 转义辅助 ──────────────────────────────────────── */
+static int json_escape_str(const char *src, char *dst, int dst_size) {
+    int j = 0;
+    for (int i = 0; src[i] && j < dst_size - 2; i++) {
+        switch (src[i]) {
+        case '"':  dst[j++] = '\\'; dst[j++] = '"';  break;
+        case '\\': dst[j++] = '\\'; dst[j++] = '\\'; break;
+        case '\n': dst[j++] = '\\'; dst[j++] = 'n';  break;
+        case '\r': dst[j++] = '\\'; dst[j++] = 'r';  break;
+        case '\t': dst[j++] = '\\'; dst[j++] = 't';  break;
+        default:   dst[j++] = src[i]; break;
+        }
+    }
+    dst[j] = '\0';
+    return j;
+}
+
 /* ── 统计 ──────────────────────────────────────────────── */
 static uint32_t g_total_calls = 0;
 static uint32_t g_total_success = 0;
@@ -29,6 +46,12 @@ void dispatch_init(void) {
     g_total_success = 0;
     g_total_fail = 0;
     printf("  DISPATCH: unified tool dispatch layer initialized\n");
+}
+
+void dispatch_get_stats(uint32_t *total, uint32_t *success, uint32_t *fail) {
+    if (total)   *total   = g_total_calls;
+    if (success) *success = g_total_success;
+    if (fail)    *fail    = g_total_fail;
 }
 
 /* ── 计算经验 outcome ────────────────────────────────────
@@ -109,7 +132,9 @@ dispatch_output_t tork_dispatch(const dispatch_input_t *in) {
         int alen = asm_read_file(in->input, asm_buf, sizeof(asm_buf));
         if (alen <= 0) {
             out.rc = -1;
-            snprintf(out.output, sizeof(out.output), "{\"error\":\"cannot read %s\"}", in->input);
+            char escaped[512];
+            json_escape_str(in->input, escaped, sizeof(escaped));
+            snprintf(out.output, sizeof(out.output), "{\"error\":\"cannot read %s\"}", escaped);
             g_total_fail++;
             break;
         }
@@ -118,9 +143,12 @@ dispatch_output_t tork_dispatch(const dispatch_input_t *in) {
         asm_classify_insns(asm_buf, alen, fn, &cm, &ca, &cc, &co);
         int insns = asm_count_insns_in_func(asm_buf, alen, fn);
         out.rc = 0;
+        char esc_file[512], esc_fn[128];
+        json_escape_str(in->input, esc_file, sizeof(esc_file));
+        json_escape_str(fn, esc_fn, sizeof(esc_fn));
         out.output_len = snprintf(out.output, sizeof(out.output),
             "{\"file\":\"%s\",\"func\":\"%s\",\"insns\":%d,\"mov\":%d,\"arith\":%d,\"ctrl\":%d,\"other\":%d}",
-            in->input, fn, insns, cm, ca, cc, co);
+            esc_file, esc_fn, insns, cm, ca, cc, co);
         g_total_success++;
         break;
     }

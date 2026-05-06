@@ -143,7 +143,13 @@ void mentor_save(void) {
 void mentor_load(void) {
     FILE *f = fopen(PERSIST_PATH, "rb");
     if (!f) return;
-    fread(&g_mentor, sizeof(g_mentor), 1, f);
+    if (fread(&g_mentor, sizeof(g_mentor), 1, f) != 1) {
+        fclose(f);
+        memset(&g_mentor, 0, sizeof(g_mentor));
+        g_mentor.stage = MENTOR_APPRENTICE;
+        return;
+    }
     fclose(f);
+    if (g_mentor.stage > MENTOR_TRANSCEND) g_mentor.stage = MENTOR_APPRENTICE;
     recalc_weights();
 }

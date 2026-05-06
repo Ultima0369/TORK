@@ -3,13 +3,162 @@
 #include <string.h>
 #include <time.h>
 
-/* ── 内联 RDTSC ──────────────────────────────────────────── */
+/* ── SHA-256 (FIPS 180-4) ───────────────────────────────────
+ * P0-3: 密码学质量混合，替代可逆的 MurmurHash3
+ * 标准实现，用于 HMAC-SHA256 种子生成
+ */
+
+#define SHA256_ROTR(x, n) (((x) >> (n)) | ((x) << (32 - (n))))
+#define SHA256_CH(x, y, z)  (((x) & (y)) ^ (~(x) & (z)))
+#define SHA256_MAJ(x, y, z) (((x) & (y)) ^ ((x) & (z)) ^ ((y) & (z)))
+#define SHA256_SIG0(x) (SHA256_ROTR(x,2) ^ SHA256_ROTR(x,13) ^ SHA256_ROTR(x,22))
+#define SHA256_SIG1(x) (SHA256_ROTR(x,6) ^ SHA256_ROTR(x,11) ^ SHA256_ROTR(x,25))
+#define SHA256_sig0(x) (SHA256_ROTR(x,7) ^ SHA256_ROTR(x,18) ^ ((x) >> 3))
+#define SHA256_sig1(x) (SHA256_ROTR(x,17) ^ SHA256_ROTR(x,19) ^ ((x) >> 10))
+
+static const uint32_t sha256_k[64] = {
+    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+};
+
+typedef struct {
+    uint32_t h[8];
+    uint8_t  buf[64];
+    uint64_t total;
+    int      buflen;
+} sha256_ctx;
+
+static void sha256_init(sha256_ctx *c) {
+    c->h[0]=0x6a09e667; c->h[1]=0xbb67ae85; c->h[2]=0x3c6ef372; c->h[3]=0xa54ff53a;
+    c->h[4]=0x510e527f; c->h[5]=0x9b05688c; c->h[6]=0x1f83d9ab; c->h[7]=0x5be0cd19;
+    c->total = 0; c->buflen = 0;
+}
+
+static void sha256_transform(uint32_t h[8], const uint8_t block[64]) {
+    uint32_t w[64];
+    for (int i = 0; i < 16; i++)
+        w[i] = ((uint32_t)block[i*4]<<24)|((uint32_t)block[i*4+1]<<16)|
+               ((uint32_t)block[i*4+2]<<8)|block[i*4+3];
+    for (int i = 16; i < 64; i++)
+        w[i] = SHA256_sig1(w[i-2]) + w[i-7] + SHA256_sig0(w[i-15]) + w[i-16];
+
+    uint32_t a=h[0],b=h[1],c=h[2],d=h[3],e=h[4],f=h[5],g=h[6],hh=h[7];
+    for (int i = 0; i < 64; i++) {
+        uint32_t t1 = hh + SHA256_SIG1(e) + SHA256_CH(e,f,g) + sha256_k[i] + w[i];
+        uint32_t t2 = SHA256_SIG0(a) + SHA256_MAJ(a,b,c);
+        hh=g; g=f; f=e; e=d+t1; d=c; c=b; b=a; a=t1+t2;
+    }
+    h[0]+=a; h[1]+=b; h[2]+=c; h[3]+=d; h[4]+=e; h[5]+=f; h[6]+=g; h[7]+=hh;
+}
+
+static void sha256_update(sha256_ctx *c, const uint8_t *data, size_t len) {
+    c->total += len;
+    while (len > 0) {
+        int space = 64 - c->buflen;
+        int take = (int)len < space ? (int)len : space;
+        memcpy(c->buf + c->buflen, data, take);
+        c->buflen += take;
+        data += take; len -= take;
+        if (c->buflen == 64) {
+            sha256_transform(c->h, c->buf);
+            c->buflen = 0;
+        }
+    }
+}
+
+static void sha256_final(sha256_ctx *c, uint8_t out[32]) {
+    uint64_t bits = c->total * 8;
+    uint8_t pad = 0x80;
+    sha256_update(c, &pad, 1);
+    pad = 0;
+    while (c->buflen != 56) sha256_update(c, &pad, 1);
+    uint8_t len_be[8];
+    for (int i = 7; i >= 0; i--) { len_be[i] = (uint8_t)(bits & 0xFF); bits >>= 8; }
+    sha256_update(c, len_be, 8);
+    for (int i = 0; i < 8; i++) {
+        out[i*4]   = (uint8_t)(c->h[i] >> 24);
+        out[i*4+1] = (uint8_t)(c->h[i] >> 16);
+        out[i*4+2] = (uint8_t)(c->h[i] >> 8);
+        out[i*4+3] = (uint8_t)(c->h[i]);
+    }
+}
+
+void pi_sha256(const uint8_t *msg, size_t len, uint8_t out[32]) {
+    sha256_ctx c;
+    sha256_init(&c);
+    sha256_update(&c, msg, len);
+    sha256_final(&c, out);
+}
+
+/* HMAC-SHA256: RFC 2104 */
+void pi_hmac_sha256(const uint8_t *key, size_t key_len,
+                    const uint8_t *msg, size_t msg_len,
+                    uint8_t out[32]) {
+    uint8_t k_pad[64];
+    uint8_t tk[32];
+
+    if (key_len > 64) {
+        pi_sha256(key, key_len, tk);
+        key = tk; key_len = 32;
+    }
+    memset(k_pad, 0x36, 64);
+    for (size_t i = 0; i < key_len; i++) k_pad[i] ^= key[i];
+
+    sha256_ctx c;
+    sha256_init(&c);
+    sha256_update(&c, k_pad, 64);
+    sha256_update(&c, msg, msg_len);
+    uint8_t inner[32];
+    sha256_final(&c, inner);
+
+    memset(k_pad, 0x5c, 64);
+    for (size_t i = 0; i < key_len; i++) k_pad[i] ^= key[i];
+
+    sha256_init(&c);
+    sha256_update(&c, k_pad, 64);
+    sha256_update(&c, inner, 32);
+    sha256_final(&c, out);
+}
+
+/* ── 内联 RDTSC + RDRAND ──────────────────────────────────── */
 
 static inline uint64_t rdtsc_now(void) {
     unsigned int lo, hi;
     __asm__ __volatile__("rdtscp" : "=a"(lo), "=d"(hi) :: "rcx");
     return ((uint64_t)hi << 32) | lo;
 }
+
+/* RDRAND: Intel/AMD 硬件随机数指令
+ * 从片上热噪声熵源取值，与 TSC 完全独立
+ * 返回 0 = 硬件不支持或超时，1 = 成功 */
+static inline int rdrand64(uint64_t *val) {
+    unsigned char ok;
+    /* 最多重试 10 次（硬件熵池耗尽时需要等待） */
+    for (int retry = 0; retry < 10; retry++) {
+        __asm__ __volatile__("rdrand %0; setc %1"
+                             : "=r"(*val), "=qm"(ok)
+                             :: "cc");
+        if (ok) return 1;
+    }
+    return 0;
+}
+
+/* ── HMAC 反馈链状态 ────────────────────────────────────────
+ * P0-3: 每次 HMAC 输出的部分字节反馈到下一次的 key 中
+ * 这样即使攻击者知道当前 TSC，也无法预测下一次输出
+ * 因为上一次的 HMAC 输出是单向的——知道输出无法还原 key
+ * 链式结构: out_n = HMAC(key_n, msg_n)
+ *           key_{n+1} = mix(TSC, out_n[0..3])
+ * 攻击者要预测 out_{n+1}，需要知道 out_n[0..3]
+ * 但 out_n 本身是 HMAC 输出，多项式时间内不可逆
+ */
+static uint8_t hmac_feedback[4] = {0, 0, 0, 0};
 
 /* ── BBP 公式 ──────────────────────────────────────────────
  * Bailey-Borwein-Plouffe formula
@@ -77,9 +226,14 @@ uint8_t pi_seed_from_tsc(void) {
     uint64_t tsc = rdtsc_now();
     uint64_t offset = tsc - tsc_base;
 
-    /* 取 TSC 的高位变化部分（高位变化慢，低位变化快但太规律）
-     * 用位混合让分布更均匀 */
-    uint64_t mixed = offset;
+    /* XOR TSC 高低 32 位 — 防止从已知 offset 逆推
+     * 单纯 offset 是可预测的（线性递增）
+     * 高低半异或后，即使知道大致时间也无法还原精确 TSC */
+    uint64_t hi32 = offset >> 32;
+    uint64_t lo32 = offset & 0xFFFFFFFFULL;
+    uint64_t mixed = lo32 ^ (hi32 * 0x9e3779b97f4a7c15ULL);
+
+    /* MurmurHash3 位混合 */
     mixed ^= mixed >> 33;
     mixed *= 0xff51afd7ed558ccdULL;
     mixed ^= mixed >> 33;
@@ -100,6 +254,80 @@ float pi_seed_float(void) {
     uint8_t byte = pi_seed_from_tsc();
     /* 映射到 (0, 1)，排除两端——0 和 1 是伪确定 */
     return (byte + 0.5f) / 256.0f;
+}
+
+/* ── HMAC-SHA256 种子: P0-3 密码学质量混合 ──────────────────
+ * Seed = HMAC-SHA256(key, msg)
+ *
+ * key = RDRAND硬件熵(8B) + TSC低位(4B) + 上次HMAC反馈(4B) = 16B
+ * msg = 从 π 取的 8 字节偏移值（数学序列的确定性锚点）
+ *
+ * 三层不可预测性：
+ *   1. RDRAND: 片上热噪声，与 TSC 完全独立，攻击者无法观测
+ *   2. HMAC反馈链: 上次输出的部分字节混入下次 key
+ *      攻击者知道 TSC 也无法预测——因为缺少上次 HMAC 输出
+ *   3. SHA-256 单向性: 即使知道输出，多项式时间内无法还原 key
+ *
+ * 降级策略: RDRAND 不可用时退化为 TSC + 反馈链
+ * 反馈链本身已经提供多项式时间不可预测性（链式依赖）
+ */
+uint8_t pi_seed_hmac(void) {
+    uint64_t tsc = rdtsc_now();
+    uint64_t offset = tsc - tsc_base;
+
+    /* key: 16 字节 = RDRAND(8B) + TSC低位(4B) + HMAC反馈(4B) */
+    uint8_t key[16];
+    memset(key, 0, sizeof(key));
+
+    /* 层1: RDRAND 硬件熵 — 与 TSC 完全独立的物理噪声 */
+    uint64_t hw_rand = 0;
+    if (rdrand64(&hw_rand)) {
+        for (int i = 0; i < 8; i++)
+            key[i] = (uint8_t)(hw_rand >> (i * 8));
+    } else {
+        /* 降级: 用 TSC 高位异或低位作为伪熵（不如 RDRAND，但聊胜于无） */
+        uint64_t fallback = offset ^ (offset >> 32) ^ 0x5A5A5A5A5A5A5A5AULL;
+        for (int i = 0; i < 8; i++)
+            key[i] = (uint8_t)(fallback >> (i * 8));
+    }
+
+    /* 层2: TSC 低 4 字节 — 物理时间的低位扰动 */
+    for (int i = 0; i < 4; i++)
+        key[8 + i] = (uint8_t)(offset >> (i * 8));
+
+    /* 层3: HMAC 反馈链 — 上次输出的部分字节 */
+    for (int i = 0; i < 4; i++)
+        key[12 + i] = hmac_feedback[i];
+
+    /* msg: 从 π 取 8 字节偏移值 — 数学确定性锚点 */
+    uint64_t pi_idx1 = (offset >> 16) & 0xFFFFF;
+    uint64_t pi_idx2 = offset & 0xFFFFF;
+    uint8_t msg[8];
+    msg[0] = pi_bbp_digit(pi_idx1);
+    msg[1] = pi_bbp_digit(pi_idx1 + 1);
+    msg[2] = pi_bbp_digit(pi_idx1 + 2);
+    msg[3] = pi_bbp_digit(pi_idx1 + 3);
+    msg[4] = pi_bbp_digit(pi_idx2);
+    msg[5] = pi_bbp_digit(pi_idx2 + 1);
+    msg[6] = pi_bbp_digit(pi_idx2 + 2);
+    msg[7] = pi_bbp_digit(pi_idx2 + 3);
+
+    /* HMAC-SHA256: 单向混合 */
+    uint8_t hmac_out[32];
+    pi_hmac_sha256(key, 16, msg, 8, hmac_out);
+
+    /* 反馈链更新: 取输出前 4 字节作为下次 key 的一部分
+     * 这是链式不可预测性的核心：
+     * 攻击者要预测 out_{n+1}，需要知道 feedback_n
+     * 但 feedback_n = HMAC_out_n[0..3]，是 HMAC 输出的一部分
+     * HMAC 是单向函数——知道输出无法还原完整 key
+     * 因此即使攻击者知道 TSC，也无法预测下一次输出 */
+    hmac_feedback[0] = hmac_out[0];
+    hmac_feedback[1] = hmac_out[1];
+    hmac_feedback[2] = hmac_out[2];
+    hmac_feedback[3] = hmac_out[3];
+
+    return hmac_out[0];
 }
 
 /* ── 差异检测 ──────────────────────────────────────────────

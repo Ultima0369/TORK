@@ -52,7 +52,7 @@ class TorkHotkeyDaemon:
         try:
             with open(SIGNAL_FILE, 'w') as f:
                 f.write(cmd)
-        except:
+        except Exception:
             pass
 
     def run(self):

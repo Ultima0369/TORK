@@ -129,7 +129,7 @@ class TorkDesktop:
             line = int(self.code_text.index(tk.INSERT).split('.')[0])
             col = int(self.code_text.index(tk.INSERT).split('.')[1])
             self.status_bar.config(text=f"行: {line}  列: {col}")
-        except: pass
+        except Exception: pass
     
     def open_file(self):
         path = filedialog.askopenfilename(initialdir=BASE)
@@ -246,7 +246,7 @@ class TorkDesktop:
                 if self.tork_pid:
                     self.tork_pid = None
                     self.add_log("💤 TORK 已停止", 'warn')
-        except: pass
+        except Exception: pass
     
     def read_tork_soul(self, pid):
         try:
@@ -275,18 +275,18 @@ class TorkDesktop:
                 with open(INBOX, 'r') as f:
                     content = f.read()
                 self.process_inbox(content)
-        except: pass
+        except Exception: pass
     
     def process_inbox(self, content):
         lines = content.split('\n')
         i = 0
         while i < len(lines):
             line = lines[i]
-            if line.startswith('') and len(line) > 3:
+            if line.startswith('```') and len(line) > 3:
                 lang = line[3:].strip()
                 i += 1
                 code_lines = []
-                while i < len(lines) and not lines[i].startswith(''):
+                while i < len(lines) and not lines[i].startswith('```'):
                     code_lines.append(lines[i])
                     i += 1
                 code = '\n'.join(code_lines)
@@ -299,10 +299,14 @@ class TorkDesktop:
                         elif '# ' in first and '/' in first:
                             dest = first.split('# ')[1].strip()
                     if dest and os.path.isabs(dest):
-                        os.makedirs(os.path.dirname(dest), exist_ok=True)
-                        with open(dest, 'w') as f:
-                            f.write(code + '\n')
-                        self.add_log(f"📥 写入: {dest}", 'good')
+                        dest = os.path.normpath(dest)
+                        if not dest.startswith(os.path.normpath(BASE)):
+                            self.add_log(f"⛔ 路径越界: {dest}", 'error')
+                        else:
+                            os.makedirs(os.path.dirname(dest), exist_ok=True)
+                            with open(dest, 'w') as f:
+                                f.write(code + '\n')
+                            self.add_log(f"📥 写入: {dest}", 'good')
                     elif lang in ('sh', 'bash'):
                         subprocess.Popen(['/bin/sh', '-c', code])
                         self.add_log(f"📥 执行命令: {code[:50]}...", 'highlight')
@@ -314,7 +318,7 @@ class TorkDesktop:
                 try:
                     self.check_tork_status()
                     self.check_inbox()
-                except: pass
+                except Exception: pass
                 time.sleep(2)
         threading.Thread(target=loop, daemon=True).start()
     

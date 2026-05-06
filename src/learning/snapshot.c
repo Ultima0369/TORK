@@ -183,8 +183,17 @@ int snap_load(void) {
     FILE *f = fopen("persist/snapshots.bin", "rb");
     if (!f) return -1;
     
-    fread(&g_hist, sizeof(g_hist), 1, f);
+    if (fread(&g_hist, sizeof(g_hist), 1, f) != 1) {
+        fclose(f);
+        memset(&g_hist, 0, sizeof(g_hist));
+        fprintf(stderr, "  SNAP: load failed (truncated file)\n");
+        return -1;
+    }
     fclose(f);
+    /* Validate ranges to prevent out-of-bounds from corrupted data */
+    if (g_hist.head >= SNAP_MAX_HISTORY) g_hist.head = 0;
+    if (g_hist.count > SNAP_MAX_HISTORY) g_hist.count = 0;
+    if (g_hist.restores > SNAP_MAX_HISTORY * 100) g_hist.restores = 0;
     printf("  SNAP: loaded %u snapshots from disk\\n", g_hist.count);
     return 0;
 }

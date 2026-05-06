@@ -121,6 +121,58 @@ void scheduler_tick(sched_ctx_t *ctx) {
     soul_t *soul = ctx->soul;
     instinct_input_t *inp = &ctx->inp;
 
+    /* ── BEACON BROADCAST (every 1000 tick) ──
+     *
+     * 分形基元四步推导：
+     *
+     * 1) 比较 (Compare)
+     *    当前信标路径：16×memcpy(4B) → pi_compute_digest(call) → inline rdtsc
+     *    → beacon_broadcast(sendto) → beacon_prune(O(n)+time()+mutex)
+     *    理想路径：1×memcpy(64B) → 内联XOR循环 → 读Soul缓存TSC
+     *    → beacon_broadcast(sendto) → 分频prune
+     *
+     * 2) 差异 (Difference)
+     *    a) 16×memcpy(4B) = 16×call帧开销 vs 1×memcpy(64B) = 编译器可优化为rep movsb
+     *    b) pi_compute_digest跨编译单元调用不可内联 vs 内联后memset+循环编译器可融合
+     *    c) inline rdtsc串行化管道(~25周期) vs soul_cur_tsc从本地缓存读取(1 mov)
+     *    d) beacon_prune每1000tick(time()+mutex+O(n)) vs 每10000tick(开销降90%)
+     *
+     * 3) 模糊容忍 (Blur)
+     *    a) 1×memcpy(64B)与16×memcpy(4B)的字节序结果恒等
+     *    b) 内联XOR循环与pi_compute_digest函数的数学结果恒等
+     *    c) Soul中CUR_TSC由ASM每tick写入rdtsc，差值<1 tick周期，对信标物理熵无影响
+     *    d) prune延迟10tick≈5秒，相对BEACON_EXPIRE_S=300秒的误差率1.67%，功能影响为零
+     *
+     * 4) 归纳类似 (Similar)
+     *    小尺寸离散复制→批量复制；跨编译单元函数→内联；物理时钟读取→复用缓存值；
+     *    高频低效清理→分频批处理——与TLN推理/模式学习的分频策略同构
+     */
+    if (i % BEACON_INTERVAL == 0) {
+        uint8_t pi_digest[16];
+
+        {
+            uint32_t colony_seed[16];
+            memcpy(colony_seed, ctx->soul->buf, sizeof(colony_seed));
+
+            memset(pi_digest, 0, sizeof(pi_digest));
+            for (int si = 0; si < 16; si++) {
+                uint32_t v = colony_seed[si];
+                int idx = si & 3;
+                pi_digest[idx]         ^= (uint8_t)(v);
+                pi_digest[idx + 4]     ^= (uint8_t)(v >> 8);
+                pi_digest[idx + 8]     ^= (uint8_t)(v >> 16);
+                pi_digest[idx + 12]    ^= (uint8_t)(v >> 24);
+            }
+        }
+
+        uint32_t tsc_lo = (uint32_t)soul_cur_tsc(ctx->soul);
+
+        beacon_broadcast(ctx->soul, pi_digest, tsc_lo);
+
+        if (i % (BEACON_INTERVAL * 10) == 0)
+            beacon_prune(NULL);
+    }
+
     /* Staleness detection */
     {
         uint8_t cur_hw = inp->hw_stress;
@@ -208,19 +260,6 @@ void scheduler_tick(sched_ctx_t *ctx) {
     /* Fission (every 1000) */
     if (i % 1000 == 0) tick_fission(ctx);
 
-    /* Beacon: 同类识别广播 (every 1000) */
-    if (i % BEACON_INTERVAL == 0) {
-        uint32_t colony_seed[16];
-        for (int si = 0; si < 16; si++)
-            memcpy(&colony_seed[si], ctx->soul->buf + si * 4, 4);
-        uint8_t pi_digest[16];
-        pi_compute_digest(colony_seed, pi_digest);
-        uint64_t tsc;
-        __asm__ __volatile__("rdtsc" : "=A"(tsc));
-        beacon_broadcast(ctx->soul, pi_digest, (uint32_t)tsc);
-        beacon_prune(NULL);
-    }
-
     /* Inductive: extract (every 800) */
     if (i % 800 == 0) tick_inductive(ctx);
 
@@ -230,9 +269,11 @@ void scheduler_tick(sched_ctx_t *ctx) {
     /* Persistence (1000/5000/10000) */
     tick_persist(ctx);
 
-    /* Re-evaluate instinct */
-    ctx->inst = instinct_evaluate(inp);
-    ctx->idle_discoveries = 0;
+    /* Re-evaluate instinct (every 10 ticks) */
+    if (ctx->round % 10 == 0) {
+        ctx->inst = instinct_evaluate(inp);
+        ctx->idle_discoveries = 0;
+    }
     ctx->drive = (int)((ctx->inst.desire - ctx->inst.fear + ctx->inst.curiosity) * 100.0f);
     if (ctx->drive > DRIVE_MAX) ctx->drive = DRIVE_MAX;
     if (ctx->drive < DRIVE_MIN) ctx->drive = DRIVE_MIN;
@@ -245,7 +286,6 @@ void scheduler_tick(sched_ctx_t *ctx) {
         if (ctx->drive > DRIVE_MAX) ctx->drive = DRIVE_MAX;
         if (ctx->drive < DRIVE_MIN) ctx->drive = DRIVE_MIN;
     }
-    soul_set_drive(soul, (int8_t)ctx->drive);
 
     /* Pattern query */
     {

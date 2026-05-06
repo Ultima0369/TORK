@@ -18,6 +18,7 @@
 #define PATH_BB         PERSIST_DIR "blackboard.bin"
 #define PATH_PARAMS     PERSIST_DIR "params.bin"
 #define PATH_RULES      PERSIST_DIR "rules.bin"
+#define PATH_COMMIT     PERSIST_DIR ".commit_tick"
 #define PATH_MANIFEST   PERSIST_DIR "manifest.json"
 #define PATH_BAK_SOUL   PERSIST_DIR "soul.bak"
 #define PATH_BAK_BB     PERSIST_DIR "blackboard.bak"
@@ -36,6 +37,13 @@
 #define PARAM_OFF_DATA 0x008  /* from calibrator.h */
 #define RULE_MAX_BYTES (RULE_MAX * RULE_STRUCT_SIZE)
 
+/* ── Cal init guard ───────────────────────────────────────────── */
+static volatile int g_cal_initialized = 0;
+
+void ps_mark_cal_initialized(void) {
+    g_cal_initialized = 1;
+}
+
 /* ── Helpers ─────────────────────────────────────────────────────── */
 static int ensure_dir(void) {
     if (mkdir(PERSIST_DIR, 0755) != 0 && errno != EEXIST)
@@ -43,13 +51,9 @@ static int ensure_dir(void) {
     return 0;
 }
 
-static int backup_file(const char *src, const char *dst) {
-    /* rename may fail if src doesn't exist — that's fine */
-    return rename(src, dst);
-}
-
 /* Write to a temp file, then atomically rename to target.
-   On failure, the target is untouched. */
+   On failure, the target is untouched.
+   Includes readback verification after rename. */
 static int safe_write_file(const char *path, const void *data, size_t len,
                            const char *bak_path) {
     char tmp_path[256];
@@ -74,16 +78,17 @@ static int safe_write_file(const char *path, const void *data, size_t len,
         unlink(tmp_path);
         return -1;
     }
-    return 0;
-}
 
-static int write_file(const char *path, const void *data, size_t len) {
-    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0) return -1;
-    ssize_t w = write(fd, data, len);
-    fsync(fd);
-    close(fd);
-    return (w == (ssize_t)len) ? 0 : -1;
+    /* Readback verification */
+    uint8_t *verify = (uint8_t *)malloc(len);
+    if (!verify) return 0;  /* verification skipped if OOM, write succeeded */
+    int vfd = open(path, O_RDONLY);
+    if (vfd < 0) { free(verify); return -1; }
+    ssize_t r = read(vfd, verify, len);
+    close(vfd);
+    int ok = (r == (ssize_t)len && memcmp(verify, data, len) == 0);
+    free(verify);
+    return ok ? 0 : -1;
 }
 
 static int read_file(const char *path, void *buf, size_t len) {
@@ -111,20 +116,95 @@ static uint32_t file_checksum(const char *path) {
     return ~crc;
 }
 
+/* ── 从 manifest 读取指定字段的 CRC 字符串 ────────────────────── */
+static int read_crc_from_manifest(const char *field, char *out, size_t out_len) {
+    FILE *mf = fopen(PATH_MANIFEST, "r");
+    if (!mf) return -1;
+    int found = 0;
+    char line[256];
+    while (fgets(line, sizeof(line), mf)) {
+        char fname[64];
+        char crc_val[64];
+        if (sscanf(line, "  \"%64[^\"]\": \"0x%64[^\"]\"", fname, crc_val) == 2) {
+            if (strcmp(fname, field) == 0) {
+                snprintf(out, out_len, "%s", crc_val);
+                found = 1;
+                break;
+            }
+        }
+    }
+    fclose(mf);
+    return found ? 0 : -1;
+}
+
+/* ── 加载前 CRC 校验：失败时尝试 .bak 回退 ──────────────────── */
+static int verify_or_restore_bak(const char *path, const char *bak_path,
+                                  const char *crc_field) {
+    char expected_crc[64] = "";
+    if (read_crc_from_manifest(crc_field, expected_crc, sizeof(expected_crc)) != 0)
+        return -1;  /* 无 manifest → 无法校验 */
+    
+    uint32_t expected = (uint32_t)strtoul(expected_crc, NULL, 16);
+    if (expected == 0) return -1;
+    uint32_t actual = file_checksum(path);
+    
+    if (actual == expected)
+        return 0;  /* CRC 匹配，文件完好 */
+    
+    /* CRC 不匹配：尝试从 .bak 恢复 */
+    fprintf(stderr, "ps_verify: %s CRC mismatch (expected 0x%08X, got 0x%08X), trying .bak\n",
+            path, expected, actual);
+    
+    if (!bak_path || access(bak_path, F_OK) != 0)
+        return -1;  /* 无备份可用 */
+    
+    if (rename(bak_path, path) != 0)
+        return -1;
+    
+    /* 验证备份文件的 CRC */
+    actual = file_checksum(path);
+    if (actual == expected) {
+        fprintf(stderr, "ps_verify: restored %s from .bak\n", path);
+        return 0;
+    }
+    
+    fprintf(stderr, "ps_verify: .bak also corrupted for %s\n", path);
+    return -1;
+}
+
 /* ── Save ───────────────────────────────────────────────────────── */
+/* ── 事务提交标记：写入 .commit_tick 表示本次保存已完成 ──────── */
+static int write_commit_marker(uint32_t tick) {
+    char buf[16];
+    int n = snprintf(buf, sizeof(buf), "%u\n", tick);
+    if (n <= 0) return -1;
+    int fd = open(PATH_COMMIT, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return -1;
+    ssize_t w = write(fd, buf, (size_t)n);
+    fsync(fd);
+    close(fd);
+    return (w == n) ? 0 : -1;
+}
+
 int ps_save_all(const void *soul_buf, size_t soul_len) {
     if (ensure_dir() != 0) return -1;
 
+    /* 清除旧提交标记：如果后续崩溃，标记不存在 → 加载回退备份 */
+    unlink(PATH_COMMIT);
+
+    int any_failed = 0;
     int ok = 0;
 
     /* Save soul (from caller-provided buffer) */
     uint32_t soul_tick = 0;
     if (soul_buf && soul_len >= 4) {
         memcpy(&soul_tick, soul_buf, 4);
-        if (safe_write_file(PATH_SOUL, soul_buf, soul_len, PATH_BAK_SOUL) != 0)
+        if (safe_write_file(PATH_SOUL, soul_buf, soul_len, PATH_BAK_SOUL) != 0) {
             fprintf(stderr, "ps_save: soul failed\n");
-        else
+            any_failed = 1;
+        } else {
             ok++;
+        }
     } else {
         unlink(PATH_SOUL);
     }
@@ -177,6 +257,12 @@ int ps_save_all(const void *soul_buf, size_t soul_len) {
         ok++;
     }
 
+    /* 写入提交标记：manifest 写完后才写。如果之前有任何文件写失败，不提交 */
+    if (!any_failed && write_commit_marker(soul_tick) == 0)
+        ok++;
+    else if (any_failed)
+        fprintf(stderr, "ps_save: 核心文件写失败，跳过提交标记\n");
+
     return (ok >= 4) ? 0 : -1;
 }
 
@@ -184,23 +270,51 @@ int ps_save_all(const void *soul_buf, size_t soul_len) {
 int ps_restore_all(void) {
     if (access(PERSIST_DIR, F_OK) != 0) return 0;
 
+    /* 事务完整性检查：.commit_tick 不存在 → 上次保存未完成，回退备份 */
+    if (access(PATH_COMMIT, F_OK) != 0) {
+        fprintf(stderr, "ps_restore: 未检测到提交标记，尝试 .bak 恢复\n");
+        /* 尝试从 .bak 恢复所有文件 */
+        if (access(PATH_BAK_SOUL, F_OK) == 0) rename(PATH_BAK_SOUL, PATH_SOUL);
+        if (access(PATH_BAK_BB, F_OK) == 0) rename(PATH_BAK_BB, PATH_BB);
+        if (access(PATH_BAK_PARAMS, F_OK) == 0) rename(PATH_BAK_PARAMS, PATH_PARAMS);
+        if (access(PATH_BAK_RULES, F_OK) == 0) rename(PATH_BAK_RULES, PATH_RULES);
+    }
+
     int restored = 0;
 
-    /* Try blackboard */
+    /* Try blackboard — 带 CRC 校验 */
     uint8_t bb_buf[BB_SIZE];
     if (read_file(PATH_BB, bb_buf, BB_SIZE) == 0) {
-        memcpy((void *)BB_ADDR, bb_buf, BB_SIZE);
-        restored++;
+        if (verify_or_restore_bak(PATH_BB, PATH_BAK_BB, "bb_crc") == 0) {
+            /* 校验通过（或已从 .bak 恢复），重新读取 */
+            if (read_file(PATH_BB, bb_buf, BB_SIZE) == 0) {
+                memcpy((void *)BB_ADDR, bb_buf, BB_SIZE);
+                restored++;
+            }
+        } else {
+            /* 校验失败且无 .bak：直接加载（尽力而为） */
+            memcpy((void *)BB_ADDR, bb_buf, BB_SIZE);
+            restored++;
+            fprintf(stderr, "ps_restore: bb loaded without CRC verification\n");
+        }
     }
 
-    /* Try params */
+    /* Try params — 带 CRC 校验 */
     uint8_t param_buf[PARAM_DATA];
     if (read_file(PATH_PARAMS, param_buf, PARAM_DATA) == 0) {
-        memcpy((void *)(PARAM_ADDR + PARAM_OFF_DATA), param_buf, PARAM_DATA);
-        restored++;
+        if (verify_or_restore_bak(PATH_PARAMS, PATH_BAK_PARAMS, "params_crc") == 0) {
+            if (read_file(PATH_PARAMS, param_buf, PARAM_DATA) == 0) {
+                memcpy((void *)(PARAM_ADDR + PARAM_OFF_DATA), param_buf, PARAM_DATA);
+                restored++;
+            }
+        } else {
+            memcpy((void *)(PARAM_ADDR + PARAM_OFF_DATA), param_buf, PARAM_DATA);
+            restored++;
+            fprintf(stderr, "ps_restore: params loaded without CRC verification\n");
+        }
     }
 
-    /* Try rules — read manifest for rule count first */
+    /* Try rules — 从 manifest 读 rule_count + CRC 校验 */
     uint32_t rule_count = 0;
     FILE *mf = fopen(PATH_MANIFEST, "r");
     if (mf) {
@@ -216,11 +330,22 @@ int ps_restore_all(void) {
         size_t rule_bytes = (size_t)rule_count * RULE_STRUCT_SIZE;
         uint8_t *rule_buf = (uint8_t *)malloc(rule_bytes);
         if (rule_buf && read_file(PATH_RULES, rule_buf, rule_bytes) == 0) {
-            memcpy((void *)(RULE_ADDR + 0x10), rule_buf, rule_bytes);
-            memcpy((void *)(RULE_ADDR + 8), &rule_count, 4);
-            uint32_t magic = RULE_MAGIC;
-            memcpy((void *)(RULE_ADDR), &magic, 4);
-            restored++;
+            if (verify_or_restore_bak(PATH_RULES, PATH_BAK_RULES, "rules_crc") == 0) {
+                if (read_file(PATH_RULES, rule_buf, rule_bytes) == 0) {
+                    memcpy((void *)(RULE_ADDR + 0x10), rule_buf, rule_bytes);
+                    memcpy((void *)(RULE_ADDR + 8), &rule_count, 4);
+                    uint32_t magic = RULE_MAGIC;
+                    memcpy((void *)(RULE_ADDR), &magic, 4);
+                    restored++;
+                }
+            } else {
+                memcpy((void *)(RULE_ADDR + 0x10), rule_buf, rule_bytes);
+                memcpy((void *)(RULE_ADDR + 8), &rule_count, 4);
+                uint32_t magic = RULE_MAGIC;
+                memcpy((void *)(RULE_ADDR), &magic, 4);
+                restored++;
+                fprintf(stderr, "ps_restore: rules loaded without CRC verification\n");
+            }
         }
         free(rule_buf);
     }
@@ -321,10 +446,9 @@ void ps_emergency_save(void) {
     ps_emergency_done = 1;
     int fd = open(PATH_SOUL, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd >= 0) {
-        const void *src = (g_soul_buf && g_soul_buf_len >= SOUL_SIZE)
-                          ? g_soul_buf : (const void *)SOUL_ADDR_VAL;
-        write(fd, src, SOUL_SIZE);
-        fsync(fd);
+        if (g_soul_buf && g_soul_buf_len >= SOUL_SIZE) {
+            write(fd, g_soul_buf, SOUL_SIZE);
+        }
         close(fd);
     }
 }

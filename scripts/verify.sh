@@ -164,9 +164,67 @@ if [ -d "$PERSIST_DIR" ]; then
         fi
     done
 
-    # 如果有 core_golden.sha256，校验它
-    if [ -f "$PERSIST_DIR/core_golden.sha256" ]; then
-        warn "core_golden.sha256 存在（校验未实现 — 将在 #2 任务中完成）"
+    # 如果有 manifest.json，校验所有文件的 CRC
+    if [ -f "$PERSIST_DIR/manifest.json" ]; then
+        # 用 Python 解析 manifest 并校验每个文件
+        python3 -c "
+import json, os, struct, sys
+try:
+    with open('$PERSIST_DIR/manifest.json') as f:
+        manifest = json.load(f)
+except:
+    sys.exit(0)  # 首次运行无 manifest
+
+persist = '$PERSIST_DIR'
+errors = 0
+for field in ['soul_crc', 'bb_crc', 'params_crc', 'rules_crc']:
+    if field not in manifest:
+        continue
+    # 文件路径: soul_crc → soul.bin
+    fname = field.replace('_crc', '') + '.bin'
+    fpath = os.path.join(persist, fname)
+    if not os.path.exists(fpath):
+        continue
+    expected = int(manifest[field], 16) if isinstance(manifest[field], str) else manifest[field]
+    # 计算实际 CRC
+    crc = 0xFFFFFFFF
+    with open(fpath, 'rb') as f:
+        for chunk in iter(lambda: f.read(8192), b''):
+            for byte in chunk:
+                crc ^= byte
+                for _ in range(8):
+                    crc = (crc >> 1) ^ (0xEDB88320 if (crc & 1) else 0)
+    crc = ~crc & 0xFFFFFFFF
+    if crc != expected:
+        print(f'  \\u2717 {fname}: CRC不匹配 (实际0x{crc:08X}, 期望0x{expected:08X})')
+        errors += 1
+if errors == 0:
+    print(f'  所有 CRC 匹配 manifest')
+else:
+    print(f'  {errors} 个文件 CRC 异常')
+    sys.exit(1)
+" 2>&1 | while IFS= read -r line; do
+    if [[ "$line" == "  \\u2717"* ]]; then
+        fail "${line#  }"
+    elif [[ "$line" == "  所有"* ]]; then
+        pass "$line"
+    elif [[ "$line" == "  "*":"* ]]; then
+        warn "${line#  }"
+    fi
+done
+    else
+        warn "manifest.json 不存在 — 首次运行将自动创建"
+    fi
+
+    # 事务完整性：检查 .commit_tick
+    if [ -f "$PERSIST_DIR/.commit_tick" ]; then
+        tick=$(cat "$PERSIST_DIR/.commit_tick")
+        pass "事务标记存在 (.commit_tick tick=$tick)"
+    else
+        # 如果持久化文件存在但无提交标记，说明上次保存未完成
+        if ls "$PERSIST_DIR"/*.bin 2>/dev/null | head -1 > /dev/null 2>&1; then
+            warn "持久化文件存在但无 .commit_tick — 上次保存可能未完成（加载时回退备份）"
+        fi
     fi
 else
     warn "persist/ 目录不存在 — 首次运行将自动创建"

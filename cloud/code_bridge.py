@@ -308,7 +308,8 @@ class CodeModifierBridge:
                         occurrence: int = 1) -> bool:
         """
         替换 ASM 文件中的操作数。
-        通过临时 C 程序调用 code_modifier.c 的 asm_replace_operand。
+        通过 code_modifier.c 的 asm_replace_operand C 函数实现。
+        通过编译并运行临时 C 程序来操作 ASM 文件。
         """
         full_path: str = asm_file if asm_file.startswith("/") else os.path.join(BASE, asm_file.lstrip("./"))
         if not os.path.exists(full_path):

@@ -177,6 +177,8 @@ class FailurePattern:
             return False
         if self.avoid_params:
             for k, v in self.avoid_params.items():
+                if v == "*" and k in action_params:
+                    return True
                 if action_params.get(k) == v:
                     return True
             return False

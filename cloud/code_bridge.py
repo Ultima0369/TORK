@@ -260,27 +260,31 @@ class MCTSBridge:
     
     def send_mcts_action(self, mcts_type: int, param: int = 0) -> bool:
         """
-        通过 TorkAPI 向 C 引擎发送 MCTS 动作。
+        通过 persist/cloud_mcts_action.json 向 C 引擎发送 MCTS 动作。
         
-        目前通过 API 的 conversation 机制发送指令；
-        未来可扩展为通过持久化 mutation_guide.bin 直接注入。
+        C 侧的 mutation_guide.c 或 scheduler.c 在 idle tick 中
+        检查该文件是否存在，读取后作为 mg_recommend 的输入。
+        这建立了 Python 云端 → C 引擎的真实单向通信通道。
         """
-        if not self.api:
-            print(f"  [BRIDGE] API 不可用，无法发送 MCTS 动作")
-            return False
-        
+        import json as _json
         action_name: str = self.ACTION_NAMES.get(mcts_type, f"UNKNOWN({mcts_type})")
-        message: str = (
-            f"TORK 云端指令: 执行 MCTS 动作 {action_name} "
-            f"(type={mcts_type}, param={param:+d})"
-        )
+        action_file: str = os.path.join(BASE, "persist", "cloud_mcts_action.json")
+        
+        action_data: dict[str, object] = {
+            "mcts_type": mcts_type,
+            "param": param,
+            "action_name": action_name,
+            "timestamp": __import__("time").time(),
+        }
         
         try:
-            reply: str = self.api.ask_simple(message, temperature=0.2)
-            print(f"  [BRIDGE] MCTS {action_name} → 已发送")
+            os.makedirs(os.path.dirname(action_file), exist_ok=True)
+            with open(action_file, "w") as f:
+                _json.dump(action_data, f)
+            print(f"  [BRIDGE] MCTS {action_name} → 写入 cloud_mcts_action.json")
             return True
         except Exception as e:
-            print(f"  [BRIDGE] MCTS 发送失败: {e}")
+            print(f"  [BRIDGE] MCTS 写入失败: {e}")
             return False
     
     def generate_mcts_action_from_strategy(self, strategy: dict[str, Any]) -> bool:
@@ -418,9 +422,9 @@ class CodeModifierBridge:
                     new_lines.append(line)
                 else:
                     # ret 之后：跳过标签、注释、非指令行，删除指令行
-                    if stripped and stripped.startswith('\t') and \
-                       not stripped.startswith('\t.') and \
-                       not stripped.startswith('\t#'):
+                    if stripped and line.startswith('\t') and \
+                       not line.startswith('\t.') and \
+                       not line.startswith('\t#'):
                         deleted += 1
                         continue
                     new_lines.append(line)

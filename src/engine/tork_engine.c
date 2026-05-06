@@ -8,6 +8,8 @@
 #include "dispatch.h"
 #include "codegen.h"
 #include "scheduler.h"
+#include "beacon.h"
+#include "fractal.h"
 #include "../learning/experience.h"
 #include "../learning/branch.h"
 #include "../learning/pattern.h"
@@ -32,10 +34,15 @@
 #include <signal.h>
 #include <unistd.h>
 #include <sys/wait.h>
+// TORK_EVOLVE: engine_include_insert
+#include <sys/file.h>
 
 static pid_t core_pid = 0;
 static int do_restore = 0;
 static int restored_files = 0;
+static int golden_exists = 0;           /* 不可变：一旦生成，不再自动覆盖 */
+static int crc_fail_count = 0;          /* CRC 连续失败计数 */
+static int golden_observe_remaining = 0;/* 恢复后500拍内禁止变异 */
 
 static void cleanup_core(int sig) {
     (void)sig;
@@ -136,6 +143,12 @@ static void init_services(soul_t *soul) {
     if (dist_init() != 0)
         printf("  DIST: network unavailable (non-fatal, running solo)\n");
 
+    static peer_table_t beacon_peers;
+    if (beacon_init(&beacon_peers) == 0)
+        printf("  BEACON: peer discovery ready on port %d\n", BEACON_PORT);
+    else
+        printf("  BEACON: init failed (non-fatal)\n");
+
     if (grid_engine_init() == 0)
         printf("  GRID: soul shared memory ready at /dev/shm/tork_soul.bin\n");
     else
@@ -186,6 +199,113 @@ static void init_soul_fields(soul_t *soul) {
         soul_write_buf(soul, S_EXPERIENCE_COUNT, &ec, 4);
         soul_write_buf(soul, S_EXPERIENCE_SAVED, &ec, 4);
     }
+    {
+        /* S_NODE_ID: RDRAND + TSC + PID 生成唯一节点标识 */
+        uint8_t node_id[16];
+        memset(node_id, 0, 16);
+        uint64_t tsc;
+        __asm__ __volatile__("rdtsc" : "=A"(tsc));
+        memcpy(node_id, &tsc, 8);
+        uint32_t pid_val = (uint32_t)core_pid;
+        memcpy(node_id + 8, &pid_val, 4);
+        /* 尝试 RDRAND 增加熵 */
+        unsigned int rnd;
+        __asm__ __volatile__("1: rdrand %0; jnc 1b" : "=r"(rnd));
+        memcpy(node_id + 12, &rnd, 4);
+        soul_write_buf(soul, S_NODE_ID, node_id, 16);
+    }
+}
+
+/* ── CRC self-check with 3-strike fuse ── */
+static void check_soul_crc(soul_t *soul, int tick) {
+    soul_update_crc(soul);
+    if (tick <= 0 || tick % 100 != 0) return;
+
+    uint32_t computed = soul_compute_crc(soul);
+    uint32_t saved;
+    memcpy(&saved, soul->buf + S_CRC, 4);
+    float crc_input = (computed == saved) ? 0.0f : 1.0f;
+    float crc_ref   = 0.0f;
+    float crc_tol   = 0.33f;
+    float crc_wt    = 1.0f;
+    fractal_input_t finp = {
+        .dims = 1, .input = &crc_input, .reference = &crc_ref,
+        .tolerance = &crc_tol, .weights = &crc_wt
+    };
+    fractal_output_t fout = fractal_step(&finp, NULL, NULL);
+    if (fout.delta > 0.0f) {
+        crc_fail_count++;
+        fprintf(stderr, "[%4d] SOUL CRC MISMATCH (consecutive: %d/3, conf=%.2f)\n",
+                tick, crc_fail_count, fout.confidence);
+        if (crc_fail_count >= 3) {
+            fprintf(stderr, "[%4d] SOUL: 3 consecutive CRC failures — restoring golden backup\n", tick);
+            if (soul_restore_golden(soul, core_pid) == 0)
+                printf("[%4d] SOUL: golden restore succeeded — entering 500-tick observation\n", tick);
+            else
+                fprintf(stderr, "[%4d] SOUL: golden restore FAILED — awaiting external intervention\n", tick);
+        }
+    } else {
+        crc_fail_count = 0;
+    }
+}
+
+/* ── Build instinct input from soul fields ── */
+static instinct_input_t build_instinct_input(soul_t *soul) {
+    instinct_input_t inp = {
+        .tick     = soul_tick(soul),
+        .elapsed  = soul_elapsed(soul),
+        .expected = soul_expected(soul),
+        .hw_stress = soul_hw_stress(soul),
+        .mode     = soul_mode(soul),
+        .code_insns = soul_code_insns(soul),
+        .code_ctrl  = soul_code_ctrl(soul),
+        .code_mod_success = soul_code_mod_success(soul),
+        .code_opt_saved   = soul_code_opt_saved(soul),
+        .code_nop_count   = soul_code_nop_count(soul),
+        .fission_count    = soul_fission_count(soul),
+        .wins             = soul_wins(soul),
+        .bb_global_opts   = bb_global_optimizations(),
+        .params           = NULL,
+        .active_rules     = ind_active_count(),
+        .rule_applied     = 0,
+        .restored_files   = restored_files,
+        .save_success     = 0,
+        .idle_discoveries = 0,
+        .pattern_best_action = -1,
+        .pattern_confidence  = 0.0f,
+        .env_changed       = 0,
+    };
+    return inp;
+}
+
+/* ── Compute drive from instinct ── */
+static int compute_drive(tork_instinct_t *inst) {
+    int drive = (int)((inst->desire - inst->fear + inst->curiosity) * 100.0f);
+    if (drive > 127) drive = 127;
+    if (drive < -128) drive = -128;
+    return drive;
+}
+
+/* ── Pattern query ── */
+static void query_pattern(soul_t *soul, instinct_input_t *inp, int quiet) {
+    float pat_conf = 0.0f;
+    int8_t prev_drive = soul_drive(soul);
+    int pat_action = pat_query_best_action(inp->hw_stress,
+        prev_drive, inp->fission_count, &pat_conf);
+    if (pat_action >= 0 && pat_conf > 0.0f) {
+        inp->pattern_best_action = pat_action;
+        inp->pattern_confidence  = pat_conf;
+        if (!quiet) printf("  PATTERN: action=%d conf=%.3f (drive=%d)\n", pat_action, pat_conf, (int)prev_drive);
+    }
+}
+
+/* ── Sync heartbeat interval to soul ── */
+static void sync_heartbeat(soul_t *soul, int tick) {
+    uint16_t hb = (uint16_t)tune_get_params().heartbeat_interval;
+    int rc = soul_set_heartbeat_ms(soul, hb);
+    if (rc != 0 && tick < 3) {
+        fprintf(stderr, "WARN: soul_set_heartbeat_ms(%u) failed (rc=%d)\n", hb, rc);
+    }
 }
 
 /* ── Main ── */
@@ -228,7 +348,7 @@ int main(int argc, char **argv) {
     init_soul_fields(&soul);
 
     printf("TORK engine started. core PID=%d\n", core_pid);
-    printf("TORK v3.16 | π-heartbeat | generation at 0x54 | learn at 0x4C\n");
+    printf("TORK v3.17 | π-heartbeat | generation at 0x54 | learn at 0x4C\n");
     printf("polling %dms | code 200 | modify 10 | optimize 30 | nop 50 | fission 1000 | persist 1000\n\n",
            tune_get_params().heartbeat_interval);
 
@@ -251,73 +371,33 @@ int main(int argc, char **argv) {
             break;
         }
 
-        /* Build instinct input */
-        instinct_input_t inp = {
-            .tick     = soul_tick(&soul),
-            .elapsed  = soul_elapsed(&soul),
-            .expected = soul_expected(&soul),
-            .hw_stress = soul_hw_stress(&soul),
-            .mode     = soul_mode(&soul),
-            .code_insns = soul_code_insns(&soul),
-            .code_ctrl  = soul_code_ctrl(&soul),
-            .code_mod_success = soul_code_mod_success(&soul),
-            .code_opt_saved   = soul_code_opt_saved(&soul),
-            .code_nop_count   = soul_code_nop_count(&soul),
-            .fission_count    = soul_fission_count(&soul),
-            .wins             = soul_wins(&soul),
-            .bb_global_opts   = bb_global_optimizations(),
-            .params           = NULL,
-            .active_rules     = ind_active_count(),
-            .rule_applied     = 0,
-            .restored_files   = restored_files,
-            .save_success     = 0,
-            .idle_discoveries = 0,
-            .pattern_best_action = -1,
-            .pattern_confidence  = 0.0f,
-            .env_changed       = 0,
-        };
+        check_soul_crc(&soul, i);
 
-        /* Evaluate instinct */
+        if (!golden_exists && i > 0 && i % 10 == 0)
+            soul_save_golden(&soul, core_pid);
+
+        if (golden_observe_remaining > 0)
+            golden_observe_remaining--;
+
+        instinct_input_t inp = build_instinct_input(&soul);
         tork_instinct_t inst = instinct_evaluate(&inp);
-        int drive = (int)((inst.desire - inst.fear + inst.curiosity) * 100.0f);
-        if (drive > 127) drive = 127;
-        if (drive < -128) drive = -128;
+        int drive = compute_drive(&inst);
         soul_set_drive(&soul, (int8_t)drive);
 
-        /* Pattern query */
-        {
-            float pat_conf = 0.0f;
-            int8_t prev_drive = soul_drive(&soul);
-            int pat_action = pat_query_best_action(inp.hw_stress,
-                prev_drive, inp.fission_count, &pat_conf);
-            if (pat_action >= 0 && pat_conf > 0.0f) {
-                inp.pattern_best_action = pat_action;
-                inp.pattern_confidence  = pat_conf;
-                if (!quiet) printf("  PATTERN: action=%d conf=%.3f (drive=%d)\n", pat_action, pat_conf, (int)prev_drive);
-            }
-        }
+        query_pattern(&soul, &inp, quiet);
 
-        /* Fill scheduler context for this tick */
         sched.round = i;
         sched.inp = inp;
         sched.inst = inst;
+        sched.golden_observe_remaining = golden_observe_remaining;
         sched.drive = drive;
 
-        /* Single entry point for all periodic tasks */
         scheduler_tick(&sched);
 
-        /* Sync back any changes scheduler made */
         drive = sched.drive;
         inp = sched.inp;
 
-        /* 大脑改写心跳常量：将决策节奏同步到ASM心跳 */
-        {
-            uint16_t hb = (uint16_t)tune_get_params().heartbeat_interval;
-            int rc = soul_set_heartbeat_ms(&soul, hb);
-            if (rc != 0 && i < 3) {
-                fprintf(stderr, "WARN: soul_set_heartbeat_ms(%u) failed (rc=%d)\n", hb, rc);
-            }
-        }
+        sync_heartbeat(&soul, i);
 
         usleep(tune_get_params().heartbeat_interval * 1000);
     }
@@ -335,21 +415,243 @@ int main(int argc, char **argv) {
     bb_cleanup();
     self_cal_save();
     ind_cleanup();
+    beacon_shutdown();
     soul_close(&soul);
     return 0;
 }
 
-int soul_verify(soul_t *s) {
-    uint8_t tmp[SOUL_SIZE];
-    memcpy(tmp, s->buf, SOUL_SIZE);
-    uint32_t saved_crc;
-    memcpy(&saved_crc, tmp + S_CRC, 4);
-    memset(tmp + S_CRC, 0, 4);
+/* ── CRC32 计算 (多项式 0xEDB88320) ────────────────────────── */
+
+static uint32_t soul_crc32_raw(const uint8_t *buf, int len) {
     uint32_t crc = 0xFFFFFFFF;
-    for (int i = 0; i < SOUL_SIZE; i++) {
-        crc ^= tmp[i];
+    for (int i = 0; i < len; i++) {
+        crc ^= buf[i];
         for (int b = 0; b < 8; b++)
             crc = (crc >> 1) ^ ((crc & 1) ? 0xEDB88320 : 0);
     }
-    return (~crc == saved_crc) ? 1 : 0;
+    return ~crc;
+}
+
+uint32_t soul_compute_crc(const soul_t *s) {
+    uint8_t tmp[SOUL_SIZE];
+    memcpy(tmp, s->buf, SOUL_SIZE);
+    memset(tmp + S_CRC, 0, 4);
+    return soul_crc32_raw(tmp, SOUL_SIZE);
+}
+
+void soul_update_crc(soul_t *s) {
+    uint32_t crc = soul_compute_crc(s);
+    memcpy(s->buf + S_CRC, &crc, 4);
+    soul_write_buf(s, S_CRC, &crc, 4);
+}
+
+int soul_verify_crc(const soul_t *s) {
+    uint32_t computed = soul_compute_crc(s);
+    uint32_t saved;
+    memcpy(&saved, s->buf + S_CRC, 4);
+    return (computed == saved) ? 1 : 0;
+}
+
+int soul_verify(soul_t *s) {
+    return soul_verify_crc(s);
+}
+
+/* ── 黄金备份 ─────────────────────────────────────────────── */
+
+#define GOLDEN_DIR  "persist"
+#define GOLDEN_PATH "persist/soul_golden.bin"
+#define GOLDEN_LOCK "persist/soul_golden.lock"
+
+/* ── 黄金备份锁文件 ─────────────────────────────────────── */
+static int golden_lock_fd = -1;
+
+static int golden_lock(void) {
+    golden_lock_fd = open(GOLDEN_LOCK, O_WRONLY | O_CREAT, 0600);
+    if (golden_lock_fd < 0) return -1;
+    if (flock(golden_lock_fd, LOCK_EX | LOCK_NB) != 0) {
+        close(golden_lock_fd);
+        golden_lock_fd = -1;
+        return -1;
+    }
+    return 0;
+}
+
+static void golden_unlock(void) {
+    if (golden_lock_fd >= 0) {
+        flock(golden_lock_fd, LOCK_UN);
+        close(golden_lock_fd);
+        golden_lock_fd = -1;
+    }
+}
+
+/* ── 黄金备份健康检查 ───────────────────────────────────── */
+static int golden_health_ok(soul_t *s) {
+    int8_t drive = (int8_t)s->buf[S_DRIVE];
+    if (drive < -10 || drive > 10) return 0;
+    if (s->buf[S_HW_STRESS] != 0) return 0;
+    if (!soul_verify_crc(s)) return 0;
+    return 1;
+}
+
+int soul_save_golden(soul_t *s, pid_t core_pid) {
+    /* 不可变原则：黄金备份一旦存在，不再自动覆盖 */
+    if (golden_exists) return 0;
+
+    /* 健康门槛：drive[-10,10], stress=0, CRC通过 */
+    if (!golden_health_ok(s)) return -1;
+
+    /* 锁文件 */
+    if (golden_lock() != 0) return -1;
+
+    /* 双重确认 tick 稳定 — 在 ptrace 之前读取 */
+    soul_read(s);
+    uint32_t tick1;
+    memcpy(&tick1, s->buf + S_TICK, 4);
+    usleep(1000);
+    soul_read(s);
+    uint32_t tick2;
+    memcpy(&tick2, s->buf + S_TICK, 4);
+    if (tick1 != tick2) { golden_unlock(); return -1; }
+
+    /* tick 稳定后 ptrace 锁定 */
+    if (ptrace(PTRACE_ATTACH, core_pid, NULL, NULL) != 0) {
+        golden_unlock(); return -1;
+    }
+    waitpid(core_pid, NULL, 0);
+
+    /* 读取完整灵魂快照 */
+    soul_read(s);
+
+    /* 释放 */
+    ptrace(PTRACE_DETACH, core_pid, NULL, NULL);
+
+    /* 计算 CRC 并填入 */
+    soul_update_crc(s);
+
+    /* 存盘 + 回读验证 (最多3次) */
+    for (int attempt = 0; attempt < 3; attempt++) {
+        char tmp_path[256];
+        snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", GOLDEN_PATH);
+        int fd = open(tmp_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (fd < 0) continue;
+        ssize_t w = write(fd, s->buf, SOUL_SIZE);
+        fsync(fd);
+        close(fd);
+        if (w != SOUL_SIZE) { unlink(tmp_path); continue; }
+        if (rename(tmp_path, GOLDEN_PATH) != 0) { unlink(tmp_path); continue; }
+
+        /* 回读验证 */
+        uint8_t verify_buf[SOUL_SIZE];
+        fd = open(GOLDEN_PATH, O_RDONLY);
+        if (fd < 0) continue;
+        ssize_t r = read(fd, verify_buf, SOUL_SIZE);
+        close(fd);
+        if (r != SOUL_SIZE) continue;
+        if (memcmp(s->buf, verify_buf, SOUL_SIZE) == 0) {
+            golden_exists = 1;
+            golden_unlock();
+            return 0;
+        }
+    }
+    golden_unlock();
+    return -1;
+}
+
+int soul_restore_golden(soul_t *s, pid_t core_pid) {
+    /* 锁文件 */
+    if (golden_lock() != 0) return -1;
+
+    /* 1. 读盘 + CRC 校验 */
+    uint8_t golden_buf[SOUL_SIZE];
+    int fd = open(GOLDEN_PATH, O_RDONLY);
+    if (fd < 0) { golden_unlock(); return -1; }
+    ssize_t r = read(fd, golden_buf, SOUL_SIZE);
+    close(fd);
+    if (r != SOUL_SIZE) { golden_unlock(); return -1; }
+
+    /* CRC 校验 */
+    uint32_t saved_crc;
+    memcpy(&saved_crc, golden_buf + S_CRC, 4);
+    memset(golden_buf + S_CRC, 0, 4);
+    uint32_t computed_crc = soul_crc32_raw(golden_buf, SOUL_SIZE);
+    if (computed_crc != saved_crc) {
+        fprintf(stderr, "SOUL: golden backup CRC mismatch — aborting restore\n");
+        golden_unlock();
+        return -1;
+    }
+
+    /* 2. ptrace 锁定 */
+    if (ptrace(PTRACE_ATTACH, core_pid, NULL, NULL) != 0) {
+        golden_unlock(); return -1;
+    }
+    waitpid(core_pid, NULL, 0);
+
+    /* 3. 逐字节回写 + 逐字节回读验证（核心已被 ptrace 挂起，用 _locked 变体）
+       每字节最多重试3次 */
+    for (int off = 0; off < SOUL_SIZE; off++) {
+        /* 跳过 CRC 字段本身 (0x28-0x2B) — 最后单独写 */
+        if (off >= S_CRC && off < S_CRC + 4) continue;
+
+        uint8_t val = golden_buf[off];
+        int byte_ok = 0;
+        for (int retry = 0; retry < 3; retry++) {
+            if (soul_write_byte_locked(s, (uint32_t)off, val) != 0) break;
+            /* 回读验证 */
+            if (lseek(s->mem_fd, SOUL_ADDR_VAL + off, SEEK_SET) != (off_t)-1) {
+                uint8_t rb;
+                if (read(s->mem_fd, &rb, 1) == 1 && rb == val) {
+                    byte_ok = 1;
+                    break;
+                }
+            }
+        }
+        if (!byte_ok) {
+            fprintf(stderr, "SOUL: restore verify fail at offset 0x%02X after 3 retries\n", off);
+            ptrace(PTRACE_DETACH, core_pid, NULL, NULL);
+            golden_unlock();
+            return -1;
+        }
+    }
+
+    /* 4. 重置：drive=0, hw_stress=0, mode=0 */
+    uint8_t zero8 = 0;
+    soul_write_byte_locked(s, S_DRIVE, zero8);
+    soul_write_byte_locked(s, S_HW_STRESS, zero8);
+    soul_write_byte_locked(s, S_MODE, zero8);
+
+    /* 5. TLN 强制悬置：所有 hint 归零 */
+    soul_write_byte_locked(s, S_TLN_ACTION, zero8);
+    soul_write_byte_locked(s, S_TLN_MODIFY, zero8);
+    soul_write_byte_locked(s, S_TLN_EXPLORE, zero8);
+    soul_write_byte_locked(s, S_TLN_ENERGY, zero8);
+
+    /* 写入 CRC */
+    uint32_t crc = soul_crc32_raw(golden_buf, SOUL_SIZE);
+    soul_write_buf_locked(s, S_CRC, &crc, 4);
+
+    /* 6. 释放 */
+    ptrace(PTRACE_DETACH, core_pid, NULL, NULL);
+
+    /* 同步本地缓存 */
+    memcpy(s->buf, golden_buf, SOUL_SIZE);
+    s->buf[S_DRIVE] = 0;
+    s->buf[S_HW_STRESS] = 0;
+    s->buf[S_MODE] = 0;
+    s->buf[S_TLN_ACTION] = 0;
+    s->buf[S_TLN_MODIFY] = 0;
+    s->buf[S_TLN_EXPLORE] = 0;
+    s->buf[S_TLN_ENERGY] = 0;
+    memcpy(s->buf + S_CRC, &crc, 4);
+
+    /* 7. 记录经验：action_type=7 (golden_restore) */
+    uint32_t cur_tick;
+    memcpy(&cur_tick, s->buf + S_TICK, 4);
+    exp_record(cur_tick, 0, 0, 0, 7, 0, 100, 0, 0, 0, 0);
+
+    /* 8. 进入500拍观察期 */
+    golden_observe_remaining = 500;
+    crc_fail_count = 0;
+
+    golden_unlock();
+    return 0;
 }

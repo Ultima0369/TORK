@@ -41,6 +41,8 @@ typedef struct {
     int tln_explore_hint;
     int tln_energy_hint;
     int tln_enabled;           /* 0=关, 1=开 */
+    int heartbeat_fastened;    /* P0-1: 心跳已加速标志 */
+    int observe_cooldown;      /* P0-1: 观察超时后冷却 tick 数 */
     uint8_t        feedback_hw_before;
     int8_t         feedback_drive_before;
 
@@ -52,6 +54,9 @@ typedef struct {
     /* rhythm */
     rhythm_tracker_t rhythm;
     int            rhythm_inited;
+
+    /* golden restore observation */
+    int            golden_observe_remaining;
 } sched_ctx_t;
 
 void scheduler_init(sched_ctx_t *ctx, soul_t *soul, int quiet);

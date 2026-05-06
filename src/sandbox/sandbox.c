@@ -45,6 +45,7 @@ static const char *exec_cmds[] = {
     "python3", "python", "node", "deno", "go", "rustc",
     "as", "ld", "ar", "nm", "objdump", "strip",
     "perl", "ruby", "lua", "php",
+    // TORK_EVOLVE: sandbox_devtools_insert
     "sh", "bash", "zsh", "fish",
     NULL
 };
@@ -125,6 +126,7 @@ int sandbox_allowed(const char *command) {
     ssize_t n = read(fd, &ag, sizeof(ag));
     close(fd);
     if (n != sizeof(ag)) return 0;
+    if (ag.magic != AGREEMENT_MAGIC) return 0;
     if (ag.state != AGREE_ACCEPTED) return 0;
     level = ag.sandbox;
 
@@ -172,6 +174,18 @@ sandbox_result_t sandbox_exec(const char *command, int timeout_sec) {
         snprintf(result.stderr_buf, SANDBOX_MAX_STDERR,
             "TORK Sandbox: command not authorized at current permission level.");
         return result;
+    }
+
+    /* Reject shell metacharacters to prevent injection (e.g. "cat f; rm -rf /") */
+    for (const char *p = command; *p; p++) {
+        if (*p == ';' || *p == '|' || *p == '&' || *p == '$' ||
+            *p == '`' || *p == '>' || *p == '<' || *p == '(' || *p == ')' ||
+            *p == '\n' || *p == '\r' || *p == '{' || *p == '}' || *p == '\\') {
+            result.exit_code = 403;
+            snprintf(result.stderr_buf, SANDBOX_MAX_STDERR,
+                "TORK Sandbox: shell metacharacters not allowed.");
+            return result;
+        }
     }
 
     int stdout_pipe[2], stderr_pipe[2];
@@ -247,7 +261,7 @@ sandbox_result_t sandbox_exec(const char *command, int timeout_sec) {
         remaining--;
     }
 
-    if (remaining <= 0) {
+    if (remaining <= 0 || timed_out) {
         kill(pid, SIGKILL);
         for (;;) {
             pid_t wr = waitpid(pid, NULL, 0);
@@ -256,6 +270,17 @@ sandbox_result_t sandbox_exec(const char *command, int timeout_sec) {
         }
         timed_out = 1;
         result.exit_code = -1;
+    } else {
+        /* select() error path: ensure child is reaped */
+        int status;
+        pid_t wp = waitpid(pid, &status, WNOHANG);
+        if (wp == 0) {
+            /* Child still running — kill it */
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);
+            timed_out = 1;
+            result.exit_code = -1;
+        }
     }
 
     /* 排空残留输出 */

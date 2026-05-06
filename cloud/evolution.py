@@ -8,7 +8,7 @@ TORK 自我进化引擎 v2.3 — DeepSeek 战略指导 + 适应度反馈循环
   - 适应度反馈：记录变异"存活时间"，优胜劣汰
 """
 
-import json, os, sys, time, subprocess, shutil, re
+import json, os, sys, time, subprocess, shutil, re, logging
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(BASE, 'api'))
@@ -30,7 +30,7 @@ class TorkEvolution:
             from tork_api import TorkAPI
             self.api = TorkAPI()
             self.api.timeout = 30
-        except:
+        except Exception:
             self.api = None
 
     def _load_json(self, path, default):
@@ -38,7 +38,7 @@ class TorkEvolution:
             try:
                 with open(path) as f:
                     return json.load(f)
-            except:
+            except (json.JSONDecodeError, OSError):
                 pass
         return default
 
@@ -83,7 +83,7 @@ class TorkEvolution:
                             'total_attempts': struct.unpack_from('I', data, 0x8F0)[0],
                             'total_successes': struct.unpack_from('I', data, 0x8F4)[0],
                         }
-            except:
+            except (json.JSONDecodeError, OSError):
                 pass
 
         files_info = []
@@ -129,7 +129,7 @@ Give ONE concrete suggestion, focused on instinct/self-monitoring/code analysis.
         try:
             reply = self.api.ask_simple(prompt, temperature=0.3)
             return reply.strip()
-        except:
+        except Exception:
             return None
 
     def _pick_mutation_strategy(self, assessment):
@@ -146,95 +146,243 @@ Give ONE concrete suggestion, focused on instinct/self-monitoring/code analysis.
             {"file": "src/instinct/instinct.c", "description": "conservative_cycle -5", "mutagen": "cycle", "apply": self._mutate_cycle_faster},
             {"file": "src/instinct/instinct.c", "description": "conservative_cycle +5", "mutagen": "cycle", "apply": self._mutate_cycle_slower},
         ]
-        idx = gen % len(strategies)
-        strategy = strategies[idx]
-        if self.fitness["best_mutagen"]:
-            for s in strategies:
-                if s["mutagen"] == self.fitness["best_mutagen"]:
-                    if gen > 0 and gen % 5 != 0:
-                        strategy = s
+        # 适应度加权选择：按历史存活分数选策略，而非轮询
+        mutagen_scores = self._compute_mutagen_scores()
+
+        # 过滤掉被冷冻的策略（frozen value > 当前 generation 表示仍在冻结期）
+        gen = assessment["generation"]
+        frozen = self.fitness.get("frozen", {})
+        available = []
+        for s in strategies:
+            mid = s["mutagen"]
+            if mid not in frozen or frozen[mid] <= gen:
+                # 已过期或未冻结，从冻结列表中清除
+                if mid in frozen and frozen[mid] <= gen:
+                    del frozen[mid]
+                available.append(s)
+
+        if not available:
+            # 所有策略都被冷冻，解冻最低分的
+            available = strategies
+
+        # 濒危剪枝：每100轮淘汰最低10%
+        gen = assessment["generation"]
+        if gen > 0 and gen % 100 == 0:
+            self._mark_endangered(mutagen_scores, gen)
+            self._prune_endangered(gen)
+
+        import random
+        if mutagen_scores:
+            # Top 10% elite preservation: directly select the best strategy
+            sorted_available = sorted(available, key=lambda s: mutagen_scores.get(s["mutagen"], 0), reverse=True)
+            elite_cutoff = max(1, len(sorted_available) // 10)
+            if random.random() < 0.1 and sorted_available:
+                # 10% chance: pick from top 10% elite
+                return random.choice(sorted_available[:elite_cutoff])
+        # 90%: weighted random selection proportional to fitness
+        weights = [max(mutagen_scores.get(s["mutagen"], 1.0), 0.01) for s in available]
+        total = sum(weights)
+        r = random.uniform(0, total)
+        cumulative = 0.0
+        for i, w in enumerate(weights):
+            cumulative += w
+            if r <= cumulative:
+                return available[i]
+        return available[gen % len(available)]
+
+    def _compute_mutagen_scores(self):
+        """适应度公式: (存活心跳数 × 0.6 + 语法正确(0/1) × 0.4) × 衰减因子
+        衰减因子 = fitness 字段（由 _apply_fitness_decay 维护的半衰期指数衰减）
+        这是代码世界唯一承认的"好" """
+        scores = {}
+        for entry in self.fitness["history"]:
+            m = entry.get("mutagen", "unknown")
+            survived = entry.get("survived", False)
+            survival_ticks = entry.get("survival_ticks", 0)
+            compile_ok = entry.get("compile_ok", 1 if survived else 0)
+            decay = entry.get("fitness", 1.0)  # 半衰期衰减因子
+            if m not in scores:
+                scores[m] = 0.0
+            # fitness = (survival_ticks × 0.6 + compile_ok × 0.4) × decay
+            score = (survival_ticks * 0.6 + compile_ok * 0.4) * decay
+            if survived:
+                scores[m] += score
+            else:
+                scores[m] -= 0.5 * decay
+        return scores
+
+    def _mark_endangered(self, scores, gen):
+        """每100轮：得分最低的10%策略标记为濒危（持久化到 fitness.json）"""
+        if "endangered" not in self.fitness:
+            self.fitness["endangered"] = {}
+        if not scores:
+            return
+        sorted_mutagens = sorted(scores.items(), key=lambda x: x[1])
+        cutoff = max(1, len(sorted_mutagens) // 10)
+        for m, s in sorted_mutagens[:cutoff]:
+            self.fitness["endangered"][m] = gen
+        self._save_fitness()
+
+    def _prune_endangered(self, gen):
+        """200轮后濒危策略未改善则彻底移除：删除归档条目和代码文件"""
+        if "endangered" not in self.fitness:
+            return
+        to_remove = []
+        for m, mark_gen in list(self.fitness["endangered"].items()):
+            if gen - mark_gen >= 200:
+                # 检查是否改善
+                scores = self._compute_mutagen_scores()
+                if scores.get(m, 0) <= 0:
+                    to_remove.append(m)
+        for m in to_remove:
+            del self.fitness["endangered"][m]
+            # 移除该 mutagen 的 fitness 历史条目
+            self.fitness["history"] = [
+                e for e in self.fitness["history"] if e.get("mutagen") != m
+            ]
+            # 删除该 mutagen 的归档 diff 文件
+            for fname in os.listdir(MUTATION_DIR):
+                if m in fname:
+                    try:
+                        os.unlink(os.path.join(MUTATION_DIR, fname))
+                    except OSError:
+                        pass
+            print(f"  [EVO] Pruned extinct strategy: {m}")
+        if to_remove:
+            self._save_fitness()
+
+    def _apply_fitness_decay(self, mutagen, factor):
+        """半衰期指数衰减: fitness = fitness × (0.5 ^ (ticks_since_last_success / half_life))
+        factor 参数在此处作为 half_life 的语义：factor=0.5 表示半衰期=1次失败
+        连续失败越多，衰减越剧烈——不是一次性砍半，而是指数坍缩"""
+        HALF_LIFE = 3  # 每3次连续失败，权重减半
+        for entry in self.fitness["history"]:
+            if entry.get("mutagen") == mutagen and not entry.get("compile_ok", True):
+                # 计算该条目以来该 mutagen 的连续失败次数
+                consecutive_fails = 0
+                for e in reversed(self.fitness["history"]):
+                    if e.get("mutagen") == mutagen:
+                        if not e.get("compile_ok", True):
+                            consecutive_fails += 1
+                        else:
+                            break
+                    else:
                         break
-        return strategy
+                # 指数衰减: 0.5^(fails/half_life)
+                decay = 0.5 ** (consecutive_fails / HALF_LIFE)
+                entry["fitness"] = entry.get("fitness", 1.0) * decay
+        self._save_fitness()
 
-    # ── Mutation implementations ──
+    def _check_freeze_strategy(self, mutagen, gen):
+        """连续3次编译失败 → 冷冻100轮"""
+        if "frozen" not in self.fitness:
+            self.fitness["frozen"] = {}
+        # 计算该 mutagen 的连续失败次数
+        fail_streak = 0
+        for entry in reversed(self.fitness["history"]):
+            if entry.get("mutagen") == mutagen:
+                if not entry.get("survived", False):
+                    fail_streak += 1
+                else:
+                    break
+            else:
+                break
+        if fail_streak >= 3:
+            self.fitness["frozen"][mutagen] = gen + 100
+            self._save_fitness()
+            print(f"  [EVO] Strategy {mutagen} frozen for 100 rounds (3 consecutive failures)")
 
-    def _modulate_struct_value(self, filepath, field, delta):
-        """Modulate a C struct initializer field by delta."""
+    # ── TORK_EVOLVE marker injection ──
+
+    def inject_at_marker(self, filepath, marker_name, protocol, new_code):
+        """Inject code at a TORK_EVOLVE marker in a C source file.
+
+        Protocols:
+          INSERT_BEFORE — insert new_code on the line before the marker
+          INSERT_AFTER  — insert new_code on the line after the marker
+          REPLACE_LINE  — replace the marker line with new_code
+          MODIFY_VALUE  — modify a numeric value on the marker line
+
+        Double-injection guard: checks if the previous/next line already
+        contains the injection signature (evo_injected comment).
+        """
         with open(filepath, 'r') as f:
-            content = f.read()
-        pattern = rf'(\.{re.escape(field)}\s*=\s*)(\d+)(,)'
-        match = re.search(pattern, content)
-        if not match:
+            lines = f.readlines()
+
+        marker_line = None
+        for i, line in enumerate(lines):
+            if f'TORK_EVOLVE: {marker_name}' in line:
+                marker_line = i
+                break
+
+        if marker_line is None:
+            print(f"  [EVO] Marker '{marker_name}' not found in {filepath}")
             return False
-        old_val = int(match.group(2))
-        new_val = max(0, old_val + delta)
-        content = re.sub(pattern, lambda m: m.group(1) + str(new_val) + m.group(3), content, count=1)
+
+        # Double-injection guard
+        guard_sig = '/* evo_injected */'
+        if protocol in ('INSERT_BEFORE', 'INSERT_AFTER'):
+            check_idx = marker_line - 1 if protocol == 'INSERT_BEFORE' else marker_line + 1
+            if 0 <= check_idx < len(lines) and guard_sig in lines[check_idx]:
+                print(f"  [EVO] Marker '{marker_name}' already has injection — skipping")
+                return False
+
+        if protocol == 'INSERT_BEFORE':
+            lines.insert(marker_line, new_code + '\n')
+        elif protocol == 'INSERT_AFTER':
+            lines.insert(marker_line + 1, new_code + '\n')
+        elif protocol == 'REPLACE_LINE':
+            lines[marker_line] = new_code + '\n'
+        elif protocol == 'MODIFY_VALUE':
+            # Find numeric value on marker line and modify it
+            nums = re.findall(r'[\d.]+', lines[marker_line])
+            if not nums:
+                print(f"  [EVO] No numeric value found on marker line")
+                return False
+            old_val = float(nums[-1])
+            new_val = old_val + float(new_code)
+            lines[marker_line] = re.sub(r'[\d.]+$', str(int(new_val)), lines[marker_line])
+        else:
+            print(f"  [EVO] Unknown protocol: {protocol}")
+            return False
+
         with open(filepath, 'w') as f:
-            f.write(content)
-        print(f"  [EVO] {field}: {old_val} -> {new_val}")
+            f.writelines(lines)
+        print(f"  [EVO] Injected at '{marker_name}' ({protocol})")
         return True
 
     def _mutate_instinct_cloud(self, filepath):
-        with open(filepath) as f:
-            content = f.read()
-        old = "    return inst;"
-        new = "    /* v2.3: cloud collaboration awareness */\n    if (in->code_mod_success == 1)\n        inst.curiosity += 0.12f * cw;\n\n    return inst;"
-        if old in content:
-            content = content.replace(old, new, 1)
-            with open(filepath, 'w') as f:
-                f.write(content)
-            return True
-        return False
+        return self.inject_at_marker(filepath, 'instinct_return_before', 'INSERT_BEFORE',
+            '    /* evo_injected */ if (in->code_mod_success == 1) inst.curiosity += 0.12f * cw;')
 
     def _mutate_engine_latency(self, filepath):
-        with open(filepath) as f:
-            content = f.read()
-        time_inc = '#include <sys/time.h>'
-        if time_inc not in content:
-            content = content.replace('#include <sys/wait.h>', '#include <sys/wait.h>\n' + time_inc)
-        target = "int rc = soul_read(&soul);"
-        if target in content:
-            replacement = "int rc = soul_read(&soul);\n        /* v2.3: soul read latency */\n        static struct timeval soul_read_tv = {0};\n        if (rc == 0) gettimeofday(&soul_read_tv, NULL);"
-            content = content.replace(target, replacement, 1)
-            with open(filepath, 'w') as f:
-                f.write(content)
-            return True
-        return False
+        # Uses engine_include_insert for the #include, then soul_read line
+        rc1 = self.inject_at_marker(filepath, 'engine_include_insert', 'INSERT_AFTER',
+            '#include <sys/time.h> /* evo_injected */')
+        # The soul_read line is in main loop, no marker — use string fallback
+        if rc1:
+            with open(filepath, 'r') as f:
+                content = f.read()
+            target = "int rc = soul_read(&soul);"
+            if target in content and 'soul_read_tv' not in content:
+                replacement = target + '\n        /* evo_injected */ static struct timeval soul_read_tv = {0}; if (rc == 0) gettimeofday(&soul_read_tv, NULL);'
+                content = content.replace(target, replacement, 1)
+                with open(filepath, 'w') as f:
+                    f.write(content)
+                return True
+        return rc1
 
     def _mutate_sandbox_devtools(self, filepath):
-        with open(filepath) as f:
-            content = f.read()
-        target = '"fish",'
-        if target in content:
-            content = content.replace(target, '"fish",\n    "docker", "podman", "flatpak",\n    "pip3", "npm", "cargo",\n    "gdb", "valgrind", "strace", "perf",')
-            with open(filepath, 'w') as f:
-                f.write(content)
-            return True
-        return False
+        return self.inject_at_marker(filepath, 'sandbox_devtools_insert', 'INSERT_AFTER',
+            '    "docker", "podman", "flatpak", "pip3", "npm", "cargo", "gdb", "valgrind", "strace", "perf", /* evo_injected */')
 
     def _mutate_engine_rounds(self, filepath):
-        with open(filepath) as f:
-            content = f.read()
-        marker = 'rounds_since_mod = 0;'
-        if marker in content:
-            new_code = marker + '\n            /* v2.3: self-awareness counter */ static int total_rounds = 0; total_rounds++;'
-            content = content.replace(marker, new_code, 1)
-            with open(filepath, 'w') as f:
-                f.write(content)
-            return True
-        return False
+        return self.inject_at_marker(filepath, 'engine_rounds_insert', 'INSERT_BEFORE',
+            '            /* evo_injected */ static int total_rounds = 0; total_rounds++;')
 
     def _mutate_instinct_gen(self, filepath):
-        with open(filepath) as f:
-            content = f.read()
-        old = "    return inst;"
-        new = "    /* v2.3: generation-aware curiosity */\n    if (in->code_opt_saved > 3 && in->active_rules > 0)\n        inst.curiosity += 0.08f * cw;\n\n    return inst;"
-        if old in content:
-            content = content.replace(old, new, 1)
-            with open(filepath, 'w') as f:
-                f.write(content)
-            return True
-        return False
+        return self.inject_at_marker(filepath, 'instinct_return_before', 'INSERT_BEFORE',
+            '    /* evo_injected */ if (in->code_opt_saved > 3 && in->active_rules > 0) inst.curiosity += 0.08f * cw;')
 
     def _mutate_instinct_curiosity_up(self, filepath):
         return self._modulate_struct_value(filepath, "curiosity_weight", 15)
@@ -319,12 +467,35 @@ Give ONE concrete suggestion, focused on instinct/self-monitoring/code analysis.
                 mutation_record["result"] = "apply_failed"
                 self.history["mutations"].append(mutation_record)
                 self.history["failures"] += 1
+                self.fitness["history"].append({
+                    "mutagen": strategy.get("mutagen", "unknown"),
+                    "gen": mutation_record["generation"],
+                    "timestamp": time.time(),
+                    "survived": False,
+                    "survival_ticks": 0,
+                })
+                self._save_fitness()
                 self._save_history()
                 return False
         except Exception as e:
             print(f"  Exception: {e}")
             shutil.copy2(backup_path, filepath)
             os.unlink(backup_path)
+            mutation_record["result"] = f"exception: {e}"
+            self.history["mutations"].append(mutation_record)
+            self.history["failures"] += 1
+            self.fitness["history"].append({
+                "mutagen": strategy.get("mutagen", "unknown"),
+                "gen": mutation_record["generation"],
+                "timestamp": time.time(),
+                "survived": False,
+                "survival_ticks": 0,
+                "compile_ok": 0,
+            })
+            self._save_fitness()
+            self._save_history()
+
+            self._apply_fitness_decay(strategy.get("mutagen", "unknown"), 0.5)
             return False
         print("  Compile test...")
         try:
@@ -339,12 +510,40 @@ Give ONE concrete suggestion, focused on instinct/self-monitoring/code analysis.
                 mutation_record["result"] = "compile_failed"
                 self.history["mutations"].append(mutation_record)
                 self.history["failures"] += 1
+                mutagen = strategy.get("mutagen", "unknown")
+                self.fitness["history"].append({
+                    "mutagen": mutagen,
+                    "gen": mutation_record["generation"],
+                    "timestamp": time.time(),
+                    "survived": False,
+                    "survival_ticks": 0,
+                    "compile_ok": 0,
+                })
+                self._apply_fitness_decay(mutagen, 0.5)
+                self._check_freeze_strategy(mutagen, self.history["generation"])
+                self._save_fitness()
                 self._save_history()
                 return False
         except subprocess.TimeoutExpired:
             print(f"  Compile timeout")
             shutil.copy2(backup_path, filepath)
             os.unlink(backup_path)
+            mutagen = strategy.get("mutagen", "unknown")
+            mutation_record["result"] = "compile_timeout"
+            self.history["mutations"].append(mutation_record)
+            self.history["failures"] += 1
+            self.fitness["history"].append({
+                "mutagen": mutagen,
+                "gen": mutation_record["generation"],
+                "timestamp": time.time(),
+                "survived": False,
+                "survival_ticks": 0,
+                "compile_ok": 0,
+            })
+            self._apply_fitness_decay(mutagen, 0.5)
+            self._check_freeze_strategy(mutagen, self.history["generation"])
+            self._save_fitness()
+            self._save_history()
             return False
         if os.path.exists(backup_path):
             os.unlink(backup_path)
@@ -354,19 +553,38 @@ Give ONE concrete suggestion, focused on instinct/self-monitoring/code analysis.
         self.history["generation"] += 1
         self.history["successes"] += 1
         self._save_history()
+
+        # 计算存活分数：基于该 mutagen 历史成功次数和存活时间
+        mutagen = strategy.get("mutagen", "unknown")
+        # survival_ticks = 自上次同 mutagen 成功以来经过的世代数（真实存活时长）
+        last_success_gen = -1
+        for entry in reversed(self.fitness["history"]):
+            if entry.get("mutagen") == mutagen and entry.get("survived"):
+                last_success_gen = entry.get("gen", 0)
+                break
+        survival_ticks = max(1, self.history["generation"] - last_success_gen) if last_success_gen >= 0 else 1
+        score = 1.0 + survival_ticks * 0.01
+
         self.fitness["history"].append({
-            "mutagen": strategy.get("mutagen", "unknown"),
+            "mutagen": mutagen,
             "gen": mutation_record["generation"],
             "timestamp": time.time(),
             "survived": True,
+            "survival_ticks": survival_ticks,
+            "compile_ok": 1,
+            "fitness": score,
         })
+        # 更新 best_score 和 best_mutagen
+        if score > self.fitness["best_score"]:
+            self.fitness["best_score"] = score
+            self.fitness["best_mutagen"] = mutagen
         self._save_fitness()
         try:
             subprocess.run(["git", "-C", BASE, "add", strategy["file"]], capture_output=True, timeout=5)
             subprocess.run(["git", "-C", BASE, "commit", "-m",
                 f"evo gen{self.history['generation']}: {strategy['description']}"],
                 capture_output=True, timeout=5)
-        except:
+        except Exception:
             pass
         return True
 
@@ -391,7 +609,10 @@ Give ONE concrete suggestion, focused on instinct/self-monitoring/code analysis.
             time.sleep(0.5)
         print(f"\n{'='*60}")
         print(f"Evolution complete")
-        status = "success" if self.history["mutations"][-1]["result"] == "success" else "failed"
+        if self.history["mutations"]:
+            status = "success" if self.history["mutations"][-1]["result"] == "success" else "failed"
+        else:
+            status = "no_mutations"
         print(f"   Last: {status}")
         print(f"   Generation: {self.history['generation']}")
         print(f"{'='*60}")

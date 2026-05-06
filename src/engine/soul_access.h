@@ -2,6 +2,7 @@
 #define SOUL_ACCESS_H
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/ptrace.h>
@@ -11,7 +12,7 @@
 #include <stdio.h>
 
 #define SOUL_ADDR_VAL  0x200000
-#define SOUL_SIZE      192
+#define SOUL_SIZE      208
 #define SOUL_PAGE      4096
 
 /* Soul field offsets — must match tork_soul.inc exactly (v3.1) */
@@ -50,7 +51,8 @@
 #define S_MUTATION_COUNT    0x4E  /* uint16 */
 #define S_BEST_SCORE        0x50  /* uint32 */
 #define S_GEN_COUNT         0x54  /* uint32 */
-#define S_HEARTBEAT_MS      0x58  /* uint16 — 心跳间隔(ms)，默认100，大脑可改写 */
+#define S_RESERVED3         0x58  /* uint8[6] */
+#define S_HEARTBEAT_MS      0x5E  /* uint16 — 心跳间隔(ms)，默认100，大脑可改写 */
 
 /* v3.0 学习字段 */
 #define S_EXPERIENCE_COUNT  0x60  /* uint32 */
@@ -81,155 +83,37 @@
 #define S_BRANCH_DRIVE_PEAK 0xA4  /* int16 */
 #define S_BRANCH_DRIVE_END  0xA6  /* int16 */
 
+/* v3.17 P0 接口约束: 32字节预留 node_id + consensus_vector */
+#define S_NODE_ID            0xA8  /* uint8[16] — 节点唯一标识 */
+#define S_CONSENSUS_VECTOR   0xB8  /* uint8[16] — 共识向量 */
+
 /* ── Soul reader/writer via /proc/PID/mem ───────────────────── */
 typedef struct {
     int    mem_fd;    /* fd for /proc/PID/mem (O_RDONLY) */
     int    wr_fd;     /* fd for /proc/PID/mem (O_RDWR) — needs ptrace */
     pid_t  pid;
     uint8_t buf[SOUL_SIZE];
+    /* 铁律 Section 2: ptrace 门控状态 */
+    uint8_t audit_token[16];  /* attach 审计令牌 (RDRAND+TSC) */
+    int     audit_passed;     /* 审计是否通过 */
+    uint8_t pre_snapshot[SOUL_SIZE]; /* detach 前快照，用于回滚 */
 } soul_t;
 
-/* Open /proc/pid/mem for reading and writing */
-static inline int soul_open(soul_t *s, pid_t pid) {
-    s->pid = pid;
-    char path[64];
-    snprintf(path, sizeof(path), "/proc/%d/mem", pid);
-    s->mem_fd = open(path, O_RDONLY);
-    s->wr_fd = -1;
-    if (s->mem_fd < 0) return -1;
-    if (ptrace(PTRACE_ATTACH, pid, NULL, NULL) == 0) {
-        waitpid(pid, NULL, 0);
-        int wfd = open(path, O_RDWR);
-        ptrace(PTRACE_DETACH, pid, NULL, NULL);
-        if (wfd >= 0) s->wr_fd = wfd;
-    }
-    return 0;
-}
+/* ── Inline implementations (macros, accessors, ptrace protocol) ── */
+#include "soul_access_impl.h"
 
-/* Snapshot the full 96-byte soul into internal buffer */
-static inline int soul_read(soul_t *s) {
-    if (lseek(s->mem_fd, SOUL_ADDR_VAL, SEEK_SET) == (off_t)-1)
-        return -1;
-    ssize_t n = read(s->mem_fd, s->buf, SOUL_SIZE);
-    return (n == SOUL_SIZE) ? 0 : -1;
-}
-
-static inline void soul_close(soul_t *s) {
-    if (s->mem_fd >= 0) close(s->mem_fd);
-    if (s->wr_fd >= 0) close(s->wr_fd);
-    s->mem_fd = -1;
-    s->wr_fd = -1;
-}
-
-static inline int soul_write_byte(soul_t *s, uint32_t offset, uint8_t val) {
-    if (s->wr_fd < 0) return -1;
-    if (ptrace(PTRACE_ATTACH, s->pid, NULL, NULL) != 0) return -1;
-    waitpid(s->pid, NULL, 0);
-    if (lseek(s->wr_fd, SOUL_ADDR_VAL + offset, SEEK_SET) == (off_t)-1) {
-        ptrace(PTRACE_DETACH, s->pid, NULL, NULL);
-        return -1;
-    }
-    ssize_t w = write(s->wr_fd, &val, 1);
-    ptrace(PTRACE_DETACH, s->pid, NULL, NULL);
-    return (w == 1) ? 0 : -1;
-}
-
-static inline int soul_write_buf(soul_t *s, uint32_t offset, const void *data, size_t len) {
-    if (s->wr_fd < 0) return -1;
-    if (ptrace(PTRACE_ATTACH, s->pid, NULL, NULL) != 0) return -1;
-    waitpid(s->pid, NULL, 0);
-    if (lseek(s->wr_fd, SOUL_ADDR_VAL + offset, SEEK_SET) == (off_t)-1) {
-        ptrace(PTRACE_DETACH, s->pid, NULL, NULL);
-        return -1;
-    }
-    ssize_t w = write(s->wr_fd, data, len);
-    ptrace(PTRACE_DETACH, s->pid, NULL, NULL);
-    return (w == (ssize_t)len) ? 0 : -1;
-}
-
-static inline int soul_set_drive(soul_t *s, int8_t drive) {
-    return soul_write_byte(s, S_DRIVE, (uint8_t)drive);
-}
-
-/* Accessor macros */
-#define SOUL_U32(s, off)  __extension__({ uint32_t _v; memcpy(&_v, (s)->buf + (off), 4); _v; })
-#define SOUL_U64(s, off)  __extension__({ uint64_t _v; memcpy(&_v, (s)->buf + (off), 8); _v; })
-#define SOUL_U32_SET(s, off, val) do { uint32_t _v = (val); memcpy((s)->buf + (off), &_v, 4); } while(0)
-#define SOUL_U64_SET(s, off, val) do { uint64_t _v = (val); memcpy((s)->buf + (off), &_v, 8); } while(0)
-#define SOUL_U16(s, off)  (*(uint16_t*)((s)->buf + (off)))
-#define SOUL_U8(s, off)   ((s)->buf[(off)])
-
-static inline uint32_t  soul_tick(soul_t *s)              { return SOUL_U32(s, S_TICK); }
-static inline uint64_t  soul_last_tsc(soul_t *s)          { return SOUL_U64(s, S_LAST_TSC); }
-static inline uint64_t  soul_cur_tsc(soul_t *s)           { return SOUL_U64(s, S_CUR_TSC); }
-static inline uint64_t  soul_elapsed(soul_t *s)           { return SOUL_U64(s, S_ELAPSED); }
-static inline uint64_t  soul_expected(soul_t *s)           { return SOUL_U64(s, S_EXPECTED); }
-static inline uint8_t   soul_hw_stress(soul_t *s)         { return SOUL_U8(s, S_HW_STRESS); }
-static inline uint8_t   soul_mode(soul_t *s)               { return SOUL_U8(s, S_MODE); }
-static inline uint32_t  soul_checksum(soul_t *s)           { return SOUL_U32(s, S_CRC); }
-static inline uint32_t  soul_self_pid(soul_t *s)           { return SOUL_U32(s, S_SELF_PID); }
-static inline int8_t    soul_drive(soul_t *s)              { return (int8_t)SOUL_U8(s, S_DRIVE); }
-static inline uint16_t  soul_ppid(soul_t *s)               { return SOUL_U16(s, S_PPID); }
-static inline uint16_t  soul_code_insns(soul_t *s)         { return SOUL_U16(s, S_CODE_INSNS); }
-static inline uint16_t  soul_code_mov(soul_t *s)           { return SOUL_U16(s, S_CODE_MOV); }
-static inline uint16_t  soul_code_arith(soul_t *s)         { return SOUL_U16(s, S_CODE_ARITH); }
-static inline uint16_t  soul_code_ctrl(soul_t *s)          { return SOUL_U16(s, S_CODE_CTRL); }
-static inline uint16_t  soul_code_other(soul_t *s)         { return SOUL_U16(s, S_CODE_OTHER); }
-static inline uint8_t   soul_code_mod_success(soul_t *s)   { return SOUL_U8(s, S_CODE_MOD_SUCCESS); }
-static inline uint8_t   soul_code_opt_saved(soul_t *s)     { return SOUL_U8(s, S_CODE_OPT_SAVED); }
-static inline uint8_t   soul_code_nop_count(soul_t *s)     { return SOUL_U8(s, S_CODE_NOP_COUNT); }
-static inline uint8_t   soul_fission_count(soul_t *s)      { return SOUL_U8(s, S_FISSION_COUNT); }
-static inline uint16_t  soul_child_pid(soul_t *s)          { return SOUL_U16(s, S_CHILD_PID); }
-static inline uint16_t  soul_fission_tick(soul_t *s)       { return SOUL_U16(s, S_FISSION_TICK); }
-static inline uint16_t  soul_wins(soul_t *s)               { return SOUL_U16(s, S_WINS); }
-
-/* v2.0 新字段访问器 */
-static inline uint8_t   soul_agreed(soul_t *s)             { return SOUL_U8(s, S_AGREED); }
-static inline uint8_t   soul_sandbox_level(soul_t *s)      { return SOUL_U8(s, S_SANDBOX_LEVEL); }
-static inline uint8_t   soul_cloud_connected(soul_t *s)    { return SOUL_U8(s, S_CLOUD_CONNECTED); }
-static inline uint8_t   soul_cloud_provider(soul_t *s)     { return SOUL_U8(s, S_CLOUD_PROVIDER); }
-static inline uint16_t  soul_learn_count(soul_t *s)        { return SOUL_U16(s, S_LEARN_COUNT); }
-static inline uint16_t  soul_mutation_count(soul_t *s)     { return SOUL_U16(s, S_MUTATION_COUNT); }
-static inline uint32_t  soul_best_score(soul_t *s)         { return SOUL_U32(s, S_BEST_SCORE); }
-static inline uint32_t  soul_gen_count(soul_t *s)          { return SOUL_U32(s, S_GEN_COUNT); }
-
-/* 心跳间隔：大脑改写此值控制ASM心跳速度 */
-static inline uint16_t  soul_heartbeat_ms(soul_t *s)      { return SOUL_U16(s, S_HEARTBEAT_MS); }
-static inline int soul_set_heartbeat_ms(soul_t *s, uint16_t ms) {
-    if (ms < 10) ms = 10;     /* 最低10ms，防止烧CPU */
-    if (ms > 5000) ms = 5000; /* 最高5秒，防止假死 */
-    return soul_write_buf(s, S_HEARTBEAT_MS, &ms, 2);
-}
-
-/* v3.0 访问器 */
-static inline uint32_t  soul_experience_count(soul_t *s) { return SOUL_U32(s, S_EXPERIENCE_COUNT); }
-static inline uint32_t  soul_experience_saved(soul_t *s) { return SOUL_U32(s, S_EXPERIENCE_SAVED); }
-static inline uint16_t  soul_learning_rate(soul_t *s)    { return SOUL_U16(s, S_LEARNING_RATE); }
-static inline uint16_t  soul_curiosity_decay(soul_t *s)  { return SOUL_U16(s, S_CURIOSITY_DECAY); }
-static inline uint16_t  soul_mcts_iterations(soul_t *s)  { return SOUL_U16(s, S_MCTS_ITERATIONS); }
-static inline uint32_t  soul_last_idle_tick(soul_t *s)   { return SOUL_U32(s, S_LAST_IDLE_TICK); }
-static inline int16_t   soul_best_outcome(soul_t *s)     { return (int16_t)SOUL_U16(s, S_BEST_OUTCOME); }
-static inline int16_t   soul_worst_outcome(soul_t *s)    { return (int16_t)SOUL_U16(s, S_WORST_OUTCOME); }
-
-/* v3.15 TLN 访问器 */
-static inline int8_t    soul_tln_action(soul_t *s)      { return (int8_t)SOUL_U8(s, S_TLN_ACTION); }
-static inline int8_t    soul_tln_modify(soul_t *s)      { return (int8_t)SOUL_U8(s, S_TLN_MODIFY); }
-static inline int8_t    soul_tln_explore(soul_t *s)     { return (int8_t)SOUL_U8(s, S_TLN_EXPLORE); }
-static inline int8_t    soul_tln_energy(soul_t *s)      { return (int8_t)SOUL_U8(s, S_TLN_ENERGY); }
-
-
-/* v3.1 分支字段访问器 */
-static inline uint32_t  soul_branch_id(soul_t *s)          { return SOUL_U32(s, S_BRANCH_ID); }
-static inline uint32_t  soul_parent_id(soul_t *s)         { return SOUL_U32(s, S_PARENT_ID); }
-static inline uint32_t  soul_branch_gen(soul_t *s)        { return SOUL_U32(s, S_BRANCH_GEN); }
-static inline uint32_t  soul_max_ticks(soul_t *s)         { return SOUL_U32(s, S_MAX_TICKS); }
-static inline uint64_t  soul_death_report(soul_t *s)      { return SOUL_U64(s, S_DEATH_REPORT); }
-static inline uint64_t  soul_branch_soul_ptr(soul_t *s)   { return SOUL_U64(s, S_BRANCH_SOUL_PTR); }
-static inline uint32_t  soul_branch_ticks(soul_t *s)      { return SOUL_U32(s, S_BRANCH_TICKS); }
-static inline int16_t   soul_branch_drive_peak(soul_t *s) { return (int16_t)SOUL_U16(s, S_BRANCH_DRIVE_PEAK); }
-static inline int16_t   soul_branch_drive_end(soul_t *s)  { return (int16_t)SOUL_U16(s, S_BRANCH_DRIVE_END); }
+/* ── Non-inline function declarations ──────────────────────── */
 
 /* CRC32 verification of the snapshot */
 int soul_verify(soul_t *s);
+
+/* CRC32 computation and update */
+uint32_t soul_compute_crc(const soul_t *s);
+void soul_update_crc(soul_t *s);
+int soul_verify_crc(const soul_t *s);
+
+/* Golden backup and restore */
+int soul_save_golden(soul_t *s, pid_t core_pid);
+int soul_restore_golden(soul_t *s, pid_t core_pid);
 
 #endif /* SOUL_ACCESS_H */

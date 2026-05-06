@@ -59,6 +59,12 @@ build/code_reader.o: src/code/code_reader.c src/code/code_reader.h
 build/tln.o: src/engine/tln.c src/engine/tln.h
 	$(CC) $(CFLAGS) -c -o build/tln.o src/engine/tln.c
 
+build/code_archive.o: src/persist/code_archive.c src/persist/code_archive.h
+	$(CC) $(CFLAGS) -c -o build/code_archive.o src/persist/code_archive.c
+
+build/strict_verifier.o: src/code/strict_verifier.c src/code/strict_verifier.h
+	$(CC) $(CFLAGS) -c -o build/strict_verifier.o src/code/strict_verifier.c
+
 build/code_modifier.o: src/code/code_modifier.c src/code/code_modifier.h
 	$(CC) $(CFLAGS) -c -o build/code_modifier.o src/code/code_modifier.c
 
@@ -145,15 +151,45 @@ build/codegen.o: src/engine/codegen.c src/engine/codegen.h
 build/scheduler.o: src/engine/scheduler.c src/engine/scheduler.h src/engine/soul_access.h src/instinct/instinct.h
 	$(CC) $(CFLAGS) -Wno-return-type -c -o build/scheduler.o src/engine/scheduler.c
 
+build/sched_services.o: src/engine/sched_services.c src/engine/sched_services.h src/engine/sched_tln.h src/engine/scheduler.h
+	$(CC) $(CFLAGS) -c -o build/sched_services.o src/engine/sched_services.c
+
+build/sched_tln.o: src/engine/sched_tln.c src/engine/sched_tln.h src/engine/scheduler.h
+	$(CC) $(CFLAGS) -c -o build/sched_tln.o src/engine/sched_tln.c
+
+build/sched_code_ops.o: src/engine/sched_code_ops.c src/engine/sched_code_ops.h src/engine/scheduler.h
+	$(CC) $(CFLAGS) -c -o build/sched_code_ops.o src/engine/sched_code_ops.c
+
+build/sched_fission_branch.o: src/engine/sched_fission_branch.c src/engine/sched_fission_branch.h src/engine/scheduler.h
+	$(CC) $(CFLAGS) -c -o build/sched_fission_branch.o src/engine/sched_fission_branch.c
+
+build/sched_inductive.o: src/engine/sched_inductive.c src/engine/sched_inductive.h src/engine/scheduler.h
+	$(CC) $(CFLAGS) -c -o build/sched_inductive.o src/engine/sched_inductive.c
+
+build/sched_persist.o: src/engine/sched_persist.c src/engine/sched_persist.h src/engine/scheduler.h
+	$(CC) $(CFLAGS) -c -o build/sched_persist.o src/engine/sched_persist.c
+
+build/sched_monitor.o: src/engine/sched_monitor.c src/engine/sched_monitor.h src/engine/scheduler.h
+	$(CC) $(CFLAGS) -c -o build/sched_monitor.o src/engine/sched_monitor.c
+
+build/sched_idle.o: src/engine/sched_idle.c src/engine/sched_idle.h src/engine/scheduler.h
+	$(CC) $(CFLAGS) -c -o build/sched_idle.o src/engine/sched_idle.c
+
+build/beacon.o: src/engine/beacon.c src/engine/beacon.h src/engine/soul_access.h src/learning/pi_seed.h
+	$(CC) $(CFLAGS) -c -o build/beacon.o src/engine/beacon.c
+
+build/fractal.o: src/engine/fractal.c src/engine/fractal.h
+	$(CC) $(CFLAGS) -c -o build/fractal.o src/engine/fractal.c
+
 build/torkd.o: src/engine/torkd.c src/engine/torkd.h
 	$(CC) $(CFLAGS) -c -o build/torkd.o src/engine/torkd.c -lm
 
 # ── Engine link ─────────────────────────────────────────────────────
 
-ENGINE_OBJS = build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/self_cal.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/self_tune.o build/mentor.o build/distributed.o build/pi_seed.o build/pi_index.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o build/task.o build/auditor.o build/dispatch.o build/codegen.o build/tln.o build/scheduler.o
+ENGINE_OBJS = build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/self_cal.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/self_tune.o build/mentor.o build/distributed.o build/pi_seed.o build/pi_index.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o build/task.o build/auditor.o build/dispatch.o build/codegen.o build/tln.o build/code_archive.o build/strict_verifier.o build/scheduler.o build/sched_services.o build/sched_tln.o build/sched_code_ops.o build/sched_fission_branch.o build/sched_inductive.o build/sched_persist.o build/sched_monitor.o build/sched_idle.o build/beacon.o build/fractal.o
 
 build/tork_engine: $(ENGINE_OBJS)
-	$(CC) -o build/tork_engine $(ENGINE_OBJS) -lm
+	$(CC) -o build/tork_engine $(ENGINE_OBJS) -lm -lpthread
 
 # ── Grid ──────────────────────────────────────────────────────────
 
@@ -234,7 +270,7 @@ appimage: all
 
 # ── Unit Tests ──────────────────────────────────────────────────────
 
-TEST_OBJS = build/sandbox.o build/agreement.o build/code_reader.o build/code_modifier.o build/task.o build/auditor.o build/experience.o build/pattern.o build/pi_seed.o build/pi_index.o build/dispatch.o build/codegen.o build/fission.o build/blackboard.o
+TEST_OBJS = build/sandbox.o build/agreement.o build/code_reader.o build/code_modifier.o build/task.o build/auditor.o build/experience.o build/pattern.o build/pi_seed.o build/pi_index.o build/dispatch.o build/codegen.o build/fission.o build/blackboard.o build/code_archive.o build/strict_verifier.o
 
 build/test_core: tests/test_core.c $(TEST_OBJS)
 	$(CC) $(CFLAGS) -o build/test_core tests/test_core.c $(TEST_OBJS) -lm

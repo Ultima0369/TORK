@@ -189,6 +189,7 @@ tork_instinct_t instinct_evaluate(const instinct_input_t *in) {
         inst.desire += BONUS_ENV_DESIRE * dw;
     }
 
+    // TORK_EVOLVE: instinct_return_before
     return inst;
 }
 

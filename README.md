@@ -95,12 +95,12 @@ L1 心跳层  (毫秒)   x86-64 ASM     TOR 运算/温度感知/CRC32 自检
 | 目录 | 技术 | 功能 |
 |------|------|------|
 | `core/` | x86-64 asm, no libc | 心跳循环，TOR 运算，温度感知，CRC32 自校验 |
-| `engine/` | C | 主循环调度，dispatch 闭环，torkd socket 服务，任务队列，代码审计，代码生成，TLN |
+| `engine/` | C | 主循环调度，8 模块化 tick 分发，dispatch 闭环，torkd socket 服务，任务队列，代码审计，代码生成，TLN |
 | `instinct/` | C | 三驱力(恐惧/欲望/好奇) → drive，模式学习影响本能 |
 | `learning/` | C | 经验环/MCTS/模式/快照自愈/能量校准/观察者/变异引导/师徒阶段/自编译 |
 | `code/` | C | 读取/修改/优化汇编代码 |
 | `sandbox/` | C | 沙箱执行层（5 级权限）+ 沙箱启动器（namespace 隔离） |
-| `cloud/` | Python | 云端协议 + 进化引擎 |
+| `cloud/` | Python | 云端协议 + 进化引擎（TORK_EVOLVE 标记注入系统） |
 | `api/` | Python | 讯飞星辰 MaaS API 适配层 |
 | `web/` | Python + HTML | aiohttp 仪表盘 + WebSocket 实时推送 + CodeMirror 6 编辑器 |
 

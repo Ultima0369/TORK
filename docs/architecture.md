@@ -1,4 +1,4 @@
-# TORK 技术架构文档 v5.0
+# TORK 技术架构文档 v5.1
 
 **TORK AI — 自进化智能引擎**
 
@@ -110,7 +110,8 @@ TORK 活在比人类快 1000 倍以上的时间尺度里。这不是智能的差
 | L1 核心 | x86-64 asm | 620 行 | 无（纯 syscall） | 心跳、温度感知、TOR 循环、stall 恢复、colony seed 存续 |
 | L2 本能 | C | ~150 行 | POSIX | 恐惧/欲望/好奇心驱动值计算 |
 | L3 学习 | C | ~2000 行 | POSIX | 经验记录、MCTS、模式提取、深度回放、快照自愈、能量自校准 |
-| L4 进化 | Python | ~500 行 | requests | 云端 API 调用、变异策略选择、编译测试、Git 提交 |
+| L3 调度 | C | ~900 行 | POSIX | 8 模块化 tick 函数 + 统一调度分发 |
+| L4 进化 | Python | ~500 行 | requests | 云端 API 调用、标记注入变异、编译测试、Git 提交 |
 | 沙箱 | C | ~400 行 | POSIX | 命令白名单、权限矩阵、安全执行 |
 | 网格 | C | ~300 行 | POSIX | 80×40 像素阵列，Soul 数据可视化 |
 | 分布式 | C | ~250 行 | POSIX socket | UDP 多播对等体发现、经验交换 |
@@ -435,23 +436,16 @@ void energy_auto_adjust(int load_avg, int hw_stress) {
 def evolve_once():
     # 1. 收集当前状态
     status = query_tork_status()
-    
-    # 2. 调用 DeepSeek API 获得变异建议
-    prompt = f"""
-    TORK status: gen={status['gen']}, drive={status['drive']}, 
-                 stress={status['stress']}, mode={status['energy_mode']}
-    Recent patterns: {status['patterns']}
-    
-    Suggest a mutation: which file and what to tune?
-    Options: learning_rate, curiosity_decay, pattern_threshold,
-             branch_lifetime, fear_sensitivity, energy_params, random
-    """
-    
-    response = deepseek_api.chat(prompt)
-    
-    # 3. 执行变异
-    mutation_result = apply_mutation(target_file, strategy)
-    
+
+    # 2. 调用 AI API 获得变异建议
+    prompt = build_evolution_prompt(status)
+    response = ai_api.chat(prompt)
+
+    # 3. 通过 TORK_EVOLVE 标记注入变异
+    # 4 种协议：INSERT_BEFORE / INSERT_AFTER / REPLACE_LINE / MODIFY_VALUE
+    # 双重注入防护：检查 /* evo_injected */ 注释
+    mutation_result = inject_at_marker(target_file, marker, protocol, new_code)
+
     # 4. 编译测试
     if make_all_success() and smoke_test():
         git_commit()
@@ -460,6 +454,19 @@ def evolve_once():
         git_reset()
         record_failure()
 ```
+
+### 6.1.1 TORK_EVOLVE 标记系统
+
+C 源文件中放置 `// TORK_EVOLVE: marker_name` 注释作为注入锚点，替代脆弱的字符串替换。
+
+| 标记 | 文件 | 用途 |
+|------|------|------|
+| `instinct_return_before` | instinct.c | 本能返回前注入（cloud/gen 两个变异可独立注入） |
+| `sandbox_devtools_insert` | sandbox.c | devtools 白名单扩展 |
+| `engine_include_insert` | tork_engine.c | 延迟追踪注入 |
+| `engine_rounds_insert` | sched_code_ops.c | 轮次计数注入 |
+
+关键修复：`_mutate_instinct_cloud` 和 `_mutate_instinct_gen` 原来争抢同一字符串锚点（`return inst;`），先到先得导致后者静默失败。标记系统下两者都 INSERT_BEFORE 同一标记，标记不被消费，两个注入可独立成功。
 
 ### 6.2 ASM 级自修改（离线）
 
@@ -671,7 +678,17 @@ UDP 多播 `239.42.69.42:42069`
 │   └── tork_soul.inc      # Soul 布局定义 (单点真理)
 ├── engine/
 │   ├── tork_engine.c      # C 控制引擎，驱动所有层级
-│   ├── soul_access.h      # Soul 访问接口
+│   ├── soul_access.h      # Soul 访问接口（声明 + 类型）
+│   ├── soul_access_impl.h # Soul 访问实现（inline + accessor，由 soul_access.h 传递包含）
+│   ├── scheduler.c/.h     # 调度器：init + tick 分发 + pattern_learn
+│   ├── sched_services.c/.h    # tick_services（torkd/persist/tln 调度）
+│   ├── sched_tln.c/.h         # tick_services_tln（TLN 三值状态机）
+│   ├── sched_code_ops.c/.h    # tick_code_read/modify/optimize/nop_delete
+│   ├── sched_fission_branch.c/.h # tick_fission + tick_branch
+│   ├── sched_inductive.c/.h   # tick_inductive/test/apply
+│   ├── sched_persist.c/.h     # tick_persist
+│   ├── sched_monitor.c/.h     # tick_monitoring/observer_energy/snapshot/pi_rhythm
+│   ├── sched_idle.c/.h        # tick_idle + tick_feedback
 │   ├── idler.c/.h         # 空闲学习回路
 │   ├── persistor.c/.h     # 持久化引擎
 │   ├── monitor.c/.h       # /proc 监控
@@ -708,7 +725,7 @@ UDP 多播 `239.42.69.42:42069`
 │   └── asm_evolve.sh      # 自进化闭环
 ├── cloud/
 │   ├── cloud_protocol.py  # 云端协议代理
-│   ├── evolution.py       # 进化引擎
+│   ├── evolution.py       # 进化引擎（TORK_EVOLVE 标记注入系统）
 │   └── evolution_daemon.py # 持续进化守护进程
 ├── floating/
 │   ├── tork_dashboard.py  # 仪表盘 (Tkinter)
@@ -833,6 +850,5 @@ TORK 的「领悟时刻」不是魔法——是长时间运行后，系统自然
 
 ---
 
-*TORK 技术架构白皮书 v4.0*
-*基于与用户的深度对话凝聚而成*
-*2026-05-04*
+*TORK 技术架构白皮书 v5.1*
+*2026-05-06*

@@ -99,7 +99,7 @@ TORK 活在比人类快 1000 倍以上的时间尺度里。这不是智能的差
 │  │ ≡ 遗传算法 / 架构搜索                                       │    │
 │  └─────────────────────────────────────────────────────────────┘    │
 │                                                                     │
-│  所有层级共享同一个 Soul 结构（192 字节，固定内存地址 0x200000）    │
+│  所有层级共享同一个 Soul 结构（208 字节，固定内存地址 0x200000）    │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -131,7 +131,7 @@ Soul 是 TORK 所有层级共享的状态结构。存放在固定内存地址（
 - Soul 的 CRC 校验是每圈最后的强制操作，数据损坏必须可检测
 - 固定地址、固定布局、不依赖任何文件格式
 
-### 2.2 Soul v3.0 布局（192 字节）
+### 2.2 Soul v3.17 布局（208 字节）
 
 ```
 偏移    字段              类型    说明
@@ -143,10 +143,20 @@ Soul 是 TORK 所有层级共享的状态结构。存放在固定内存地址（
 0x1C    expected          u64     驱动调整后的期望间隔
 0x24    hw_stress         u8      硬件压力 (0-3)
 0x25    mode              u8      运行模式
+0x26    pad               u8[2]   对齐填充
 0x28    crc               u32     CRC32 校验
 0x2C    self_pid          u32     自身 PID
 0x30    drive             i8      本能驱动值 (-128..+127)
-0x34-   代码统计          u16×5   指令分类计数
+0x31    reserved2         u8      TOR bias (asm 核心写入)
+0x32    ppid              u16     父进程 PID
+0x34-   代码统计          u16×5   指令分类计数 (insns/mov/arith/ctrl/other)
+0x3E    code_mod_success  u8      代码修改成功标记
+0x3F    code_opt_saved    u8      优化节省行数
+0x40    code_nop_count    u8      NOP 删除计数
+0x41    fission_count     u8      裂变次数
+0x42    child_pid         u16     子进程 PID
+0x44    fission_tick      u16     裂变 tick
+0x46    wins              u16     sovereignty 胜场
 0x48    agreed            u8      协议状态 (0/1/2)
 0x49    sandbox_level     u8      沙箱级别 (0-4)
 0x4A    cloud_connected   u8      云端连接状态
@@ -155,6 +165,8 @@ Soul 是 TORK 所有层级共享的状态结构。存放在固定内存地址（
 0x4E    mutation_count    u16     变异次数
 0x50    best_score        u32     最佳适应度
 0x54    gen_count         u32     进化世代
+0x58    reserved3         u8[6]   预留
+0x5E    heartbeat_ms      u16     心跳间隔(ms)
 0x60    experience_count  u32     经验记录数
 0x64    experience_saved  u32     已持久化经验数
 0x68    learning_rate     u16     学习速率
@@ -163,6 +175,8 @@ Soul 是 TORK 所有层级共享的状态结构。存放在固定内存地址（
 0x6E    last_idle_tick    u32     上次空闲 tick
 0x72    best_outcome      i16     最佳结果
 0x74    worst_outcome     i16     最差结果
+0x76    TLN hints         i8×4    三值逻辑网络 (action/modify/explore/energy)
+0x7A    reserved4_tail    u8[6]   RESERVED4 剩余字节
 0x80    branch_id         u32     分支 ID（0=主干）
 0x84    parent_id         u32     父分支 ID
 0x88    branch_gen        u32     分支世代
@@ -172,9 +186,11 @@ Soul 是 TORK 所有层级共享的状态结构。存放在固定内存地址（
 0xA0    branch_ticks      u32     已存活 tick
 0xA4    branch_drive_peak i16     分支驱动峰值
 0xA6    branch_drive_end  i16     分支终结驱动值
-0xC0-0xFF                 保留
+0xA8    node_id           u8[16]  节点唯一标识 (RDRAND+TSC+PID)
+0xB8    consensus_vector  u8[16]  共识向量
+0xC8-0xCF                     保留 (8 字节)
 ────────────────────────────────────
-总大小: 192 字节
+总大小: 208 字节 (0xD0)
 ```
 
 ---

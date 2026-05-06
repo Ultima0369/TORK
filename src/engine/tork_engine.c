@@ -289,6 +289,7 @@ static instinct_input_t build_instinct_input(soul_t *soul) {
 
 /* ── Pattern query ── */
 static void query_pattern(soul_t *soul, instinct_input_t *inp, int quiet) {
+    (void)quiet;
     float pat_conf = 0.0f;
     int8_t prev_drive = soul_drive(soul);
     int pat_action = pat_query_best_action(inp->hw_stress,
@@ -296,7 +297,6 @@ static void query_pattern(soul_t *soul, instinct_input_t *inp, int quiet) {
     if (pat_action >= 0 && pat_conf > 0.0f) {
         inp->pattern_best_action = pat_action;
         inp->pattern_confidence  = pat_conf;
-        if (!quiet) printf("  PATTERN: action=%d conf=%.3f (drive=%d)\n", pat_action, pat_conf, (int)prev_drive);
     }
 }
 

@@ -296,7 +296,16 @@ void scheduler_tick(sched_ctx_t *ctx) {
         if (pat_action >= 0 && pat_conf > 0.0f) {
             inp->pattern_best_action = pat_action;
             inp->pattern_confidence  = pat_conf;
-            if (!ctx->quiet) printf("  PATTERN: action=%d conf=%.3f (drive=%d)\n", pat_action, pat_conf, (int)prev_drive);
+            if (!ctx->quiet) {
+                static int last_pat_action = -1;
+                static int last_conf_bucket = -1;
+                int bucket = (int)(pat_conf * 10.0f);
+                if (pat_action != last_pat_action || bucket != last_conf_bucket) {
+                    printf("  PATTERN: action=%d conf=%.3f (drive=%d)\n", pat_action, pat_conf, (int)prev_drive);
+                    last_pat_action = pat_action;
+                    last_conf_bucket = bucket;
+                }
+            }
         }
     }
 

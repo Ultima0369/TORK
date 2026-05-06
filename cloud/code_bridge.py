@@ -59,7 +59,7 @@ class ParamModulator:
         Returns:
             True 如果修改成功
         """
-        full_path: str = os.path.join(BASE, filepath.lstrip("./"))
+        full_path: str = filepath if filepath.startswith("/") else os.path.join(BASE, filepath.lstrip("./"))
         if not os.path.exists(full_path):
             print(f"  [BRIDGE] 文件不存在: {full_path}")
             return False
@@ -151,7 +151,7 @@ class MarkerInjector:
         Returns:
             True 如果注入成功
         """
-        full_path: str = os.path.join(BASE, filepath.lstrip("./"))
+        full_path: str = filepath if filepath.startswith("/") else os.path.join(BASE, filepath.lstrip("./"))
         if not os.path.exists(full_path):
             print(f"  [BRIDGE] 文件不存在: {full_path}")
             return False
@@ -169,9 +169,9 @@ class MarkerInjector:
             print(f"  [BRIDGE] 标记 '{marker_name}' 未找到")
             return False
         
-        # 双重注入防护
-        if protocol in ('INSERT_BEFORE', 'INSERT_AFTER'):
-            check_idx: int = marker_line - 1 if protocol == 'INSERT_BEFORE' else marker_line + 1
+        # 双重注入防护：检查标记行两侧是否有防护签名
+        # （无论 INSERT_BEFORE 还是 INSERT_AFTER，两侧都检查）
+        for check_idx in (marker_line - 1, marker_line + 1):
             if 0 <= check_idx < len(lines) and self.GUARD_SIG in lines[check_idx]:
                 print(f"  [BRIDGE] 标记 '{marker_name}' 已有注入，跳过")
                 return False
@@ -310,7 +310,7 @@ class CodeModifierBridge:
         替换 ASM 文件中的操作数。
         通过临时 C 程序调用 code_modifier.c 的 asm_replace_operand。
         """
-        full_path: str = os.path.join(BASE, asm_file.lstrip("./"))
+        full_path: str = asm_file if asm_file.startswith("/") else os.path.join(BASE, asm_file.lstrip("./"))
         if not os.path.exists(full_path):
             print(f"  [BRIDGE] ASM 文件不存在: {full_path}")
             return False
@@ -348,7 +348,7 @@ class CodeModifierBridge:
     def delete_nop(self, asm_file: str, func_name: str) -> bool:
         """删除函数中的 NOP 指令"""
         # 搜索 nop 行并删除
-        full_path: str = os.path.join(BASE, asm_file.lstrip("./"))
+        full_path: str = asm_file if asm_file.startswith("/") else os.path.join(BASE, asm_file.lstrip("./"))
         with open(full_path, 'r') as f:
             lines: list[str] = f.readlines()
         
@@ -390,7 +390,7 @@ class CodeModifierBridge:
     
     def delete_dead(self, asm_file: str, func_name: str) -> bool:
         """删除函数中 ret 之后的死代码"""
-        full_path: str = os.path.join(BASE, asm_file.lstrip("./"))
+        full_path: str = asm_file if asm_file.startswith("/") else os.path.join(BASE, asm_file.lstrip("./"))
         with open(full_path, 'r') as f:
             lines: list[str] = f.readlines()
         
@@ -444,7 +444,7 @@ class CodeModifierBridge:
     def swap_regs(self, asm_file: str, func_name: str,
                   reg1: str, reg2: str) -> bool:
         """交换函数中的寄存器（MCTS_MOD_SWAP_REGS）"""
-        full_path: str = os.path.join(BASE, asm_file.lstrip("./"))
+        full_path: str = asm_file if asm_file.startswith("/") else os.path.join(BASE, asm_file.lstrip("./"))
         with open(full_path, 'r') as f:
             content: str = f.read()
         

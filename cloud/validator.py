@@ -270,6 +270,10 @@ class FitnessCalculator:
         Returns:
             0.0 - 1.0 范围内的归一化分数
         """
+        # 编译失败直接归零
+        if not compile_ok:
+            return 0.0
+        
         # 存活时间用 sigmoid 归一化，避免无上界问题
         # 健康存活时间 1000 ticks = 50% 权重
         survival_norm: float = 1.0 / (1.0 + (1000.0 / max(1, survival_ticks)))

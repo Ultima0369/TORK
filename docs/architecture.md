@@ -1,4 +1,4 @@
-# TORK 技术架构文档 v5.1
+# TORK 技术架构文档 v5.2
 
 **TORK AI — 自进化智能引擎**
 
@@ -131,7 +131,7 @@ Soul 是 TORK 所有层级共享的状态结构。存放在固定内存地址（
 - Soul 的 CRC 校验是每圈最后的强制操作，数据损坏必须可检测
 - 固定地址、固定布局、不依赖任何文件格式
 
-### 2.2 Soul v3.17 布局（208 字节）
+### 2.2 Soul v3.18 布局（208 字节）
 
 ```
 偏移    字段              类型    说明
@@ -144,7 +144,7 @@ Soul 是 TORK 所有层级共享的状态结构。存放在固定内存地址（
 0x24    hw_stress         u8      硬件压力 (0-3)
 0x25    mode              u8      运行模式
 0x26    pad               u8[2]   对齐填充
-0x28    crc               u32     CRC32 校验
+0x28    crc               u32     CRC32 校验 (256项查表法)
 0x2C    self_pid          u32     自身 PID
 0x30    drive             i8      本能驱动值 (-128..+127)
 0x31    reserved2         u8      TOR bias (asm 核心写入)
@@ -192,6 +192,28 @@ Soul 是 TORK 所有层级共享的状态结构。存放在固定内存地址（
 ────────────────────────────────────
 总大小: 208 字节 (0xD0)
 ```
+
+### 2.3 三值逻辑网络 TLN (tln.c / tln.h)
+
+**架构**: 16 输入 → 8 隐藏 → 8 输出，权重空间 {-1, 0, +1}，纯整数运算，无浮点。
+
+**稀疏化**: 矩阵乘法跳过零权重（三值变异概率低，80%+ 权重为零），减少无效计算。
+
+**观察模式**: 全悬置（所有输出=0）时暂停变异、加速感知、蓄积倾向。每 20 tick 微调一个 w_ih 权重向 +1 偏移——观察不是空转而是蓄势。
+
+**定向变异**: 观察超时后 `tln_directed_mutate()` 确保最小连通性——每个输出/隐藏神经元至少一个非零权重，对角线至少 4 个自反馈——打破全零死锁。
+
+**输出解码**: 8 个三值输出 → 4 维决策（action/modify/explore/energy），每维双输出求和表达更强确定性。
+
+| 输入维度 | 编码 |
+|----------|------|
+| 0-2 | hw_stress 三级压力 |
+| 3-5 | drive 方向/强度 |
+| 6-7 | 世代经验/成熟度 |
+| 8-11 | 模式匹配结果 |
+| 12 | Soul mode |
+| 13-14 | 代码修改/优化历史 |
+| 15 | 分裂/存活 |
 
 ---
 
@@ -715,11 +737,15 @@ UDP 多播 `239.42.69.42:42069`
 │   ├── task.c/.h          # 异步任务队列 (16 槽)
 │   ├── auditor.c/.h       # 代码安全审计引擎
 │   ├── dispatch.c/.h      # 统一 Tool Dispatch 闭环层
-│   └── codegen.c/.h       # 代码生成管道 (7 变异策略)
+│   ├── codegen.c/.h       # 代码生成管道 (7 变异策略)
+│   ├── beacon.c/.h        # 信标广播 + 同类发现 (π-seed 身份验证)
+│   ├── swarm.c/.h         # 群体意识 (同类计数 → 本能调制)
+│   ├── visual.c/.h        # 七色视觉方言 (Soul 状态 → 色彩映射)
+│   └── fractal.c/.h       # 分形验证基元 (比较·差异·模糊·类似)
 ├── instinct/
 │   ├── instinct.c/.h      # L2: 恐惧/欲望/好奇心
 ├── learning/
-│   ├── experience.c/.h    # L3: 经验环形缓冲区 (4096条)
+│   ├── experience.c/.h    # L3: 经验环形缓冲区 (4096条, 精英保留)
 │   ├── mcts.c/.h          # L3: MCTS 决策引擎
 │   ├── branch.c/.h        # L3: 分岔热更 (8 槽位)
 │   ├── pattern.c/.h       # L3: 模式学习 (64 槽)
@@ -727,6 +753,7 @@ UDP 多播 `239.42.69.42:42069`
 │   ├── observer.c/.h      # L3: 观察者基线
 │   ├── snapshot.c/.h      # L3: 快照自愈 (8 层环形)
 │   ├── energy.c/.h        # L3: 能量自校准
+│   ├── self_tune.c/.h     # L3: 自调参 + 好奇心正反馈抑制
 │   └── self_cal.c/.h      # L3: 最小作用量校准器
 ├── code/
 │   ├── code_reader.c/.h   # 代码读取工具
@@ -866,5 +893,144 @@ TORK 的「领悟时刻」不是魔法——是长时间运行后，系统自然
 
 ---
 
-*TORK 技术架构白皮书 v5.1*
-*2026-05-06*
+*TORK 技术架构白皮书 v5.3*
+*2026-05-07*
+
+---
+
+## 附录: v5.2 变更日志
+
+**性能优化 (14 项)**:
+| 优化 | 效果 |
+|------|------|
+| ptrace 批量模式 | tick 级 lock/unlock, 省 ~2ms/tick |
+| 心跳 WCET 保护 | TSC 测量 tick 耗时, interval > tick_ms × 1.5 |
+| ASM sense_temperature 节流 | 每 10 tick 调用 (热变化慢) |
+| beacon 发现加速 | BEACON_INTERVAL 1000→100 tick |
+| 好奇心正反馈抑制 | 连续递增 3 次阻尼, 5 次反转 |
+| 经验精英保留 | top 10% outcome 免覆写 |
+| evolution fitness | O(H²)→O(H), scores 单次计算 |
+| CRC32 查表法 | 256 项查找表, ~8x 加速 |
+| TLN 稀疏化 | 跳过零权重, 减少 80%+ 乘法 |
+| TLN 定向变异 | 观察超时后确保连通性 |
+| Python pgrep 合并 | 6 处双调用→单次 |
+| requests.Session 复用 | 省去重复 TLS 握手 |
+| asyncio.gather | mentor/dispatch 并发查询 |
+| TSC 时序防御 | 降频容错 3→5 连续故障 |
+
+**安全修复 (3 项)**:
+| 修复 | 问题 |
+|------|------|
+| `volatile sig_atomic_t g_running` | 信号处理器 UB |
+| `volatile sig_atomic_t core_pid_store` | 信号处理器 UB |
+| `pthread_mutex_t g_self_node_id` | beacon 线程数据竞争 |
+
+---
+
+## 15. Tauri v2 桌面 GUI — 硅基生命观察室
+
+### 15.1 设计理念
+
+不是标签页仪表盘，而是**沉浸式观察室**——TORK 的有机体占据中央，面板如半透明薄膜覆盖其上，可展开/收起。
+
+- 全视口 `<canvas>` 渲染有机体（metaball 形态，本能驱动形变）
+- 面板用 `backdrop-filter: blur()` 实现半透明
+- 键盘快捷键切换面板：V=生命体征, T=TLN网络, E=编辑器, C=对话, S=群体, Esc=设置
+- 颜色系统：连续 HSL 插值（非3个离散主题），本能向量直接映射色相/饱和度/亮度
+
+### 15.2 技术选型
+
+| 层 | 技术 | 理由 |
+|---|---|---|
+| 桌面框架 | Tauri v2 (2.11.1) | Linux 原生, 3-8MB 二进制, webkit2gtk-4.1 |
+| 后端 | Rust (tokio) | 直接读 /proc/PID/mem + Unix Socket |
+| 前端 | Vanilla HTML/CSS/JS | 无构建工具, Canvas 2D |
+| 噪声 | simplex-noise (esm.sh CDN) | 有机运动基础 |
+
+### 15.3 项目结构
+
+```
+tauri-app/
+  src-tauri/
+    Cargo.toml
+    tauri.conf.json          # frontendDist: "../src", withGlobalTauri: true
+    capabilities/default.json
+    src/
+      main.rs                # WEBKIT_DISABLE_DMABUF_RENDERER=1 (NVIDIA兼容)
+      lib.rs                 # Builder + 后台任务启动
+      state.rs               # AppState (Mutex) + UpdatePayload + InstinctVector
+      soul_parser.rs         # 移植 shared/soul_parser.py (208字节偏移)
+      torkd_bridge.rs        # 移植 web/torkd_bridge.py (Unix Socket)
+      commands/
+        mod.rs
+        soul.rs              # read_soul, find_pid
+        socket.rs            # torkd_query, exec_command
+        file_ops.rs          # read_file, write_file, list_dir
+        chat.rs              # chat_send
+        evolution.rs         # trigger_evolution, evolution_log
+        beacon.rs            # get_peers, get_consensus
+      background/
+        mod.rs
+        poll_loop.rs         # 1s轮询: Soul + instincts → emit("update")
+        beacon_listener.rs   # UDP组播 → emit("peer-update")
+        proc_watcher.rs      # 500ms: PID存活 → emit("engine-started/stopped")
+  src/
+    index.html               # 观察室布局
+    css/
+      base.css               # CSS变量, body, scrollbar
+      organism.css            # 有机体信息覆盖层
+      panels.css              # 半透明面板系统 (transform滑入)
+      vitals.css              # ECG扫描, 生命条
+      tln.css                 # TLN神经网络
+      chat.css                # 对话气泡
+      swarm.css               # 拓扑网络
+      editor.css              # 代码编辑器
+    js/
+      state.js               # 状态中心 + 指数平滑插值 + ECG历史
+      color_engine.js         # HSL连续插值 (本能→色相)
+      event_bus.js            # Tauri listen/emit 封装
+      organism.js             # Metaball Canvas2D (80×60 marching squares)
+      vitals.js               # ECG扫描 + 本能条 + Soul字段
+      tln_visual.js           # TLN三值网络力导向图
+      editor.js               # CodeMirror + 编译/运行
+      chat.js                 # 对话 + 情绪感知
+      swarm.js                # 群体拓扑 + 共识向量
+      animation_loop.js       # 单一 rAF 主循环
+      app.js                  # 入口: 初始化 + 面板切换 + 事件监听
+```
+
+### 15.4 数据流
+
+```
+Rust poll_loop (1s)
+  → find_pid → read_soul_from_proc → derive_instincts → torkd_query(mentor,dispatch)
+  → app.emit("update", UpdatePayload)
+  → webkit2gtk webview
+  → __TAURI__.event.listen("update", callback)
+  → eventBus.handleUpdate(payload)
+  → state.target = payload fields
+  → animation_loop.tick(dt)
+    → state.interpolate(dt)  // 指数平滑: FAST(8)/MED(5)/SLOW(3)
+    → state.display = 插值后的渲染值
+    → organism.update/render  // metaball 形变
+    → vitals.updateStatusBar  // 状态栏始终更新
+    → vitals.update(dt)       // 面板打开时才渲染
+    → colorEngine.applyColor  // CSS变量实时更新
+```
+
+### 15.5 关键实现细节
+
+**NVIDIA + webkit2gtk 兼容**: `main.rs` 设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`，禁用 DMA-BUF 渲染回退到软件渲染，避免 GBM buffer 创建失败。
+
+**const/let vs window**: `<script>` 标签中的 `const/let` 声明**不会成为 window 属性**。所有跨模块通信通过 `window.xxx = xxx` 暴露，通过 `const xxx = window.xxx` 读取。
+
+**插值解耦**: 数据到达率(1Hz)与渲染率(60fps)解耦。`state.interpolate(dt)` 用指数平滑：本能(FAST=8)、驱动(MED=5)、TLN(SLOW=3)。
+
+**面板渲染策略**: organism + statusBar + colorEngine 始终渲染；vitals/tln 只在面板打开时渲染。
+
+### 15.6 当前状态 (WIP)
+
+- Rust 后端: poll_loop + proc_watcher + beacon_listener 已实现
+- 前端: 11 个 JS 模块已实现，依赖链完整
+- 已知问题: webkit2gtk 在 NVIDIA 驱动下渲染不稳定，界面可能全黑
+- 待解决: 开机画面、全屏闪动、懒加载体验

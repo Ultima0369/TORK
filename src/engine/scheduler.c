@@ -47,6 +47,13 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
+/* Aurora: 最近一次本能评估结果 */
+static tork_instinct_t g_last_inst = {0, 0, 0};
+
+const tork_instinct_t *sched_last_instinct(void) {
+    return &g_last_inst;
+}
+
 void scheduler_init(sched_ctx_t *ctx, soul_t *soul, int quiet) {
     memset(ctx, 0, sizeof(*ctx));
     ctx->soul = soul;
@@ -279,6 +286,7 @@ void scheduler_tick(sched_ctx_t *ctx) {
     /* Re-evaluate instinct (every 10 ticks) */
     if (ctx->round % 10 == 0) {
         ctx->inst = instinct_evaluate(inp);
+        g_last_inst = ctx->inst;
         ctx->idle_discoveries = 0;
     }
     ctx->drive = (int)((ctx->inst.desire - ctx->inst.fear + ctx->inst.curiosity) * 100.0f);

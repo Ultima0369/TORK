@@ -1,6 +1,6 @@
 # SERVICES.md — 外部接口
 
-> 5 秒摘要：TORK 通过 4 个外部接口与外界交互：torkd Unix Socket（命令协议）、Web 仪表盘（aiohttp + WebSocket + CodeMirror 6）、云端 API（讯飞星辰 MaaS + 进化引擎）、Grid 共享内存（终端可视化）。Fission 分裂机制通过 fork 子进程实现竞争进化。
+> 5 秒摘要：TORK 通过 4 个外部接口与外界交互：torkd Unix Socket（命令协议）、Web 仪表盘（aiohttp + WebSocket + CodeMirror 6）、云端 API（讯飞星辰 MaaS + 进化引擎 + Session 复用）、Grid 共享内存（终端可视化）。Fission 分裂机制通过 fork 子进程实现竞争进化。
 
 ---
 
@@ -229,12 +229,13 @@ int torkd_query(const char *question, char *response, int max_len);
 `web/tork_web.py:345-391` (`poll_loop`)
 
 每 1 秒执行一次：
-1. `pgrep -x tork_core` 或 `pgrep -x tork_engine` 查找 PID
+1. `pgrep -x tork_core,tork_engine` 单次调用查找 PID（替代双 pgrep）
 2. `read_soul_from_proc(pid)` 读取 Soul
 3. 失败则 `torkd_query("soul")` 通过 socket 获取
 4. `_derive_instincts(soul)` 推导三驱力
 5. `_evolution_stats()` 读取进化日志
-6. 组装 JSON 推送到所有 WebSocket 客户端
+6. 师徒/调度查询使用 `asyncio.gather` 并发执行
+7. 组装 JSON 推送到所有 WebSocket 客户端
 
 ### 2.6 本能推导
 
@@ -359,6 +360,17 @@ temperature = 0.7
 max_tokens  = 4096
 timeout     = 60
 ```
+
+### 4.2.1 Session 复用
+
+`api/tork_api.py` 使用 `requests.Session()` 复用 TCP 连接，避免每次 API 调用重复 TLS 握手：
+
+```python
+self._session = requests.Session()
+self._session.headers.update({"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
+```
+
+`ask()` 和 `ask_one()` 均通过 `self._session.post()` 发送请求。
 
 ### 4.3 有状态对话
 
@@ -601,13 +613,97 @@ tick_fission (每 1000 tick)
 
 ---
 
-## 7. Grid 共享内存
+## 7. 信标发现与分布式身份
 
 ### 7.1 功能述求
 
+TORK 实例通过 UDP 广播信标帧发现同类节点，建立分布式认知。信标包含物理不可伪造的 π-seed 摘要，用于身份验证和信任评估。
+
+### 7.2 信标帧
+
+`engine/beacon.h`
+
+```
+beacon_frame_t:
+  magic          uint32    0x544F524B ("TORK")
+  tick           uint32    当前心跳 tick
+  crc32_prefix   uint32    Soul CRC32 前缀
+  tsc_lo         uint32    TSC 低 32 位
+  heartbeat_ms   uint16    心跳间隔 (ms)
+  pi_digest[16]  uint8     π-seed 异或摘要
+  node_id[16]    uint8     节点唯一标识
+```
+
+### 7.3 广播与监听
+
+`engine/beacon.c`
+
+- **广播**：`beacon_broadcast()` 通过 UDP 广播到 `INADDR_BROADCAST:8421`
+- **监听**：独立 pthread 线程 `beacon_listener()` 接收信标帧
+- **自回声过滤**：通过 `g_self_node_id` 比对过滤自身发出的信标
+- **发现间隔**：100 tick（从 1000 优化），加速同类发现
+
+### 7.4 身份验证
+
+`beacon_verify()` 使用分形基元五维验证：
+
+| 维度 | 检查 | 容忍 |
+|------|------|------|
+| magic | 必须匹配 0x544F524B | 零容忍 |
+| tick | 非零 | 零容忍 |
+| tsc_lo | 非零 | 零容忍 |
+| heartbeat_ms | 在 [10, 5000] | 10% 容忍 |
+| node_id | 非全零 | 零容忍 |
+
+综合 delta > 0 则拒绝。
+
+### 7.5 π-seed 摘要
+
+`pi_compute_digest()` 对最近 16 次 π-seed 采样做逐字节异或，生成 16 字节物理不可伪造摘要。基于 BBP 公式 + 晶振时序交叉，无法伪造。
+
+### 7.6 信任评分
+
+`peer_fill()` 计算信任分数：
+
+```
+trust_score = (pi_digest 非全零 ? 50 : 0) + (verified ? 50 : 0)
+```
+
+最高 100 分，最低 0 分。pi_digest 非零证明对方持有物理随机源。
+
+### 7.7 线程安全
+
+`g_self_node_id` 由广播线程写入、监听线程读取，通过 `pthread_mutex_t g_self_node_lock` 保护，避免数据竞争。
+
+### 7.8 同类表管理
+
+```
+peer_table_t:
+  peers[32]      peer_entry_t   最多 32 个同类
+  count          int            当前数量
+  lock           pthread_mutex  互斥锁
+
+peer_entry_t:
+  node_id[16]    节点标识
+  last_tick      最后 tick
+  last_crc32     最后 CRC
+  trust_score    信任分数
+  pi_digest[16]  π-seed 摘要
+  last_seen      最后发现时间
+  verified       是否已验证
+```
+
+过期清理：`beacon_prune()` 移除超过 `BEACON_EXPIRE_S` 秒未更新的条目。
+
+---
+
+## 8. Grid 共享内存
+
+### 8.1 功能述求
+
 Grid 是 TORK 的终端可视化——一个 80×40 的字符网格，用 ANSI 24-bit 颜色渲染实时状态。引擎每 tick 把 Soul 数据推送到共享内存，Grid 进程读取并渲染。
 
-### 7.2 共享内存结构
+### 8.2 共享内存结构
 
 `grid/grid_soul_connector.c:22-26`
 
@@ -619,7 +715,7 @@ soul_grid_shm_t:
 
 大小：`sizeof(grid_soul_feed_t) + 8`
 
-### 7.3 grid_soul_feed_t
+### 8.3 grid_soul_feed_t
 
 `grid/tork_grid.h:25-47`
 
@@ -642,7 +738,7 @@ grid_soul_feed_t:
   outcome_count     uint8      结果数量
 ```
 
-### 7.4 引擎侧写入
+### 8.4 引擎侧写入
 
 `grid/grid_soul_connector.c:32-62`
 
@@ -659,7 +755,7 @@ grid_engine_write(soul):
 
 `scheduler_tick` 中的 `grid_soul_feed()` 每次调用 `grid_engine_write()`。
 
-### 7.5 Grid 侧读取
+### 8.5 Grid 侧读取
 
 `grid/grid_soul_connector.c:78-113`
 
@@ -673,7 +769,7 @@ grid_viewer_read(out):
   memcpy(out, &shm->soul, sizeof)
 ```
 
-### 7.6 渲染布局
+### 8.6 渲染布局
 
 `grid/tork_grid.c:341-397` (`grid_render`)
 
@@ -692,13 +788,13 @@ grid_viewer_read(out):
 | 34 | 空行 | 分隔 |
 | 35-39 | 底部状态 | `TRK ♥<global_tick> \| M<mode> \| ALIVE/PAUSED` |
 
-### 7.7 像素模型
+### 8.7 像素模型
 
 `grid/tork_grid.h:49-58`
 
 每个像素有独立的 RGB、亮度、好奇心、衰减率、影响力。非可视化区域的像素做"涌现"计算——邻居亮度求和 + 随机波动 + 衰减，形成有机的背景动画。
 
-### 7.8 清理
+### 8.8 清理
 
 ```
 grid_engine_cleanup():
@@ -710,28 +806,29 @@ grid_viewer_cleanup():
 
 ---
 
-## 8. 数据流总览
+## 9. 数据流总览
 
 ```
                     ┌─────────────────────────────────────────┐
                     │         tork_engine (C)                  │
                     │  scheduler_tick() 每 500ms              │
-                    └──┬──────┬──────┬──────┬──────────────────┘
-                       │      │      │      │
-              ┌────────▼┐  ┌──▼───┐ ┌▼─────┐ ┌▼──────────────┐
-              │ torkd   │  │ grid │ │ dist │ │ persist/      │
-              │ .sock   │  │ shm  │ │ net  │ │ *.bin         │
-              └────┬────┘  └──┬───┘ └──────┘ └───────────────┘
-                   │          │
-         ┌─────────▼──┐    ┌──▼──────────┐
-         │ torkd_     │    │ tork_grid   │
-         │ bridge.py  │    │ (终端渲染)  │
-         └─────┬──────┘    └─────────────┘
+                    └──┬──────┬──────┬──────┬──────┬──────────┘
+                       │      │      │      │      │
+              ┌────────▼┐  ┌──▼───┐ ┌▼─────┐ ┌▼─────┐ ┌──────▼──────┐
+              │ torkd   │  │ grid │ │ dist │ │beacon│ │ persist/    │
+              │ .sock   │  │ shm  │ │ net  │ │ UDP  │ │ *.bin       │
+              └────┬────┘  └──┬───┘ └──────┘ └──┬──┘ └─────────────┘
+                   │          │                   │
+         ┌─────────▼──┐    ┌──▼──────────┐    ┌──▼──────────┐
+         │ torkd_     │    │ tork_grid   │    │ 同类节点    │
+         │ bridge.py  │    │ (终端渲染)  │    │ (π-seed ID) │
+         └─────┬──────┘    └─────────────┘    └─────────────┘
                │
     ┌──────────▼──────────────────────────────┐
     │         tork_web.py (aiohttp)            │
     │  REST API + WebSocket + CodeMirror 6    │
     │  ← poll_loop: 每秒读 Soul + 推送 WS     │
+    │  ← asyncio.gather 并发查询              │
     └──┬──────┬──────┬────────────────────────┘
        │      │      │
   ┌────▼──┐ ┌▼────┐ ┌▼──────────┐
@@ -743,6 +840,7 @@ grid_viewer_cleanup():
         │ 讯飞星辰 MaaS    │
         │ /v2/chat/       │
         │ completions     │
+        │ (Session 复用)  │
         └─────────────────┘
 
     Fission 路径:

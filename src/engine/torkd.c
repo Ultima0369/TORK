@@ -6,6 +6,7 @@
 #include "codegen.h"
 #include "query.h"
 #include "soul_access.h"
+#include "scheduler.h"
 #include "../sandbox/sandbox.h"
 #include "../learning/watcher.h"
 /* snapshot stats from monitor */
@@ -299,6 +300,37 @@ static void handle_client(int client_fd) {
                 snprintf(response, sizeof(response), "{\"task_id\":%u,\"status\":\"%s\"}\n", tid, status_str);
             }
         }
+    } else if (strcmp(buf, "state") == 0) {
+        /* state — Aurora JSON: heartbeat/instinct/learning/evolution */
+        const tork_instinct_t *inst = sched_last_instinct();
+        const mentor_state_t *ms = mentor_get_state();
+        uint8_t ms_cw, ms_lw, ms_aw;
+        mentor_decision_weights(&ms_cw, &ms_lw, &ms_aw);
+        snprintf(response, sizeof(response),
+            "{\"heartbeat\":{\"tick\":%u,\"hw_stress\":%u,\"heartbeat_ms\":%u,\"drive\":%d},"
+            "\"instinct\":{\"fear\":%.3f,\"desire\":%.3f,\"curiosity\":%.3f},"
+            "\"learning\":{\"tln_action\":%d,\"tln_modify\":%d,\"tln_explore\":%d,\"tln_energy\":%d,"
+            "\"experience_count\":%u,\"mcts_iterations\":%u,\"pattern_confidence\":%.2f,"
+            "\"mentor_stage\":\"%s\"},"
+            "\"evolution\":{\"gen_count\":%u,\"mutation_count\":%u,\"best_score\":%u,"
+            "\"mentor_cloud_weight\":%d,\"mentor_local_weight\":%d,\"mentor_auto_weight\":%d}}\n",
+            g_soul ? soul_tick(g_soul) : 0,
+            g_soul ? soul_hw_stress(g_soul) : 0,
+            g_soul ? (unsigned)soul_heartbeat_ms(g_soul) : 100,
+            g_soul ? soul_drive(g_soul) : 0,
+            inst->fear, inst->desire, inst->curiosity,
+            g_soul ? (int)soul_tln_action(g_soul) : 0,
+            g_soul ? (int)soul_tln_modify(g_soul) : 0,
+            g_soul ? (int)soul_tln_explore(g_soul) : 0,
+            g_soul ? (int)soul_tln_energy(g_soul) : 0,
+            g_soul ? (unsigned)soul_experience_count(g_soul) : 0,
+            g_soul ? (unsigned)soul_mcts_iterations(g_soul) : 0,
+            ms->pattern_confidence,
+            mentor_stage_name(ms->stage),
+            g_soul ? soul_gen_count(g_soul) : 0,
+            g_soul ? (unsigned)soul_mutation_count(g_soul) : 0,
+            g_soul ? (unsigned)soul_best_score(g_soul) : 0,
+            ms_cw, ms_lw, ms_aw);
     } else if (strcmp(buf, "soul") == 0 || strcmp(buf, "灵魂") == 0) {
         /* soul — dump raw soul as hex for Python parser */
         if (!g_soul) {

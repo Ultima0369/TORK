@@ -62,4 +62,7 @@ typedef struct {
 void scheduler_init(sched_ctx_t *ctx, soul_t *soul, int quiet);
 void scheduler_tick(sched_ctx_t *ctx);
 
+/* Aurora: 暴露最近一次 instinct_evaluate() 结果 */
+const tork_instinct_t *sched_last_instinct(void);
+
 #endif

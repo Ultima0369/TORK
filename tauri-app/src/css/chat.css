@@ -1,0 +1,66 @@
+/* ── 对话面板 ── */
+
+#chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.chat-msg {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  max-width: 85%;
+}
+
+.chat-msg.user {
+  align-self: flex-end;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  color: var(--fg);
+}
+
+.chat-msg.tork {
+  align-self: flex-start;
+  background: hsla(var(--accent-h), calc(var(--accent-s) * 0.3), calc(var(--accent-l) * 0.2), 0.3);
+  border: 1px solid hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.15);
+  color: var(--fg);
+}
+
+.chat-msg .msg-mood {
+  font-size: 9px;
+  color: var(--accent);
+  opacity: 0.6;
+  margin-top: 4px;
+}
+
+.chat-msg.chat-error {
+  border-color: rgba(255, 80, 80, 0.3);
+  color: rgba(255, 120, 120, 0.8);
+}
+
+#chat-input-area {
+  display: flex;
+  gap: 8px;
+}
+
+#chat-input {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+#chat-input:focus {
+  border-color: var(--accent-dim);
+}

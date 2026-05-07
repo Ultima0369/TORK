@@ -1,0 +1,83 @@
+/* ── 生命体征 ── 本能条 + ECG + Soul 字段 */
+
+.instinct-section { margin-bottom: 16px; }
+
+.instinct-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.instinct-label {
+  width: 64px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: rgba(255,255,255,0.45);
+  text-transform: uppercase;
+}
+
+.instinct-track {
+  flex: 1;
+  height: 4px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.instinct-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease-out;
+  width: 0%;
+}
+
+.fear-fill { background: linear-gradient(90deg, #ff2244, #ff6644); }
+.desire-fill { background: linear-gradient(90deg, #ff8800, #ffcc00); }
+.curiosity-fill { background: linear-gradient(90deg, #00aaff, #00ffcc); }
+
+.instinct-val {
+  width: 36px;
+  text-align: right;
+  font-size: 10px;
+  color: rgba(255,255,255,0.5);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── ECG Canvas ── */
+
+#ecg-canvas {
+  width: 100%;
+  height: 120px;
+  display: block;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+/* ── Soul 字段网格 ── */
+
+.soul-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 4px;
+}
+
+.soul-field {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 6px;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.03);
+}
+
+.soul-key {
+  font-size: 9px;
+  color: rgba(255,255,255,0.35);
+  letter-spacing: 0.5px;
+}
+
+.soul-val {
+  font-size: 9px;
+  color: rgba(255,255,255,0.6);
+  font-variant-numeric: tabular-nums;
+}

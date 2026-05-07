@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TORK — 观察室</title>
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/panels.css">
+  <link rel="stylesheet" href="css/organism.css">
+  <link rel="stylesheet" href="css/vitals.css">
+  <link rel="stylesheet" href="css/tln.css">
+  <link rel="stylesheet" href="css/chat.css">
+  <link rel="stylesheet" href="css/swarm.css">
+  <link rel="stylesheet" href="css/editor.css">
+</head>
+<body>
+  <!-- 纯 HTML 可见性测试 — 不依赖 JS/CSS -->
+  <div style="position:fixed;top:50px;left:50px;background:#00ff00;color:#000;padding:20px;font:bold 24px monospace;z-index:999999;">TORK WEBVIEW TEST</div>
+
+  <!-- 有机体 Canvas -->
+  <canvas id="organism-canvas"></canvas>
+
+  <!-- 状态栏（始终可见） -->
+  <div id="status-bar" class="status-bar">
+    <span class="status-dot off"></span>
+    <span class="status-text">DORMANT</span>
+    <span class="status-sep">|</span>
+    <span class="status-mode">Mode: —</span>
+    <span class="status-sep">|</span>
+    <span class="status-tick">Tick: 0</span>
+    <span class="status-sep">|</span>
+    <span class="status-pid">PID: —</span>
+  </div>
+
+  <!-- 快捷键提示 -->
+  <div id="key-hints" class="key-hints">
+    <span>V 生命体征</span><span>T TLN</span><span>E 编辑器</span><span>C 对话</span><span>S 群体</span><span>Esc 设置</span>
+  </div>
+
+  <!-- 生命体征面板 -->
+  <div id="vitals-panel" class="panel">
+    <div class="panel-header">
+      <h2>VITALS</h2>
+      <span class="panel-close" data-panel="vitals-panel">&times;</span>
+    </div>
+    <div class="panel-body">
+      <div class="instinct-section">
+        <div class="instinct-row">
+          <span class="instinct-label">Fear</span>
+          <div class="instinct-track"><div id="bar-fear" class="instinct-fill fear-fill"></div></div>
+          <span id="val-fear" class="instinct-val">0.00</span>
+        </div>
+        <div class="instinct-row">
+          <span class="instinct-label">Desire</span>
+          <div class="instinct-track"><div id="bar-desire" class="instinct-fill desire-fill"></div></div>
+          <span id="val-desire" class="instinct-val">0.00</span>
+        </div>
+        <div class="instinct-row">
+          <span class="instinct-label">Curiosity</span>
+          <div class="instinct-track"><div id="bar-curiosity" class="instinct-fill curiosity-fill"></div></div>
+          <span id="val-curiosity" class="instinct-val">0.00</span>
+        </div>
+      </div>
+      <canvas id="ecg-canvas"></canvas>
+      <div id="soul-fields" class="soul-fields"></div>
+    </div>
+  </div>
+
+  <!-- TLN 面板 -->
+  <div id="tln-panel" class="panel">
+    <div class="panel-header">
+      <h2>TLN NETWORK</h2>
+      <span class="panel-close" data-panel="tln-panel">&times;</span>
+    </div>
+    <div class="panel-body">
+      <canvas id="tln-canvas"></canvas>
+    </div>
+  </div>
+
+  <!-- 编辑器面板 -->
+  <div id="editor-panel" class="panel">
+    <div class="panel-header">
+      <h2>EDITOR</h2>
+      <span class="panel-close" data-panel="editor-panel">&times;</span>
+    </div>
+    <div class="panel-body">
+      <div id="editor-toolbar" class="editor-toolbar">
+        <button data-action="compile">Compile</button>
+        <button data-action="run">Run</button>
+        <button data-action="evolve">Evolve</button>
+        <button data-action="save">Save</button>
+      </div>
+      <div id="file-tree" class="file-tree"></div>
+      <div id="code-editor" class="editor-area"></div>
+    </div>
+  </div>
+
+  <!-- 对话面板 -->
+  <div id="chat-panel" class="panel">
+    <div class="panel-header">
+      <h2>CHAT</h2>
+      <span class="panel-close" data-panel="chat-panel">&times;</span>
+    </div>
+    <div class="panel-body">
+      <div id="chat-messages" class="chat-messages"></div>
+      <div class="chat-input-row">
+        <input id="chat-input" type="text" placeholder="与 TORK 对话..." autocomplete="off">
+        <button id="chat-send">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 群体面板 -->
+  <div id="swarm-panel" class="panel">
+    <div class="panel-header">
+      <h2>SWARM</h2>
+      <span class="panel-close" data-panel="swarm-panel">&times;</span>
+    </div>
+    <div class="panel-body">
+      <canvas id="swarm-canvas"></canvas>
+      <div id="peer-list" class="peer-list"></div>
+    </div>
+  </div>
+
+  <!-- 设置面板 -->
+  <div id="settings-panel" class="panel">
+    <div class="panel-header">
+      <h2>SETTINGS</h2>
+      <span class="panel-close" data-panel="settings-panel">&times;</span>
+    </div>
+    <div class="panel-body">
+      <div class="setting-row">
+        <label>API Endpoint</label>
+        <input id="setting-api" type="text" value="http://localhost:8420">
+      </div>
+      <div class="setting-row">
+        <label>Exec Token</label>
+        <input id="setting-token" type="password">
+      </div>
+      <div class="setting-row">
+        <label>Sound</label>
+        <input id="setting-sound" type="checkbox">
+      </div>
+    </div>
+  </div>
+
+  <!-- JS 加载顺序：state → color → event_bus → 各模块 → loop → app -->
+  <script src="js/state.js"></script>
+  <script src="js/color_engine.js"></script>
+  <script src="js/event_bus.js"></script>
+  <script src="js/organism.js"></script>
+  <script src="js/vitals.js"></script>
+  <script src="js/tln_visual.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/chat.js"></script>
+  <script src="js/swarm.js"></script>
+  <script src="js/animation_loop.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

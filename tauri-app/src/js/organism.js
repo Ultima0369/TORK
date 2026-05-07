@@ -68,6 +68,11 @@ const organism = {
 
   resize() {
     if (!canvas) return;
+    // 保存旧帧（resize时恢复，避免闪动）
+    let oldImage = null;
+    if (W && H && ctx) {
+      try { oldImage = ctx.getImageData(0, 0, canvas.width, canvas.height); } catch(e) {}
+    }
     const dpr = window.devicePixelRatio || 1;
     W = window.innerWidth;
     H = window.innerHeight;
@@ -76,6 +81,19 @@ const organism = {
     canvas.style.width = W + 'px';
     canvas.style.height = H + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // 立即填充背景，跳过20帧渐现期
+    ctx.fillStyle = '#080810';
+    ctx.fillRect(0, 0, W, H);
+    // 恢复旧帧（缩放适配新尺寸）
+    if (oldImage) {
+      try {
+        const tmp = document.createElement('canvas');
+        tmp.width = oldImage.width;
+        tmp.height = oldImage.height;
+        tmp.getContext('2d').putImageData(oldImage, 0, 0);
+        ctx.drawImage(tmp, 0, 0, W, H);
+      } catch(e) {}
+    }
   },
 
   update(dt) {
@@ -148,12 +166,13 @@ const organism = {
     }
   },
 
-  render() {
+  render(dt) {
     if (!ctx || !W || !H) return;
     const { h, s, l } = accentHSL();
 
-    // 半透明覆盖（拖尾效果）
-    ctx.fillStyle = 'rgba(8, 8, 16, 0.12)';
+    // 拖尾覆盖 — dt归一化，覆盖色与body背景匹配
+    const fadeAlpha = dt ? (1 - Math.exp(-dt * 7)).toFixed(3) : 0.12;
+    ctx.fillStyle = `rgba(8, 8, 10, ${fadeAlpha})`;
     ctx.fillRect(0, 0, W, H);
 
     // 计算 metaball 场

@@ -168,3 +168,59 @@ body {
   0%, 100% { opacity: 0.6; }
   50% { opacity: 1; }
 }
+
+/* ── 开机画面 ── */
+
+.splash {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #080808;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 99999;
+  transition: opacity 0.6s ease-out;
+}
+
+.splash.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.splash-logo {
+  font-family: var(--font-mono);
+  font-size: 48px;
+  font-weight: 200;
+  letter-spacing: 12px;
+  color: hsl(190, 30%, 45%);
+  animation: splash-breathe 2s ease-in-out infinite;
+}
+
+.splash-sub {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  letter-spacing: 4px;
+  color: rgba(255,255,255,0.25);
+  margin-top: 12px;
+}
+
+.splash-loader {
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(255,255,255,0.06);
+  border-top: 2px solid hsl(190, 30%, 45%);
+  border-radius: 50%;
+  animation: splash-spin 1s linear infinite;
+  margin-top: 24px;
+}
+
+@keyframes splash-breathe {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.9; }
+}
+
+@keyframes splash-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}

@@ -94,29 +94,14 @@ async function initApp() {
   // 启动动画循环
   if (animationLoop) animationLoop.start();
 
-  // 自检：把关键状态写到页面
-  const diag = document.createElement('div');
-  diag.id = 'diag';
-  diag.style.cssText = 'position:fixed;bottom:40px;left:8px;font:10px monospace;color:#0f0;z-index:9999;pointer-events:none;max-height:200px;overflow:auto;background:rgba(0,0,0,0.7);padding:6px;border-radius:4px;';
-  document.body.appendChild(diag);
-  const checks = [
-    'state:' + !!window.state,
-    'organism:' + !!window.organism,
-    'vitals:' + !!window.vitals,
-    'tlnVisual:' + !!window.tlnVisual,
-    'colorEngine:' + !!window.colorEngine,
-    'eventBus:' + !!window.eventBus,
-    'animLoop:' + !!window.animationLoop,
-    'ecg-canvas:' + !!document.getElementById('ecg-canvas'),
-    'bar-fear:' + !!document.getElementById('bar-fear'),
-    'val-fear:' + !!document.getElementById('val-fear'),
-    'soul-fields:' + !!document.getElementById('soul-fields'),
-    'status-bar:' + !!document.getElementById('status-bar'),
-    'organism-canvas:' + !!document.getElementById('organism-canvas'),
-    '__TAURI__:' + !!window.__TAURI__,
-    'TAURI.event:' + !!(window.__TAURI__ && window.__TAURI__.event),
-  ];
-  diag.textContent = checks.join(' | ');
+  // 开机画面淡出
+  setTimeout(() => {
+    const splash = document.getElementById('splash');
+    if (splash) {
+      splash.classList.add('fade-out');
+      splash.addEventListener('transitionend', () => splash.remove());
+    }
+  }, 1800);
 }
 
 initApp();

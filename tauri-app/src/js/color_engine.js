@@ -9,7 +9,7 @@ const HUE_MAP = {
 };
 
 // 缓存：避免每帧 getComputedStyle
-let _cachedHSL = { h: 190, s: 80, l: 55 };
+let _cachedHSL = { h: 190, s: 30, l: 45 };
 
 function computeAccentColor(instincts) {
   const { fear, desire, curiosity } = instincts;

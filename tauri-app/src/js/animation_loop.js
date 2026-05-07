@@ -29,8 +29,14 @@ window.animationLoop = {
   tick(dt) {
     state.interpolate(dt);
 
-    // 有机体始终渲染
-    if (organism) { organism.update(dt); organism.render(); }
+    // 颜色引擎先执行，确保 organism.render() 用最新颜色
+    if (colorEngine) {
+      const { h, s, l } = colorEngine.computeAccentColor(state.display);
+      colorEngine.applyColor(h, s, l);
+    }
+
+    // 有机体始终渲染（传入dt用于拖尾归一化）
+    if (organism) { organism.update(dt); organism.render(dt); }
 
     // 状态栏始终更新
     if (vitals) vitals.updateStatusBar();
@@ -46,12 +52,6 @@ window.animationLoop = {
     if (tp && tp.classList.contains('open') && tlnVisual) {
       tlnVisual.update(dt);
       tlnVisual.render();
-    }
-
-    // 颜色引擎始终运行
-    if (colorEngine) {
-      const { h, s, l } = colorEngine.computeAccentColor(state.display);
-      colorEngine.applyColor(h, s, l);
     }
   },
 };

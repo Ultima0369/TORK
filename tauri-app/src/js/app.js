@@ -43,13 +43,6 @@ function togglePanel(id) {
 }
 
 async function initApp() {
-  // 可见性测试：如果 webview 正常渲染，这个绿色块会出现
-  const testEl = document.createElement('div');
-  testEl.style.cssText = 'position:fixed;top:50px;left:50px;background:#0f0;color:#000;padding:10px;font:14px monospace;z-index:99999;';
-  testEl.textContent = 'TORK GUI LOADED';
-  document.body.appendChild(testEl);
-  setTimeout(() => testEl.remove(), 3000);
-
   // 初始化各模块
   if (organism) organism.init();
   if (vitals) vitals.init();
@@ -62,7 +55,13 @@ async function initApp() {
   if (eventBus) {
     eventBus.listen('update', (payload) => eventBus.handleUpdate(payload));
     eventBus.listen('engine-started', () => { state.target.engine_running = true; });
-    eventBus.listen('engine-stopped', () => { state.target.engine_running = false; });
+    eventBus.listen('engine-stopped', () => {
+      const t = state.target;
+      t.engine_running = false;
+      t.pid = null;
+      t.mentor = null;
+      t.dispatch = null;
+    });
     eventBus.listen('peer-update', (payload) => {
       if (window.swarm && window.swarm.addPeer) window.swarm.addPeer(payload);
     });

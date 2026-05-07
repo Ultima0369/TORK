@@ -5,8 +5,11 @@ use crate::torkd_bridge;
 use tauri::Manager;
 
 /// Whitelist of allowed torkd commands (prevents command injection)
-const ALLOWED_COMMANDS: &[&str] = &[
-    "soul", "status", "compile", "run", "halt", "mentor", "dispatch", "ping", "info", "version",
+/// Prefix-based: "exec:" allows "exec:ls", "task:" allows "task:exec:cmd", etc.
+const ALLOWED_PREFIXES: &[&str] = &[
+    "ping", "status", "soul", "state", "mentor",
+    "exec:", "audit:", "codegen:", "task:", "result:",
+    "tasks", "dispatch", "exit", "quit",
 ];
 
 #[tauri::command]
@@ -16,10 +19,10 @@ pub fn torkd_query(app: tauri::AppHandle, command: String) -> Result<String, Str
         return Err("Invalid command: contains newline".to_string());
     }
 
-    // Validate against whitelist
-    let base_cmd = command.split_whitespace().next().unwrap_or("");
-    if !ALLOWED_COMMANDS.contains(&base_cmd) {
-        return Err(format!("Command not allowed: {}", base_cmd));
+    // Validate against prefix whitelist
+    let allowed = ALLOWED_PREFIXES.iter().any(|prefix| command.starts_with(prefix));
+    if !allowed {
+        return Err(format!("Command not allowed: {}", command));
     }
 
     // Check torkd connectivity via pid_cache

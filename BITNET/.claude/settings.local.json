@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git clone *)",
+      "Bash(git --version)",
+      "Bash(apt-cache search *)",
+      "Bash(dpkg -L git)",
+      "Bash(apt list *)",
+      "Bash(yum list *)",
+      "Bash(git --exec-path)",
+      "Bash(apt-get update *)",
+      "Bash(apt-get install *)",
+      "Bash(sudo -S apt-get update)",
+      "Bash(sudo -S apt-get install -y git)",
+      "Read(//home/lg/.local/bin/**)",
+      "Bash(/usr/bin/git clone *)",
+      "Bash(pip install *)",
+      "Bash(sudo -S apt-get install -y cmake build-essential ninja)",
+      "Bash(sudo -S apt-get install -y cmake build-essential)",
+      "Bash(sudo -S apt-get install -y cmake)",
+      "Bash(clang --version)",
+      "Bash(sudo -S apt-get install -y clang)",
+      "Bash(cmake *)",
+      "Bash(make)",
+      "Bash(./build/bin/llama-quantize --help)",
+      "Bash(build/bin/llama-quantize --help)",
+      "Bash(build/bin/llama-imatrix -m models/BitNet-b1.58-2B-4T/ggml-model-f32.gguf -o models/BitNet-b1.58-2B-4T/imatrix.bin)",
+      "Bash(./build/bin/llama-quantize models/BitNet-b1.58-2B-4T/ggml-model-f32.gguf models/BitNet-b1.58-2B-4T/ggml-model-q4_k_m.gguf Q4_K_M 1)",
+      "Bash(python -m json.tool)",
+      "Bash(python3 -m json.tool)",
+      "Bash(./build/bin/llama-quantize models/BitNet-b1.58-2B-4T/ggml-model-f32.gguf models/BitNet-b1.58-2B-4T/ggml-model-i2_s_test.gguf IQ2_S 1)",
+      "Bash(./build/bin/llama-quantize models/BitNet-b1.58-2B-4T/ggml-model-f32.gguf models/BitNet-b1.58-2B-4T/ggml-model-q2_k.gguf Q2_K 1)",
+      "Bash(python run_inference.py -m models/BitNet-b1.58-2B-4T/ggml-model-q2_k.gguf -p \"Hello, how are you?\" -cnv)",
+      "Bash(python3 *)",
+      "Bash(pip show *)",
+      "Bash(python *)"
+    ]
+  }
+}

@@ -20,3 +20,32 @@ all: build/tork_core build/tork_engine build/tork_sandbox build/tork_sandbox_lau
 -include mk/grid.mk
 -include mk/misc.mk
 
+
+# ── Tests ──────────────────────────────────────────────────────
+TEST_CFLAGS = -Wall -Wextra -g -Isrc/engine -Isrc/instinct -Isrc/code -Isrc/core -Isrc/install -Isrc/sandbox -Isrc/learning -Isrc/rollback -Isrc/network -Itests
+
+build/unity.o: tests/unity.c tests/unity.h
+	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+
+# Engine tests
+build/test_engine: tests/test_engine.c build/unity.o
+	$(CC) $(TEST_CFLAGS) -o $@ tests/test_engine.c build/unity.o
+
+# Learning tests
+build/test_learning: tests/test_learning.c build/unity.o
+	$(CC) $(TEST_CFLAGS) -o $@ tests/test_learning.c build/unity.o
+
+# Core tests (existing)
+build/test_core: tests/test_core.c build/unity.o
+	$(CC) $(TEST_CFLAGS) -o $@ tests/test_core.c build/unity.o -lm
+
+# Run all tests
+test: build/test_engine build/test_learning build/test_core
+	@echo "=== Running all tests ==="
+	@set -e; \
+	for t in build/test_engine build/test_learning build/test_core; do \
+		echo "--- $$t ---"; \
+		./$$t; \
+		echo ""; \
+	done
+	@echo "=== All tests passed ==="

@@ -19,6 +19,7 @@
 #include "../learning/snapshot.h"
 #include "../learning/energy.h"
 #include "../learning/watcher.h"
+#include "tork_context.h"
 #include "../learning/self_build.h"
 #include "../learning/mutation_guide.h"
 #include "../learning/distributed.h"
@@ -42,7 +43,6 @@
 // TORK_EVOLVE: engine_include_insert
 #include <sys/file.h>
 
-static volatile sig_atomic_t core_pid_store = 0;
 static int do_restore = 0;
 static tork_bitnet_bridge_t g_bitnet_bridge;
 static int g_bitnet_enabled = 0;
@@ -54,7 +54,7 @@ int hb_confirm_fd = -1;     /* 铁律S2: 心跳管道确认 fd */
 
 static void cleanup_core(int sig) {
     (void)sig;
-    pid_t cp = (pid_t)core_pid_store;
+    pid_t cp = (pid_t)g_tork_ctx->core_pid;
     if (cp > 0) {
         kill(cp, SIGTERM);
         waitpid(cp, NULL, 0);
@@ -82,8 +82,8 @@ static void cleanup_core(int sig) {
 static int start_core(void) {
     int hb_pipe[2];
     if (pipe(hb_pipe) != 0) return -1;
-    core_pid_store = fork();
-    if (core_pid_store == 0) {
+    g_tork_ctx->core_pid = fork();
+    if (g_tork_ctx->core_pid == 0) {
         close(hb_pipe[1]);
         dup2(hb_pipe[0], STDIN_FILENO);
         close(hb_pipe[0]);
@@ -92,10 +92,10 @@ static int start_core(void) {
         execl("build/tork_core", "tork_core", NULL);
         _exit(1);
     }
-    if ((pid_t)core_pid_store < 0) { close(hb_pipe[0]); close(hb_pipe[1]); return -1; }
+    if ((pid_t)g_tork_ctx->core_pid < 0) { close(hb_pipe[0]); close(hb_pipe[1]); return -1; }
     close(hb_pipe[0]);
     hb_confirm_fd = hb_pipe[1];
-    ps_set_core_pid((pid_t)core_pid_store);
+    ps_set_core_pid((pid_t)g_tork_ctx->core_pid);
     usleep(200000);
     return 0;
 }
@@ -182,12 +182,12 @@ static void init_services(soul_t *soul) {
 /* ── Write initial soul fields ── */
 static void init_soul_fields(soul_t *soul) {
     {
-        uint32_t pid_val = (uint32_t)(pid_t)core_pid_store;
+        uint32_t pid_val = (uint32_t)(pid_t)g_tork_ctx->core_pid;
         soul_write_buf(soul, S_SELF_PID, &pid_val, 4);
     }
     {
         uint32_t val;
-        if (monitor_parse_proc_status((pid_t)core_pid_store, "PPid:\t", &val) == 0) {
+        if (monitor_parse_proc_status((pid_t)g_tork_ctx->core_pid, "PPid:\t", &val) == 0) {
             uint16_t v = (val > 65535) ? 65535 : (uint16_t)val;
             soul_write_buf(soul, S_PPID, &v, 2);
         }
@@ -230,7 +230,7 @@ static void init_soul_fields(soul_t *soul) {
         uint64_t tsc;
         __asm__ __volatile__("rdtsc" : "=A"(tsc));
         memcpy(node_id, &tsc, 8);
-        uint32_t pid_val = (uint32_t)(pid_t)core_pid_store;
+        uint32_t pid_val = (uint32_t)(pid_t)g_tork_ctx->core_pid;
         memcpy(node_id + 8, &pid_val, 4);
         /* 尝试 RDRAND 增加熵 (带重试上限，防止VM/旧CPU无限循环) */
         unsigned int rnd = 0;
@@ -269,11 +269,11 @@ static void check_soul_crc(soul_t *soul, int tick) {
                 tick, crc_fail_count, fout.confidence);
         if (crc_fail_count >= 3) {
             fprintf(stderr, "[%4d] SOUL: 3 consecutive CRC failures — restoring golden backup\n", tick);
-            if (soul_restore_golden(soul, (pid_t)core_pid_store) == 0) {
+            if (soul_restore_golden(soul, (pid_t)g_tork_ctx->core_pid) == 0) {
                 printf("[%4d] SOUL: golden restore succeeded — entering 500-tick observation\n", tick);
             } else {
                 fprintf(stderr, "[%4d] SOUL: golden restore FAILED — triggering ASM fuse via SIGUSR1\n", tick);
-                kill((pid_t)core_pid_store, SIGUSR1);
+                kill((pid_t)g_tork_ctx->core_pid, SIGUSR1);
                 _exit(1);
             }
         }
@@ -363,7 +363,7 @@ static void sync_heartbeat(soul_t *soul, int tick) {
                     tick, dt_tsc, timing_fault_count);
             if (timing_fault_count >= 5) {
                 fprintf(stderr, "[%4d] TIMING: 5 consecutive faults — triggering ASM fuse\n", tick);
-                kill((pid_t)core_pid_store, SIGUSR1);
+                kill((pid_t)g_tork_ctx->core_pid, SIGUSR1);
                 _exit(1);
             }
         } else {
@@ -426,9 +426,9 @@ int main(int argc, char **argv) {
     signal(SIGTERM, cleanup_core);
 
     soul_t soul;
-    if (soul_open(&soul, (pid_t)core_pid_store) != 0) {
-        fprintf(stderr, "soul_open failed — cannot read /proc/%d/mem\n", (pid_t)core_pid_store);
-        kill((pid_t)core_pid_store, SIGTERM);
+    if (soul_open(&soul, (pid_t)g_tork_ctx->core_pid) != 0) {
+        fprintf(stderr, "soul_open failed — cannot read /proc/%d/mem\n", (pid_t)g_tork_ctx->core_pid);
+        kill((pid_t)g_tork_ctx->core_pid, SIGTERM);
         return 1;
     }
 
@@ -439,7 +439,7 @@ int main(int argc, char **argv) {
 
     detect_tsc_frequency();
     printf("TORK engine started. core PID=%d, TSC freq=%" PRIu64 "/ms\n",
-           (pid_t)core_pid_store, g_tsc_per_ms);
+           (pid_t)g_tork_ctx->core_pid, g_tsc_per_ms);
     printf("TORK v3.17 | π-heartbeat | generation at 0x54 | learn at 0x4C\n");
     printf("polling %dms | code 200 | modify 10 | optimize 30 | nop 50 | fission 1000 | persist 1000\n\n",
            tune_get_params().heartbeat_interval);
@@ -475,7 +475,7 @@ sched_ctx_t sched;
         check_soul_crc(&soul, i);
 
         if (!golden_exists && i > 0 && i % 10 == 0)
-            soul_save_golden(&soul, (pid_t)core_pid_store);
+            soul_save_golden(&soul, (pid_t)g_tork_ctx->core_pid);
 
         if (golden_observe_remaining > 0)
             golden_observe_remaining--;
@@ -504,10 +504,10 @@ sched_ctx_t sched;
     }
 
     /* ── Shutdown ── */
-    printf("\nshutting down core (pid %d)...\n", (pid_t)core_pid_store);
-    kill((pid_t)core_pid_store, SIGTERM);
+    printf("\nshutting down core (pid %d)...\n", (pid_t)g_tork_ctx->core_pid);
+    kill((pid_t)g_tork_ctx->core_pid, SIGTERM);
     int st;
-    waitpid((pid_t)core_pid_store, &st, 0);
+    waitpid((pid_t)g_tork_ctx->core_pid, &st, 0);
     printf("core exited.\n");
 
     ps_save_all(soul.buf, SOUL_SIZE);

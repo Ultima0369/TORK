@@ -143,3 +143,12 @@ build/theia_paper.o: src/nn/theia_paper.c src/nn/theia_paper.h
 	$(CC) $(CFLAGS) -lm -c -o $@ $<
 
 ENGINE_OBJS += build/theia_paper.o
+
+# ── WebSocket 服务器 ──────────────────────────────────────
+build/ws.o: src/network/ws.c src/network/ws.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+build/webhook.o: src/network/webhook.c src/network/webhook.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+ENGINE_OBJS += build/ws.o build/webhook.o

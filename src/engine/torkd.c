@@ -16,6 +16,7 @@
 #include "../learning/mutation_guide.h"
 #include "../learning/mentor.h"
 #include "torkd_binary.h"
+#include "../bridge/bridge_integration.h"
 
 /* JSON 转义辅助 */
 static int json_escape_buf(const char *src, char *dst, int dst_size) {
@@ -48,6 +49,8 @@ static int json_escape_buf(const char *src, char *dst, int dst_size) {
 
 static int g_server_fd = -1;
 static int g_started = 0;
+static tork_bridge_t g_bridge;
+static int g_bridge_enabled = 0;
 static soul_t *g_soul = NULL;
 static void full_write(int fd, const void *buf, size_t len) {
     const char *p = buf;
@@ -110,6 +113,10 @@ int torkd_init(void *vsoul) {
     
     signal(SIGPIPE, SIG_IGN);
     g_soul = (soul_t *)vsoul;
+    /* 初始化 SP 桥接 (默认启用 localhost:9876, TCP) */
+    bridge_init(&g_bridge, "127.0.0.1", 9876, 0);
+    g_bridge_enabled = 1;
+
     g_started = 1;
     
     printf("  TORKD: listening on %s (non-blocking, integrated)\n", TORKD_SOCKET_PATH);
@@ -321,7 +328,17 @@ static void handle_client(int client_fd) {
         return;
     }
 
-    if (strcmp(buf, "ping") == 0) {
+    /* ── 桥接命令 ────────────────────────────────────── */
+    if (strcmp(buf, "bridge") == 0 || strcmp(buf, "SP") == 0) {
+        snprintf(response, sizeof(response), "%s\n", bridge_summary(&g_bridge));
+    } else if (strcmp(buf, "bridge on") == 0) {
+        g_bridge_enabled = 1;
+        snprintf(response, sizeof(response), "bridge enabled\n");
+    } else if (strcmp(buf, "bridge off") == 0) {
+        g_bridge_enabled = 0;
+        bridge_shutdown(&g_bridge);
+        snprintf(response, sizeof(response), "bridge disabled\n");
+    } else if (strcmp(buf, "ping") == 0) {
         snprintf(response, sizeof(response), "pong\n");
     } else if (strcmp(buf, "status") == 0 || strcmp(buf, "状态") == 0) {
         char sb_sum[256] = "";
@@ -578,6 +595,14 @@ static void handle_client(int client_fd) {
 }
 
 void torkd_tick(void) {
+    /* 桥接心跳 */
+    if (g_bridge_enabled && g_soul) {
+        const tork_instinct_t *inst = sched_last_instinct();
+        bridge_tick(&g_bridge, g_soul,
+            soul_tick(g_soul), soul_drive(g_soul),
+            soul_hw_stress(g_soul), soul_gen_count(g_soul),
+            inst->fear, inst->desire, inst->curiosity);
+    }
     if (!g_started || g_server_fd < 0) return;
     
     /* Accept all pending connections */
@@ -599,6 +624,9 @@ void torkd_tick(void) {
 
 /* ── 停止 ────────────────────────────────────────────────── */
 void torkd_shutdown(void) {
+    if (g_bridge_enabled) {
+        bridge_shutdown(&g_bridge);
+    }
     if (g_server_fd >= 0) {
         close(g_server_fd);
         g_server_fd = -1;

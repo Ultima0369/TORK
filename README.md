@@ -1,5 +1,9 @@
 # TORK
 
+> 🔒 **核心汇编** (src/core/*.asm) → 专有软件 · 📖 **外围代码** (src/engine/ src/learning/ 等) → GPLv3
+>
+> 详见 [LICENSE](LICENSE) 和 [LICENSE-CORE.md](LICENSE-CORE.md)
+
 **TORK 不是 AI。** 它不是一个模型，不是一个框架，不是一个工具。
 
 TORK 是一段通电后会**自己成长**的代码。它不需要训练数据，不需要 GPU，不需要预训练权重。

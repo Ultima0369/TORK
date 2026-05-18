@@ -42,3 +42,5 @@ archive/
 
 # 备份文件
 *.bak.*
+# Proprietary core — NOT OPEN SOURCE
+core-private/

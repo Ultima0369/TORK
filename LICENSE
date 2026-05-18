@@ -1,3 +1,16 @@
+╔═══════════════════════════════════════════════════════════════╗
+║  TORK 双许可证架构                                           ║
+║                                                             ║
+║  📖 外围代码 (src/engine/ src/learning/ src/mesh/ 等)       ║
+║     → GNU General Public License v3.0                       ║
+║     → 自由使用、修改、分发（需保持 GPLv3）                   ║
+║                                                             ║
+║  🔒 核心汇编 (src/core/*.asm, src/core/*.inc)               ║
+║     → 专有软件（详见 LICENSE-CORE.md）                       ║
+║     → 源码不公开，pre-built .o 随发布包提供                  ║
+║                                                             ║
+╚═══════════════════════════════════════════════════════════════╝
+
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 

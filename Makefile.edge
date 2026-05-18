@@ -1,0 +1,98 @@
+# ══════════════════════════════════════════════════════════════
+# TORK 边缘设备交叉编译 Makefile
+#
+# 从 Linux x86_64 交叉编译到 ARM (树莓派 / 嵌入式)
+#
+# 依赖: sudo apt install gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu
+# 用法: make -f Makefile.edge [target]
+#
+# 目标:
+#   all       → 编译所有边缘变体
+#   rpi-arm   → 树莓派 Zero/1 (ARMv6, arm-linux-gnueabihf)
+#   rpi-arm64 → 树莓派 3/4/5 (ARMv8, aarch64-linux-gnu)
+#   clean     → 清理
+# ══════════════════════════════════════════════════════════════
+
+OUTDIR := build-edge
+
+# ── 边缘版源文件 (精简: 只包含必要模块) ──────────────────
+EDGE_SRCS := \
+    src/engine/tork_engine.c \
+    src/engine/tln.c \
+    src/engine/soul_access.c \
+    src/engine/torkd.c \
+    src/instinct/action.c \
+    src/instinct/drive.c \
+    src/instinct/heartbeat.c \
+    src/learning/experience.c \
+    src/learning/pattern.c \
+    src/learning/observer.c \
+    src/edge/edge_sensor.c \
+    src/edge/edge_predictor.c
+
+EDGE_OBJS := $(patsubst src/%.c, $(OUTDIR)/%.o, $(EDGE_SRCS))
+EDGE_CFLAGS := -DTORK_EDGE=1 -DTORK_NO_ASM -Os -s -flto \
+               -Wall -Wextra -Wno-unused-parameter \
+               -I src -I src/engine -I src/learning -I src/instinct -I src/edge
+
+# ── ARMv7 (树莓派 Zero/1/2) ─────────────────────────────
+RPI_ARM_CC   := arm-linux-gnueabihf-gcc
+RPI_ARM_LD   := arm-linux-gnueabihf-gcc
+RPI_ARM_CFLAGS := $(EDGE_CFLAGS) -march=armv6 -mfpu=vfp -mfloat-abi=hard
+RPI_ARM_TARGET := $(OUTDIR)/tork-edge-arm
+
+# ── ARM64 (树莓派 3/4/5) ────────────────────────────────
+RPI_ARM64_CC   := aarch64-linux-gnu-gcc
+RPI_ARM64_LD   := aarch64-linux-gnu-gcc
+RPI_ARM64_CFLAGS := $(EDGE_CFLAGS) -march=armv8-a
+RPI_ARM64_TARGET := $(OUTDIR)/tork-edge-arm64
+
+# ── 构建规则 ────────────────────────────────────────────
+.PHONY: all clean rpi-arm rpi-arm64
+
+all: rpi-arm rpi-arm64
+
+$(OUTDIR)/%.o: src/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# ── ARMv7 ──────────────────────────────────────────────
+rpi-arm: CC := $(RPI_ARM_CC)
+rpi-arm: LD := $(RPI_ARM_LD)
+rpi-arm: CFLAGS := $(RPI_ARM_CFLAGS)
+rpi-arm: $(RPI_ARM_TARGET)
+
+$(RPI_ARM_TARGET): $(EDGE_OBJS)
+	$(LD) $(CFLAGS) -o $@ $^ -lm -lpthread
+	@echo "✅ TORK Edge ARM: $@"
+	@$(RPI_ARM_CC) --version 2>/dev/null | head -1
+	@echo "   Size: $$(wc -c < $@) bytes"
+	@echo "   Run on RPi: scp $@ pi@rpi:/usr/local/bin/tork-edge"
+
+# ── ARM64 ──────────────────────────────────────────────
+rpi-arm64: CC := $(RPI_ARM64_CC)
+rpi-arm64: LD := $(RPI_ARM64_LD)
+rpi-arm64: CFLAGS := $(RPI_ARM64_CFLAGS)
+rpi-arm64: $(RPI_ARM64_TARGET)
+
+$(RPI_ARM64_TARGET): $(EDGE_OBJS)
+	$(LD) $(CFLAGS) -o $@ $^ -lm -lpthread
+	@echo "✅ TORK Edge ARM64: $@"
+	@$(RPI_ARM64_CC) --version 2>/dev/null | head -1
+	@echo "   Size: $$(wc -c < $@) bytes"
+	@echo "   Run on RPi4: scp $@ pi@rpi4:/usr/local/bin/tork-edge"
+
+# ── 清理 ──────────────────────────────────────────────
+clean:
+	rm -rf $(OUTDIR)
+
+# ── 信息 ──────────────────────────────────────────────
+info:
+	@echo "TORK Edge Cross-Compilation"
+	@echo "  Sources: $(words $(EDGE_SRCS)) files"
+	@echo "  Targets:"
+	@echo "    make rpi-arm      → ARMv6 (Pi Zero/1)"
+	@echo "    make rpi-arm64    → ARMv8 (Pi 3/4/5)"
+	@echo ""
+	@echo "  Install compilers:"
+	@echo "    sudo apt install gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu"

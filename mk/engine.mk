@@ -137,3 +137,9 @@ build/tork_bitnet.o: src/bridge/tork_bitnet.c src/bridge/tork_bitnet.h
 	$(CC) $(CFLAGS) -lm -c -o $@ $<
 
 ENGINE_OBJS += build/tork_bitnet.o
+
+# ── THEIA 论文架构复刻 (K3 模块化三值神经网络) ──────────
+build/theia_paper.o: src/nn/theia_paper.c src/nn/theia_paper.h
+	$(CC) $(CFLAGS) -lm -c -o $@ $<
+
+ENGINE_OBJS += build/theia_paper.o

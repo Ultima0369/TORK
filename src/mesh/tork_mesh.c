@@ -277,3 +277,74 @@ void t2t_mesh_broadcast(void) {
         }
     }
 }
+
+
+/* ── 静态密钥 ──────────────────────────────────────────── */
+static tork_hmac_ctx_t g_hmac;
+static int g_key_set = 0;
+static uint64_t g_nonce_counter = 0;
+
+/* ── 设置 HMAC 密钥 ────────────────────────────────────── */
+void t2t_mesh_set_key(const uint8_t *key, size_t key_len) {
+    tork_hmac_init(&g_hmac, key, key_len);
+    g_key_set = 1;
+    printf("  T2T MESH: HMAC key set (%zu bytes)\n", key_len);
+}
+
+/* ── 广播前签名 ────────────────────────────────────────── */
+void t2t_mesh_broadcast_signed(void) {
+    if (!g_initialized || !g_key_set) {
+        t2t_mesh_broadcast();
+        return;
+    }
+
+    /* 填充随机数和签名位置 */
+    g_nonce_counter++;
+    for (int i = 0; i < 8; i++)
+        g_self.nonce[i] = (uint8_t)(g_nonce_counter >> (i * 8));
+    memset(g_self.signature, 0, 32);  /* 签名前清空 */
+
+    /* 签名: HMAC over whole health struct */
+    tork_hmac_sign(&g_hmac, (const uint8_t *)&g_self, sizeof(t2t_health_t),
+                   g_self.signature);
+
+    g_self.timestamp_ms = 0;
+
+    for (int i = 0; i < g_num_phys; i++) {
+        if (g_phys[i].active && g_phys[i].cbs.send_health) {
+            g_phys[i].cbs.send_health(&g_self);
+        }
+    }
+}
+
+/* ── 接收并验证签名广播 ────────────────────────────────── */
+int t2t_mesh_on_health_signed(const uint8_t *vehicle_id,
+                               const t2t_health_t *health,
+                               t2t_phy_t phy, uint8_t signal) {
+    if (!g_initialized || !vehicle_id || !health) return 0;
+    if (health->magic != T2T_MAGIC) return 0;
+    if (id_eq(vehicle_id, g_self.vehicle_id)) return 0;
+
+    /* 如果已设置密钥, 验证签名 */
+    if (g_key_set) {
+        t2t_health_t copy = *health;
+        uint8_t expected_sig[32];
+        memcpy(expected_sig, copy.signature, 32);
+        memset(copy.signature, 0, 32);
+
+        uint8_t computed_sig[32];
+        tork_hmac_sign(&g_hmac, (const uint8_t *)&copy, sizeof(t2t_health_t),
+                       computed_sig);
+
+        if (memcmp(expected_sig, computed_sig, 32) != 0) {
+            char idbuf[17];
+            id_str(vehicle_id, idbuf);
+            printf("  T2T MESH: ⚠️ SIGNATURE MISMATCH from %s — rejected\n", idbuf);
+            return 0;
+        }
+    }
+
+    /* 签名验证通过, 正常处理 */
+    t2t_mesh_on_health(vehicle_id, health, phy, signal);
+    return 1;
+}

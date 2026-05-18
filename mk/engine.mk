@@ -71,5 +71,13 @@ build/fractal.o: src/engine/fractal.c src/engine/fractal.h
 build/tork_engine: $(ENGINE_OBJS)
 	$(CC) -o build/tork_engine $(ENGINE_OBJS) -lm -lpthread
 
+# ── Crypto ────────────────────────────────────────────────
+build/tork_sha256.o: src/crypto/tork_sha256.c src/crypto/tork_sha256.h
+	$(CC) $(CFLAGS) -c -o $@ $<
 
+build/tork_cipher.o: src/crypto/tork_cipher.c src/crypto/tork_cipher.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+build/tork_watchdog.o: src/engine/tork_watchdog.c src/engine/tork_watchdog.h
+	$(CC) $(CFLAGS) -c -o $@ $<
 

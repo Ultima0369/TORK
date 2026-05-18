@@ -14,6 +14,7 @@
 
 #include <stdint.h>
 #include "../config.h"
+#include "../crypto/tork_sha256.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,7 +22,7 @@ extern "C" {
 
 /* ── T2T 协议版本 ─────────────────────────────────────── */
 #define T2T_MAGIC          0x54325454  /* "T2TT" */
-#define T2T_VERSION        0x0001      /* v0.1 */
+#define T2T_VERSION        0x0002      /* v0.2 — signed */
 
 /* ── 车辆健康状态 (每台 TORK 定期广播) ──────────────────── */
 typedef struct {
@@ -57,8 +58,11 @@ typedef struct {
     uint8_t  confidence;           /* 自评估置信度 0-100 */
 
     /* 元数据 */
+    /* 元数据 */
     uint32_t timestamp_ms;         /* 时间戳 */
     uint8_t  generation;           /* TORK 代数 */
+    uint8_t  nonce[8];             /* 防重放随机数 */
+    uint8_t  signature[32];        /* HMAC-SHA256 签名 (覆盖前面所有字段) */
 } __attribute__((packed)) t2t_health_t;
 
 /* ── 对等车辆记录 ────────────────────────────────────── */
@@ -72,6 +76,8 @@ typedef struct {
     int8_t       distance_m;        /* 估计距离 (米, -1=未知) */
     uint8_t      risk_to_me;        /* 对"我"的风险 0-100 */
     uint8_t      stale;             /* 1=已离线 */
+    uint8_t      key[32];            /* 对等车辆的公钥/共享密钥 */
+    uint8_t      key_verified;       /* 1=已通过带外交互验证 */
 } t2t_peer_t;
 
 /* ── 网格状态 ────────────────────────────────────────── */
@@ -134,6 +140,19 @@ const char *t2t_mesh_advice_str(const uint8_t *vehicle_id, t2t_advice_t *advice_
 
 /* 获取网格快照 */
 const t2t_mesh_state_t *t2t_mesh_get_state(void);
+
+/* ── 认证 API ──────────────────────────────────────────── */
+
+/* 设置本车 HMAC 密钥 (启动时调用一次) */
+void t2t_mesh_set_key(const uint8_t *key, size_t key_len);
+
+/* 安全广播: 签名后广播 */
+void t2t_mesh_broadcast_signed(void);
+
+/* 接收并验证签名广播: 返回 1=验证通过, 0=失败 */
+int t2t_mesh_on_health_signed(const uint8_t *vehicle_id,
+                               const t2t_health_t *health,
+                               t2t_phy_t phy, uint8_t signal);
 
 /* 广播自身健康状态到所有已注册的物理层 */
 void t2t_mesh_broadcast(void);

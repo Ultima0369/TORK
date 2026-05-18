@@ -16,6 +16,7 @@
 #include "../learning/mutation_guide.h"
 #include "../learning/mentor.h"
 #include "torkd_binary.h"
+#include "../config.h"
 #include "../bridge/bridge_integration.h"
 
 /* JSON 转义辅助 */

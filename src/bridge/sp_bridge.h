@@ -1,3 +1,4 @@
+#include "../config.h"
 #ifndef SP_BRIDGE_H
 #define SP_BRIDGE_H
 

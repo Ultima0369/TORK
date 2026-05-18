@@ -4,12 +4,13 @@
  * ─────────────────────────────────────────────────────────── */
 
 #include "mentor.h"
+#include "../config.h"
 #include "self_tune.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
-#define PERSIST_PATH "persist/mentor_state.bin"
+#define PERSIST_PATH TORK_MENTOR_PATH
 
 static mentor_state_t g_mentor = {0};
 
@@ -136,7 +137,10 @@ const char *mentor_stage_name(mentor_stage_t stage) {
 void mentor_save(void) {
     FILE *f = fopen(PERSIST_PATH, "wb");
     if (!f) return;
-    fwrite(&g_mentor, sizeof(g_mentor), 1, f);
+    if (fwrite(&g_mentor, sizeof(g_mentor), 1, f) != 1) {
+        fclose(f);
+        return;
+    }
     fclose(f);
 }
 

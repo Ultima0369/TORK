@@ -1,0 +1,67 @@
+# ══════════════════════════════════════════════════════════════
+# TORK 交叉编译 Makefile
+# 从 Linux 交叉编译到 Windows (MinGW-w64)
+#
+# 依赖: apt install gcc-mingw-w64-x86-64
+# 用法: make -f Makefile.cross
+# ══════════════════════════════════════════════════════════════
+
+# ── 交叉编译器 ────────────────────────────────────────────
+CROSS := x86_64-w64-mingw32-
+CC    := $(CROSS)gcc
+WINDRES := $(CROSS)windres
+
+# ── 输出 ──────────────────────────────────────────────────
+OUTDIR := build-cross
+TARGET := $(OUTDIR)/tork_engine.exe
+
+# ── 源文件 (仅 C 部分，排除汇编) ──────────────────────────
+SRCDIRS := src/engine src/learning src/code src/persist src/instinct src/rollback src/bridge
+SRCS := $(wildcard $(addsuffix /*.c, $(SRCDIRS)))
+OBJS := $(patsubst src/%.c, $(OUTDIR)/%.o, $(SRCS))
+
+# ── 编译标志 ──────────────────────────────────────────────
+CFLAGS := -Os -s -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
+CFLAGS += -I src -I src/engine -I src/learning -I src/instinct -I src/code -I src/persist -I src/rollback -I src/bridge
+CFLAGS += -DTORK_CROSS_COMPILE -DTORK_NO_ASM
+
+# MinGW 特定
+CFLAGS += -mthreads -D_WIN32_WINNT=0x0601  # Windows 7+
+
+LDFLAGS := -lws2_32 -lm -lshlwapi -lpthread
+
+# ── 目标 ──────────────────────────────────────────────────
+.PHONY: all clean run
+
+all: $(TARGET)
+
+$(OUTDIR)/%.o: src/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(TARGET): $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+	@echo "✅ Cross-compiled: $(TARGET)"
+	@$(CROSS)strip $@
+	@echo "   Size: $$(wc -c < $@) bytes"
+
+clean:
+	rm -rf $(OUTDIR)
+
+run:
+	@echo "Run on Windows: copy $(TARGET) to target machine"
+	@echo "  $(TARGET) --foreground"
+
+# ── 兼容性提示 ────────────────────────────────────────────
+info:
+	@echo "TORK Windows Cross-Compilation"
+	@echo "  Compiler: $(CC)"
+	@echo "  C Flags: $(CFLAGS)"
+	@echo "  Sources: $(words $(SRCS)) files"
+	@echo ""
+	@echo "Note: Windows build excludes x86-64 assembly core."
+	@echo "      Core loop uses C fallback (TORK_NO_ASM)."
+	@echo "      Full assembly support requires WSL2."
+	@echo ""
+	@echo "Install cross-compiler:"
+	@echo "  sudo apt install gcc-mingw-w64-x86-64"

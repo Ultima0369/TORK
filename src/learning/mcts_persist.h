@@ -1,3 +1,4 @@
+#include "../config.h"
 #ifndef MCTS_PERSIST_H
 #define MCTS_PERSIST_H
 
@@ -8,7 +9,7 @@
  *  文件格式: 二进制，首字节版本号 + 节点序列化。
  * ───────────────────────────────────────────────────────── */
 
-#define MCTS_PERSIST_PATH  "persist/mcts_tree.bin"
+#define MCTS_PERSIST_PATH  TORK_MCTS_PATH
 #define MCTS_PERSIST_VERSION 1
 
 /* 保存完整搜索树到磁盘 */

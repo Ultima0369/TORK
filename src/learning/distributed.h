@@ -1,3 +1,4 @@
+#include "../config.h"
 #ifndef DISTRIBUTED_H
 #define DISTRIBUTED_H
 
@@ -13,10 +14,10 @@
 #include <stdint.h>
 
 /* ── 网络配置 ─────────────────────────────────────────── */
-#define DIST_MCAST_GROUP    "239.42.69.42"
-#define DIST_MCAST_PORT     42069
-#define DIST_MAX_MSG        1400   /* < 1500 MTU, safe for UDP */
-#define DIST_APP_ID         0x544F524B  /* "TORK" */
+#define DIST_MCAST_GROUP    TORK_MCAST_GROUP
+#define DIST_MCAST_PORT     TORK_MCAST_PORT
+#define DIST_MAX_MSG        TORK_DIST_MAX_MSG   /* < 1500 MTU, safe for UDP */
+#define DIST_APP_ID         TORK_DIST_APP_ID
 #define DIST_TOKEN          0x544B4E47  /* "TKNG" — shared group token for auth */
 
 /* ── 消息类型 ─────────────────────────────────────────── */

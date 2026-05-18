@@ -1,0 +1,97 @@
+# ── TORK 分布式集群 — Docker Compose ────────────────────────
+#   启动 4 节点（n1-n4），含 SP 桥接和分布式共享网络
+#   使用: docker compose up -d
+#   查看日志: docker compose logs -f
+# ──────────────────────────────────────────────────────────────
+
+version: "3.8"
+
+x-tork-common: &tork-common
+  build: .
+  image: tork:latest
+  restart: unless-stopped
+  networks:
+    - tork-net
+  volumes:
+    - tork-persist:/tork/persist
+  environment:
+    - TORK_LOG_LEVEL=info
+    - TORK_SP_HOST=sp-relay
+    - TORK_SP_PORT=9876
+
+services:
+  # ── TORK 节点 1 ──────────────────────────────────────────
+  n1:
+    <<: *tork-common
+    container_name: tork-n1
+    ports:
+      - "42069:42069/udp"
+      - "9876:9876"
+    environment:
+      - TORK_INSTANCE_ID=1
+      - TORK_SOUL_PATH=/tork/persist/soul_golden_n1.bin
+    healthcheck:
+      test: ["CMD", "test", "-S", "/tmp/torkd.sock"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ── TORK 节点 2 ──────────────────────────────────────────
+  n2:
+    <<: *tork-common
+    container_name: tork-n2
+    environment:
+      - TORK_INSTANCE_ID=2
+      - TORK_SOUL_PATH=/tork/persist/soul_golden_n2.bin
+    depends_on:
+      - n1
+
+  # ── TORK 节点 3 ──────────────────────────────────────────
+  n3:
+    <<: *tork-common
+    container_name: tork-n3
+    environment:
+      - TORK_INSTANCE_ID=3
+      - TORK_SOUL_PATH=/tork/persist/soul_golden_n3.bin
+    depends_on:
+      - n1
+
+  # ── TORK 节点 4 ──────────────────────────────────────────
+  n4:
+    <<: *tork-common
+    container_name: tork-n4
+    environment:
+      - TORK_INSTANCE_ID=4
+      - TORK_SOUL_PATH=/tork/persist/soul_golden_n4.bin
+    depends_on:
+      - n1
+
+  # ── SP Relay (Silent Protocol 桥接) ──────────────────────
+  sp-relay:
+    image: python:3.11-slim
+    container_name: tork-sp-relay
+    command: >
+      sh -c "pip install -q flask && python -c '
+import flask, json, socket, threading, os
+app = flask.Flask(__name__)
+@app.route(\"/health\")
+def health(): return {\"status\": \"ok\", \"service\": \"sp-relay\", \"nodes\": 4}
+@app.route(\"/status\", methods=[\"POST\"])
+def status():
+    return {\"received\": True, \"ts\": int(__import__(\"time\").time())}
+app.run(host=\"0.0.0.0\", port=9876)
+'"
+    ports:
+      - "9877:9876"
+    networks:
+      - tork-net
+
+networks:
+  tork-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  tork-persist:

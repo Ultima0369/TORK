@@ -80,4 +80,10 @@ build/tork_cipher.o: src/crypto/tork_cipher.c src/crypto/tork_cipher.h
 
 build/tork_watchdog.o: src/engine/tork_watchdog.c src/engine/tork_watchdog.h
 	$(CC) $(CFLAGS) -c -o $@ $<
+# ── Edge P1 ────────────────────────────────────────────────
+build/edge_time.o: src/edge/edge_time.c src/edge/edge_sensor.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+build/temp_fallback.o: src/edge/temp_fallback.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 

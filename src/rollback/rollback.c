@@ -387,3 +387,220 @@ int rb_verify_integrity(void) {
 
     return failures == 0 ? RB_OK : RB_ERR_CORRUPT;
 }
+/* ── 奇偶校验: XOR 所有版本 → 任意单版本可恢复 ──────────── */
+
+/* 计算所有备份文件的 XOR 奇偶校验 */
+static int compute_parity(rb_module_t *mod, uint8_t *parity_out, size_t *len_out) {
+    if (!mod || mod->count == 0) return RB_ERR_NOENT;
+
+    /* 找到最大文件大小 */
+    size_t max_len = 0;
+    for (int v = 0; v < mod->count; v++) {
+        char path[512];
+        snprintf(path, sizeof(path), "%s/%s/%s.v%d",
+                 RB_BACKUP_DIR, mod->name, mod->records[v].file_path, v);
+        struct stat st;
+        if (stat(path, &st) == 0 && (size_t)st.st_size > max_len)
+            max_len = (size_t)st.st_size;
+    }
+
+    if (max_len == 0) return RB_ERR_NOENT;
+    if (max_len > 1024 * 1024) return RB_ERR_NOMEM; /* 保护: 最大 1MB */
+
+    /* 分配缓冲区 */
+    uint8_t *parity = (uint8_t *)calloc(1, max_len);
+    if (!parity) return RB_ERR_NOMEM;
+
+    /* XOR 所有版本 */
+    for (int v = 0; v < mod->count; v++) {
+        char path[512];
+        snprintf(path, sizeof(path), "%s/%s/%s.v%d",
+                 RB_BACKUP_DIR, mod->name, mod->records[v].file_path, v);
+        FILE *f = fopen(path, "rb");
+        if (!f) continue;
+
+        size_t len = 0;
+        int ch;
+        while ((ch = fgetc(f)) != EOF) {
+            if (len < max_len) parity[len] ^= (uint8_t)ch;
+            len++;
+        }
+        fclose(f);
+    }
+
+    memcpy(parity_out, parity, max_len);
+    *len_out = max_len;
+    free(parity);
+    return RB_OK;
+}
+
+/* ── 更新奇偶校验块 ────────────────────────────────────── */
+int rb_update_parity(const char *module_name) {
+    rb_module_t *mod = NULL;
+    for (int i = 0; i < rb_sys.count; i++) {
+        if (strcmp(rb_sys.modules[i].name, module_name) == 0) {
+            mod = &rb_sys.modules[i];
+            break;
+        }
+    }
+    if (!mod) return RB_ERR_NOENT;
+
+    uint8_t parity[1024 * 1024];
+    size_t len = 0;
+    int ret = compute_parity(mod, parity, &len);
+    if (ret != RB_OK) return ret;
+
+    /* 保存奇偶校验文件 */
+    char parity_path[512];
+    snprintf(parity_path, sizeof(parity_path), "%s/%s/parity.bin",
+             RB_BACKUP_DIR, module_name);
+
+    /* 确保目录存在 */
+    char dir[256];
+    snprintf(dir, sizeof(dir), "%s/%s", RB_BACKUP_DIR, module_name);
+    mkdir(dir, 0755);
+
+    FILE *f = fopen(parity_path, "wb");
+    if (!f) return RB_ERR_IO;
+
+    /* 写入文件头: 魔数 + 长度 + CRC */
+    uint32_t magic = 0x50415249; /* "PARI" */
+    uint32_t crc = rb_crc32(parity, len);
+    fwrite(&magic, 4, 1, f);
+    fwrite(&len, sizeof(len), 1, f);
+    fwrite(&crc, 4, 1, f);
+    fwrite(parity, 1, len, f);
+    fclose(f);
+
+    /* 更新模块状态 */
+    uint32_t parity_crc = rb_crc32(parity, len);
+    if (len <= 32) {
+        memcpy(mod->parity, parity, len);
+    } else {
+        memcpy(mod->parity, parity, 32);  /* 只存前 32 字节做验证 */
+    }
+    mod->parity_crc = parity_crc;
+    mod->parity_version = (uint8_t)mod->count;
+
+    printf("  ROLLBACK: parity updated for %s (%zu bytes, %d versions)\n",
+           module_name, len, mod->count);
+    return RB_OK;
+}
+
+/* ── 奇偶校验完整性检查 ────────────────────────────────── */
+int rb_check_parity(const char *module_name) {
+    char parity_path[512];
+    snprintf(parity_path, sizeof(parity_path), "%s/%s/parity.bin",
+             RB_BACKUP_DIR, module_name);
+
+    FILE *f = fopen(parity_path, "rb");
+    if (!f) return RB_ERR_NOENT;
+
+    uint32_t magic, stored_crc, stored_len;
+    fread(&magic, 4, 1, f);
+    fread(&stored_len, sizeof(stored_len), 1, f);
+    fread(&stored_crc, 4, 1, f);
+
+    if (magic != 0x50415249) { fclose(f); return RB_ERR_CORRUPT; }
+    if (stored_len > 1024 * 1024) { fclose(f); return RB_ERR_CORRUPT; }
+
+    uint8_t *parity = (uint8_t *)malloc(stored_len);
+    if (!parity) { fclose(f); return RB_ERR_NOMEM; }
+    fread(parity, 1, stored_len, f);
+    fclose(f);
+
+    uint32_t actual_crc = rb_crc32(parity, stored_len);
+    free(parity);
+
+    if (actual_crc != stored_crc) {
+        printf("  ROLLBACK: ⚠️ parity CRC mismatch for %s\n", module_name);
+        return RB_ERR_PARITY;
+    }
+    return RB_OK;
+}
+
+/* ── 用奇偶校验恢复损坏的备份 ──────────────────────────── */
+int rb_recover_via_parity(const char *module_name, int corrupted_version) {
+    rb_module_t *mod = NULL;
+    for (int i = 0; i < rb_sys.count; i++) {
+        if (strcmp(rb_sys.modules[i].name, module_name) == 0) {
+            mod = &rb_sys.modules[i];
+            break;
+        }
+    }
+    if (!mod) return RB_ERR_NOENT;
+    if (corrupted_version < 0 || corrupted_version >= mod->count)
+        return RB_ERR_INVARG;
+
+    /* 检查奇偶校验文件完整性 */
+    if (rb_check_parity(module_name) != RB_OK)
+        return RB_ERR_PARITY;
+
+    /* 读取奇偶校验数据 */
+    char parity_path[512];
+    snprintf(parity_path, sizeof(parity_path), "%s/%s/parity.bin",
+             RB_BACKUP_DIR, module_name);
+    FILE *f = fopen(parity_path, "rb");
+    if (!f) return RB_ERR_IO;
+
+    fseek(f, 8, SEEK_CUR); /* 跳过 magic + stored_len */
+    uint32_t stored_crc;
+    fread(&stored_crc, 4, 1, f);
+    fseek(f, 0, SEEK_END);
+    long file_len = ftell(f);
+    size_t parity_len = (size_t)(file_len - 12); /* 减去头 */
+    fseek(f, 12, SEEK_SET);
+
+    uint8_t *parity = (uint8_t *)malloc(parity_len);
+    if (!parity) { fclose(f); return RB_ERR_NOMEM; }
+    fread(parity, 1, parity_len, f);
+    fclose(f);
+
+    /* XOR 所有未损坏的版本到 parity */
+    for (int v = 0; v < mod->count; v++) {
+        if (v == corrupted_version) continue;
+
+        char vpath[512];
+        snprintf(vpath, sizeof(vpath), "%s/%s/%s.v%d",
+                 RB_BACKUP_DIR, mod->name, mod->records[v].file_path, v);
+        FILE *vf = fopen(vpath, "rb");
+        if (!vf) continue;
+
+        size_t offset = 0;
+        int ch;
+        while ((ch = fgetc(vf)) != EOF) {
+            if (offset < parity_len)
+                parity[offset] ^= (uint8_t)ch;
+            offset++;
+        }
+        fclose(vf);
+    }
+
+    /* 写回恢复的数据 */
+    char recover_path[512];
+    snprintf(recover_path, sizeof(recover_path), "%s/%s/%s.v%d",
+             RB_BACKUP_DIR, mod->name, mod->records[corrupted_version].file_path,
+             corrupted_version);
+    FILE *rf = fopen(recover_path, "wb");
+    if (!rf) { free(parity); return RB_ERR_IO; }
+    fwrite(parity, 1, parity_len, rf);
+    fclose(rf);
+
+    /* 验证恢复后的 CRC */
+    uint32_t recovered_crc = rb_crc32(parity, parity_len);
+    int matched = (recovered_crc == mod->records[corrupted_version].crc32);
+
+    free(parity);
+
+    if (matched) {
+        printf("  ROLLBACK: ✅ version %d recovered via parity for %s\n",
+               corrupted_version, module_name);
+        return corrupted_version;
+    } else {
+        printf("  ROLLBACK: ⚠️ parity recovery for %s v%d CRC mismatch "
+               "(was 0x%08x, expected 0x%08x)\n",
+               module_name, corrupted_version,
+               recovered_crc, mod->records[corrupted_version].crc32);
+        return RB_ERR_CRC;
+    }
+}

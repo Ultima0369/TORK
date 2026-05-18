@@ -27,4 +27,9 @@ int torkd_query(const char *question, char *response, int max_len);
 /* 检查 socket 是否在监听 */
 int torkd_is_running(void);
 
+/* 二进制帧查询 (发送 opcode + payload, 接收二进制响应) */
+int torkd_query_binary(uint8_t opcode, const void *payload, uint16_t plen,
+                        uint8_t *resp_buf, size_t resp_cap,
+                        uint16_t *out_status);
+
 #endif /* TORKD_H */

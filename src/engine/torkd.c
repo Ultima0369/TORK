@@ -15,6 +15,7 @@
 #include "../learning/self_build.h"
 #include "../learning/mutation_guide.h"
 #include "../learning/mentor.h"
+#include "torkd_binary.h"
 
 /* JSON 转义辅助 */
 static int json_escape_buf(const char *src, char *dst, int dst_size) {
@@ -43,6 +44,7 @@ static int json_escape_buf(const char *src, char *dst, int dst_size) {
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <pwd.h>
 
 static int g_server_fd = -1;
 static int g_started = 0;
@@ -58,6 +60,19 @@ static void full_write(int fd, const void *buf, size_t len) {
         if (w == 0) break;
         p += w; len -= w;
     }
+}
+
+/* ── SO_PEERCRED 认证: 验证连接方 UID 与引擎进程一致 ─────── */
+static int peercred_check(int client_fd) {
+    struct ucred cred;
+    socklen_t cred_len = sizeof(cred);
+    if (getsockopt(client_fd, SOL_SOCKET, SO_PEERCRED, &cred, &cred_len) < 0) {
+        return -1;
+    }
+    if (cred.uid != getuid()) {
+        return -1;
+    }
+    return 0;
 }
 
 /* ── 初始化: 创建 socket 并开始监听 ────────────────────── */
@@ -118,9 +133,172 @@ static dispatch_output_t dispatch_quick(int action, const char *input,
 }
 
 /* ── 每 tick 调用: 接受新连接 + 处理 ──────────────────────── */
+
+/* ── 二进制帧处理 ───────────────────────────────────────── */
+static int handle_binary_frame(int client_fd, const uint8_t *buf, size_t len) {
+    const uint8_t *payload;
+    uint16_t plen;
+    uint8_t opcode = bf_decode_req(buf, len, &payload, &plen);
+    if (opcode == 0) return -1;
+
+    uint8_t resp[BF_BUF_SIZE];
+    int rlen;
+
+    switch (opcode) {
+    case BF_PING: {
+        const char *ok = "ok";
+        rlen = bf_encode_resp(resp, sizeof(resp), BF_PING, 0, ok, 2);
+        break;
+    }
+    case BF_STATUS: {
+        /* 返回短状态文本 */
+        const char *st = g_soul ? "up" : "init";
+        rlen = bf_encode_resp(resp, sizeof(resp), BF_STATUS, 0, st, strlen(st));
+        break;
+    }
+    case BF_STATE: {
+        /* 返回 JSON 状态 — 复用现有 state 逻辑但通过二进制帧 */
+        char text_resp[TORKD_MAX_MSG * 2];
+        // generate_state_json
+        const tork_instinct_t *inst = sched_last_instinct();
+        const mentor_state_t *ms = mentor_get_state();
+        uint8_t ms_cw, ms_lw, ms_aw;
+        mentor_decision_weights(&ms_cw, &ms_lw, &ms_aw);
+        snprintf(text_resp, sizeof(text_resp),
+            "{\"heartbeat\":{\"tick\":%u,\"hw_stress\":%u,\"drive\":%d},"
+            "\"learning\":{\"tln_a\":%d,\"tln_m\":%d,\"tln_e\":%d,\"exp\":%u,\"pat\":%.2f},"
+            "\"evolution\":{\"gen\":%u,\"mut\":%u,\"score\":%u}}",
+            g_soul ? soul_tick(g_soul) : 0,
+            g_soul ? soul_hw_stress(g_soul) : 0,
+            g_soul ? soul_drive(g_soul) : 0,
+            g_soul ? (int)soul_tln_action(g_soul) : 0,
+            g_soul ? (int)soul_tln_modify(g_soul) : 0,
+            g_soul ? (int)soul_tln_explore(g_soul) : 0,
+            g_soul ? (unsigned)soul_experience_count(g_soul) : 0,
+            ms->pattern_confidence,
+            g_soul ? soul_gen_count(g_soul) : 0,
+            g_soul ? (unsigned)soul_mutation_count(g_soul) : 0,
+            g_soul ? (unsigned)soul_best_score(g_soul) : 0);
+        uint16_t tlen = strlen(text_resp);
+        rlen = bf_encode_resp(resp, sizeof(resp), BF_STATE, 0, text_resp, tlen);
+        break;
+    }
+    case BF_SOUL: {
+        if (!g_soul) {
+            const char *e = "no_soul";
+            rlen = bf_encode_resp(resp, sizeof(resp), BF_ERR, 1, e, 7);
+        } else {
+            char hexdump[512];
+            int pos = 0;
+            for (int i = 0; i < SOUL_SIZE && pos < (int)sizeof(hexdump) - 4; i++)
+                pos += snprintf(hexdump + pos, sizeof(hexdump) - pos, "%02x", g_soul->buf[i]);
+            rlen = bf_encode_resp(resp, sizeof(resp), BF_SOUL, 0, hexdump, pos);
+        }
+        break;
+    }
+    case BF_EXEC: {
+        if (!payload || plen == 0) {
+            const char *e = "empty";
+            rlen = bf_encode_resp(resp, sizeof(resp), BF_ERR, 1, e, 5);
+        } else {
+            char cmd[512];
+            uint16_t clen = plen < (int)sizeof(cmd)-1 ? plen : sizeof(cmd)-1;
+            memcpy(cmd, payload, clen);
+            cmd[clen] = '\0';
+            dispatch_output_t dout = dispatch_quick(DISP_EXEC_CMD, cmd, NULL);
+            rlen = bf_encode_resp(resp, sizeof(resp), BF_EXEC, 0, dout.output, strlen(dout.output));
+        }
+        break;
+    }
+    case BF_QUERY: {
+        if (!payload || plen == 0) {
+            const char *e = "empty";
+            rlen = bf_encode_resp(resp, sizeof(resp), BF_ERR, 1, e, 5);
+        } else {
+            char question[512];
+            uint16_t qlen = plen < (int)sizeof(question)-1 ? plen : sizeof(question)-1;
+            memcpy(question, payload, qlen);
+            question[qlen] = '\0';
+            char ans[TORKD_MAX_MSG];
+            query_handle(question, g_soul, ans, sizeof(ans));
+            rlen = bf_encode_resp(resp, sizeof(resp), BF_QUERY, 0, ans, strlen(ans));
+        }
+        break;
+    }
+    case BF_TASKS: {
+        char tstat[128];
+        snprintf(tstat, sizeof(tstat),
+            "{\"p\":%d,\"a\":%d,\"c\":%u,\"f\":%u}",
+            task_pending_count(), task_active_count(),
+            task_total_completed(), task_total_failed());
+        rlen = bf_encode_resp(resp, sizeof(resp), BF_TASKS, 0, tstat, strlen(tstat));
+        break;
+    }
+    case BF_MENTOR: {
+        const mentor_state_t *ms = mentor_get_state();
+        uint8_t cw, lw, aw;
+        mentor_decision_weights(&cw, &lw, &aw);
+        char mstr[256];
+        snprintf(mstr, sizeof(mstr),
+            "{\"s\":\"%s\",\"cw\":%d,\"lw\":%d,\"aw\":%d,\"pc\":%.2f}",
+            mentor_stage_name(ms->stage), cw, lw, aw, ms->pattern_confidence);
+        rlen = bf_encode_resp(resp, sizeof(resp), BF_MENTOR, 0, mstr, strlen(mstr));
+        break;
+    }
+    case BF_DISPATCH: {
+        uint32_t dt, ds, df;
+        dispatch_get_stats(&dt, &ds, &df);
+        char dstr[96];
+        snprintf(dstr, sizeof(dstr),
+            "{\"t\":%u,\"s\":%u,\"f\":%u}", dt, ds, df);
+        rlen = bf_encode_resp(resp, sizeof(resp), BF_DISPATCH, 0, dstr, strlen(dstr));
+        break;
+    }
+    case BF_CUSTOM:
+    case BF_RAW:
+    default: {
+        /* 回退到文本处理：构造文本命令 */
+        char text_cmd[TORKD_MAX_MSG];
+        uint16_t cmd_len = plen < (int)sizeof(text_cmd)-1 ? plen : sizeof(text_cmd)-1;
+        if (payload && cmd_len > 0) {
+            memcpy(text_cmd, payload, cmd_len);
+            text_cmd[cmd_len] = '\0';
+        } else {
+            text_cmd[0] = '\0';
+        }
+        /* 这里不能递归调 handle_client，直接在 inline 处理几个通用命令 */
+        char text_resp[TORKD_MAX_MSG * 2];
+        if (strcmp(text_cmd, "exit") == 0 || strcmp(text_cmd, "quit") == 0) {
+            const char *bye = "bye";
+            rlen = bf_encode_resp(resp, sizeof(resp), BF_CUSTOM, 0, bye, 3);
+            full_write(client_fd, resp, rlen);
+            close(client_fd);
+            return 0;
+        } else {
+            snprintf(text_resp, sizeof(text_resp), "unknown binary cmd: %s", text_cmd);
+            rlen = bf_encode_resp(resp, sizeof(resp), BF_ERR, 1, text_resp, strlen(text_resp));
+        }
+        break;
+    }
+    }
+
+    if (rlen > 0) {
+        full_write(client_fd, resp, rlen);
+    }
+    return 0;
+}
+
+/* ── 文本协议处理 (兼容原有) ─────────────────────────────── */
 static void handle_client(int client_fd) {
     char buf[TORKD_MAX_MSG];
     memset(buf, 0, sizeof(buf));
+
+        /* 自动检测: 二进制帧 (首字节 0xBF) 或文本协议 */
+    if (n > 0 && bf_is_binary((const uint8_t*)buf, (size_t)n)) {
+        handle_binary_frame(client_fd, (const uint8_t*)buf, (size_t)n);
+        close(client_fd);
+        return;
+    }
 
     /* Blocking read for client — we have 2s timeout on the socket */
     ssize_t n = read(client_fd, buf, sizeof(buf) - 1);
@@ -128,7 +306,21 @@ static void handle_client(int client_fd) {
     if (buf[n-1] == '\n') buf[n-1] = '\0';
     
     char response[TORKD_MAX_MSG * 2];
-    
+
+    /* 判断是否为敏感命令 (需要 SO_PEERCRED 认证) */
+    int need_auth = (strcmp(buf, "soul") == 0 || strcmp(buf, "灵魂") == 0 ||
+                     strcmp(buf, "state") == 0 ||
+                     strncmp(buf, "exec:", 5) == 0 ||
+                     strncmp(buf, "audit:", 6) == 0 ||
+                     strncmp(buf, "codegen:", 8) == 0 ||
+                     strncmp(buf, "task:", 5) == 0);
+    if (need_auth && peercred_check(client_fd) < 0) {
+        snprintf(response, sizeof(response), "{\"error\":\"permission denied\"}\n");
+        full_write(client_fd, response, strlen(response));
+        close(client_fd);
+        return;
+    }
+
     if (strcmp(buf, "ping") == 0) {
         snprintf(response, sizeof(response), "pong\n");
     } else if (strcmp(buf, "status") == 0 || strcmp(buf, "状态") == 0) {
@@ -288,11 +480,19 @@ static void handle_client(int client_fd) {
             } else if (st == TASK_DONE || st == TASK_FAILED) {
                 task_entry_t entry;
                 if (task_result(tid, &entry) == 0) {
-                    char escaped_out[sizeof(response)];
-                    json_escape_buf(entry.output, escaped_out, sizeof(escaped_out));
-                    snprintf(response, sizeof(response),
-                        "{\"task_id\":%u,\"status\":\"%s\",\"exit_code\":%d,\"output\":\"%s\"}\n",
-                        tid, status_str, entry.exit_code, escaped_out);
+                    int esc_size = (int)sizeof(response);
+                    char *escaped_out = malloc(esc_size);
+                    if (escaped_out) {
+                        json_escape_buf(entry.output, escaped_out, esc_size);
+                        snprintf(response, sizeof(response),
+                            "{\"task_id\":%u,\"status\":\"%s\",\"exit_code\":%d,\"output\":\"%s\"}\n",
+                            tid, status_str, entry.exit_code, escaped_out);
+                        free(escaped_out);
+                    } else {
+                        snprintf(response, sizeof(response),
+                            "{\"task_id\":%u,\"status\":\"%s\",\"exit_code\":%d}\n",
+                            tid, status_str, entry.exit_code);
+                    }
                 } else {
                     snprintf(response, sizeof(response), "{\"task_id\":%u,\"status\":\"error\"}\n", tid);
                 }
@@ -442,6 +642,57 @@ int torkd_query(const char *question, char *response, int max_len) {
     
     close(fd);
     return 0;
+}
+
+
+/* ── 二进制帧查询 ────────────────────────────────────────── */
+int torkd_query_binary(uint8_t opcode, const void *payload, uint16_t plen,
+                        uint8_t *resp_buf, size_t resp_cap,
+                        uint16_t *out_status) {
+    if (!resp_buf || resp_cap < BF_RESP_HEADER) return -1;
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, TORKD_SOCKET_PATH, sizeof(addr.sun_path) - 1);
+
+    if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        close(fd);
+        return -1;
+    }
+
+    struct timeval tv;
+    tv.tv_sec = 5; tv.tv_usec = 0;
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    /* 编码并发送二进制帧 */
+    uint8_t req[BF_BUF_SIZE];
+    int req_len = bf_encode_req(req, sizeof(req), opcode, payload, plen);
+    if (req_len <= 0) { close(fd); return -1; }
+
+    full_write(fd, req, req_len);
+
+    /* 读取二进制响应 */
+    memset(resp_buf, 0, resp_cap);
+    ssize_t n = read(fd, resp_buf, resp_cap - 1);
+    if (n < 0) { close(fd); return -1; }
+
+    /* 解析响应头 */
+    if ((size_t)n < BF_RESP_HEADER || resp_buf[0] != BF_MAGIC) {
+        close(fd);
+        return -1;
+    }
+
+    if (out_status) {
+        *out_status = ((uint16_t)resp_buf[2] << 8) | resp_buf[3];
+    }
+
+    close(fd);
+    return (int)n;  /* 返回响应总长度 */
 }
 
 int torkd_is_running(void) {

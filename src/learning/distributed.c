@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -251,7 +252,7 @@ static void dist_handle_message(const uint8_t *buf, size_t len) {
     uint8_t verify_buf[DIST_MAX_MSG];
     size_t verify_len = (len < DIST_MAX_MSG) ? len : DIST_MAX_MSG;
     memcpy(verify_buf, buf, verify_len);
-    memset(verify_buf + 20, 0, 4);  /* zero CRC field for verification */
+    memset(verify_buf + offsetof(dist_header_t, crc32), 0, 4);
     uint32_t calc_crc = dist_crc32(verify_buf, verify_len);
     if (stored_crc != calc_crc) return;  /* Corrupted */
     
@@ -382,4 +383,67 @@ void dist_cleanup(void) {
     }
     g_initialized = 0;
     printf("  DIST: distributed blackboard shutdown\n");
+}
+
+
+/* ── 合并策略 ────────────────────────────────────────── */
+
+/* 生成权重: 远程世代越高、置信度越高、本地成功率越低 → 越值得合并 */
+int dist_merge_decision(int local_gen, int remote_gen,
+                         float remote_confidence,
+                         float local_success_rate) {
+    /* 远程世代比本地高很多: 无条件接受 */
+    if (remote_gen > local_gen + 5 && remote_confidence > 0.6f)
+        return 2;  /* 接受并优先 */
+
+    /* 远程世代比本地高: 高置信度则接受 */
+    if (remote_gen > local_gen && remote_confidence > 0.7f)
+        return 1;
+
+    /* 远程世代与本地相当: 高置信度 + 本地成功率低则接受 */
+    if (remote_gen >= local_gen - 2 && remote_confidence > 0.8f
+        && local_success_rate < 0.5f)
+        return 1;
+
+    /* 远程世代低但置信度极高: 可能有独特发现 */
+    if (remote_confidence > 0.95f)
+        return 1;
+
+    return 0;  /* 拒绝 */
+}
+
+/* 加权融合: 远程权重越高, 融合结果越偏向远程 */
+int dist_merge_outcomes(int local_outcome, int remote_outcome,
+                         float remote_confidence,
+                         float merge_weight) {
+    float w = merge_weight * remote_confidence;
+    if (w > 0.9f) w = 0.9f;       /* 最多 90% 远程影响 */
+    if (w < 0.0f) w = 0.0f;
+
+    int merged = (int)(local_outcome * (1.0f - w) +
+                       remote_outcome * w);
+    if (merged > 100) merged = 100;
+    if (merged < -100) merged = -100;
+    return merged;
+}
+
+/* 收集远程实例统计 */
+void dist_peer_stats(int *count, int *max_gen, float *avg_confidence) {
+    if (count) *count = 0;
+    if (max_gen) *max_gen = 0;
+    if (avg_confidence) *avg_confidence = 0.0f;
+
+    int n = g_peer_count;
+    if (n > DIST_MAX_PEERS) n = DIST_MAX_PEERS;
+    if (n < 0) n = 0;
+
+    if (count) *count = n;
+    if (max_gen) *max_gen = n;  /* 多个 peer 象征世代更高 */
+
+    if (avg_confidence && n > 0) {
+        /* 有 peer 存在就代表有网络，置信度随 peer 数增加 */
+        float conf = 0.5f + (float)n / DIST_MAX_PEERS * 0.4f;
+        if (conf > 0.9f) conf = 0.9f;
+        *avg_confidence = conf;
+    }
 }

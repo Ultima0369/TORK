@@ -103,6 +103,31 @@ void dist_heartbeat(void);
 /* 获取已知的远程实例数量 */
 int dist_peer_count(void);
 
+/* ── 合并策略 ────────────────────────────────────────── */
+
+/* 合并决策: 是否应接受远程经验
+ * local_gen: 本地世代
+ * remote_gen: 远程世代
+ * remote_confidence: 远程置信度 (0.0~1.0)
+ * local_success_rate: 本地的同类型动作成功率 (0.0~1.0)
+ * 返回: 0=拒绝, 1=接受, 2=接受并优先 */
+int dist_merge_decision(int local_gen, int remote_gen,
+                         float remote_confidence,
+                         float local_success_rate);
+
+/* 合并两条经验: 返回融合后的结果
+ * local_outcome: 本地的经验结果 (-100..100)
+ * remote_outcome: 远程的经验结果 (-100..100)
+ * remote_confidence: 远程置信度
+ * merge_weight: 远程权重 (由 merge_decision 决定, 0.0~1.0)
+ * 返回融合后的结果 */
+int dist_merge_outcomes(int local_outcome, int remote_outcome,
+                         float remote_confidence,
+                         float merge_weight);
+
+/* 获取远程实例的世代统计 */
+void dist_peer_stats(int *count, int *max_gen, float *avg_confidence);
+
 /* 清理 (离开多播组, 关闭 socket) */
 void dist_cleanup(void);
 

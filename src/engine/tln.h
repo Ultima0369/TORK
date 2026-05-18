@@ -87,6 +87,19 @@ void tln_observe_reset(TernaryNet *net);
 void tln_print_state(const TernaryNet *net);
 void tln_print_output(const tln_val_t output[TLN_OUTPUTS]);
 
+/* ── 在线学习 ────────────────────────────────────────── */
+
+/* 从执行结果学习: 调整权重以优化未来决策
+ * prev_input:  决策时的 TLN 输入
+ * prev_output: 决策时的 TLN 输出
+ * outcome:     结果 (-100..100, 正=好 负=坏)
+ * learning_rate: 学习率 (0.0~1.0)
+ * 返回调整的权重数 */
+int tln_learn(TernaryNet *net,
+              const tln_val_t prev_input[TLN_INPUTS],
+              const tln_val_t prev_output[TLN_OUTPUTS],
+              int outcome, float learning_rate);
+
 /* 权重总量: 1792 个三值 = 448 字节 (2bit/weight) */
 
 #endif /* TLN_H */

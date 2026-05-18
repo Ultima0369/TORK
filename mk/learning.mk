@@ -7,6 +7,9 @@ build/experience.o: src/learning/experience.c src/learning/experience.h
 	$(CC) $(CFLAGS) -c -o build/experience.o src/learning/experience.c
 
 build/mcts.o: src/learning/mcts.c src/learning/mcts.h src/learning/experience.h
+
+build/mcts_persist.o: src/learning/mcts_persist.c src/learning/mcts_persist.h src/learning/mcts.h
+	$(CC) $(CFLAGS) -c -o build/mcts_persist.o src/learning/mcts_persist.c
 	$(CC) $(CFLAGS) -c -o build/mcts.o src/learning/mcts.c
 
 build/branch.o: src/learning/branch.c src/learning/branch.h src/learning/experience.h src/engine/soul_access.h

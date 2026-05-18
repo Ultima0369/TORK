@@ -288,10 +288,13 @@ void tln_print_output(const tln_val_t output[TLN_OUTPUTS]) {
     tln_decode_output(output, &ah, &mh, &eh, &enh);
 
     const char *sym[] = {"-1", " 0", "+1"};
+    /* Bounds-safe index: clamp output[i]+1 to [0,2] */
+    #define SI(v) sym[((v) >= -1 && (v) <= 1) ? (v)+1 : 1]
     printf("  TLN: out=[%s,%s,%s,%s,%s,%s,%s,%s] → act=%s mod=%s exp=%s nrg=%s\n",
-           sym[output[0]+1], sym[output[1]+1], sym[output[2]+1], sym[output[3]+1],
-           sym[output[4]+1], sym[output[5]+1], sym[output[6]+1], sym[output[7]+1],
-           sym[ah+1], sym[mh+1], sym[eh+1], sym[enh+1]);
+           SI(output[0]), SI(output[1]), SI(output[2]), SI(output[3]),
+           SI(output[4]), SI(output[5]), SI(output[6]), SI(output[7]),
+           SI(ah), SI(mh), SI(eh), SI(enh));
+    #undef SI
 }
 
 /* ── 观察模式 ──────────────────────────────────────────────
@@ -395,4 +398,84 @@ int tln_directed_mutate(TernaryNet *net) {
 
     net->mutation_count += mutated;
     return mutated;
+}
+/* ── 在线学习 ────────────────────────────────────────────── */
+int tln_learn(TernaryNet *net,
+              const tln_val_t prev_input[TLN_INPUTS],
+              const tln_val_t prev_output[TLN_OUTPUTS],
+              int outcome, float learning_rate) {
+    if (!net || !prev_input || !prev_output) return 0;
+    if (learning_rate <= 0.0f) return 0;
+    if (outcome > 100) outcome = 100;
+    if (outcome < -100) outcome = -100;
+
+    int adjusted = 0;
+    float strength = (float)outcome / 100.0f;  /* -1.0 .. 1.0 */
+
+    /* Hebbian-style learning: fire together, wire together
+     * If outcome > 0: reinforce active paths
+     * If outcome < 0: anti-reinforce (flip or weaken) active paths */
+
+    /* 1. Adjust input→hidden weights based on input × outcome */
+    for (int i = 0; i < TLN_INPUTS; i++) {
+        if (prev_input[i] == 0) continue;  /* ignore neutral inputs */
+        for (int h = 0; h < TLN_HIDDEN; h++) {
+            int idx = i * TLN_HIDDEN + h;
+            tln_val_t *w = &net->w_ih[idx];
+            if (prev_input[i] == 0) continue;
+
+            /* Hebbian delta: input * hidden_state * outcome_strength */
+            float delta = (float)prev_input[i] * (float)net->state[h] * strength * learning_rate;
+
+            if (delta > 0.3f) {
+                /* Reinforce: move toward +1 */
+                if (*w < 1) { *w = 1; adjusted++; }
+            } else if (delta < -0.3f) {
+                /* Anti-reinforce: move toward -1 */
+                if (*w > -1) { *w = -1; adjusted++; }
+            } else if (outcome < -30 && *w != 0) {
+                /* Bad outcome: weaken toward 0 */
+                *w = 0; adjusted++;
+            }
+        }
+    }
+
+    /* 2. Adjust hidden→output weights */
+    for (int h = 0; h < TLN_HIDDEN; h++) {
+        if (net->state[h] == 0) continue;
+        for (int o = 0; o < TLN_OUTPUTS; o++) {
+            int idx = h * TLN_OUTPUTS + o;
+            tln_val_t *w = &net->w_ho[idx];
+            float delta = (float)net->state[h] * (float)prev_output[o] * strength * learning_rate;
+
+            if (delta > 0.3f) {
+                if (*w < 1) { *w = 1; adjusted++; }
+            } else if (delta < -0.3f) {
+                if (*w > -1) { *w = -1; adjusted++; }
+            } else if (outcome < -30 && *w != 0) {
+                *w = 0; adjusted++;
+            }
+        }
+    }
+
+    /* 3. Adjust hidden→hidden (self-loop) weights */
+    for (int h1 = 0; h1 < TLN_HIDDEN; h1++) {
+        if (net->state[h1] == 0) continue;
+        for (int h2 = 0; h2 < TLN_HIDDEN; h2++) {
+            int idx = h1 * TLN_HIDDEN + h2;
+            if (h1 == h2) continue;  /* skip self-connections */
+            tln_val_t *w = &net->w_hh[idx];
+            float delta = (float)net->state[h1] * (float)net->state[h2] * strength * learning_rate;
+
+            if (delta > 0.3f) {
+                if (*w < 1) { *w = 1; adjusted++; }
+            } else if (delta < -0.3f) {
+                if (*w > -1) { *w = -1; adjusted++; }
+            } else if (outcome < -30 && *w != 0) {
+                *w = 0; adjusted++;
+            }
+        }
+    }
+
+    return adjusted;
 }

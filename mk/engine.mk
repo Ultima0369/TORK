@@ -1,6 +1,3 @@
-# Auto-generated from Makefile
-# Section: C engine
-
 # ── C engine ────────────────────────────────────────────────────────
 
 build/tork_engine.o: src/engine/tork_engine.c src/engine/soul_access.h src/engine/monitor.h src/engine/fission.h src/engine/blackboard.h src/engine/inductor.h src/engine/persistor.h src/engine/idler.h src/learning/self_cal.h
@@ -46,6 +43,7 @@ build/torkd.o: src/engine/torkd.c src/engine/torkd.h src/engine/soul_access.h sr
 	$(CC) $(CFLAGS) -c -o build/torkd.o src/engine/torkd.c
 
 ENGINE_OBJS = build/tork_engine.o build/monitor.o build/instinct.o build/code_reader.o build/code_modifier.o build/fission.o build/blackboard.o build/self_cal.o build/inductor.o build/persistor.o build/experience.o build/mcts.o build/branch.o build/pattern.o build/replay.o build/observer.o build/snapshot.o build/energy.o build/watcher.o build/query.o build/torkd.o build/self_build.o build/mutation_guide.o build/self_tune.o build/mentor.o build/distributed.o build/pi_seed.o build/pi_index.o build/grid_soul_connector.o build/idler.o build/sandbox.o build/agreement.o build/growth_node.o build/task.o build/auditor.o build/dispatch.o build/codegen.o build/tln.o build/code_archive.o build/strict_verifier.o build/scheduler.o build/sched_services.o build/sched_tln.o build/sched_code_ops.o build/sched_fission_branch.o build/sched_inductive.o build/sched_persist.o build/sched_monitor.o build/sched_idle.o build/beacon.o build/swarm.o build/visual.o build/fractal.o build/sp_bridge.o build/bridge_integration.o build/mcts_persist.o build/rollback.o
+
 build/beacon.o: src/engine/beacon.c src/engine/beacon.h src/engine/soul_access.h src/learning/pi_seed.h
 	$(CC) $(CFLAGS) -c -o build/beacon.o src/engine/beacon.c
 
@@ -67,7 +65,6 @@ build/bridge_integration.o: src/bridge/bridge_integration.c src/bridge/bridge_in
 build/fractal.o: src/engine/fractal.c src/engine/fractal.h
 	$(CC) $(CFLAGS) -c -o build/fractal.o src/engine/fractal.c
 
-
 build/tork_engine: $(ENGINE_OBJS)
 	$(CC) -o build/tork_engine $(ENGINE_OBJS) -lm -lpthread
 
@@ -80,6 +77,7 @@ build/tork_cipher.o: src/crypto/tork_cipher.c src/crypto/tork_cipher.h
 
 build/tork_watchdog.o: src/engine/tork_watchdog.c src/engine/tork_watchdog.h
 	$(CC) $(CFLAGS) -c -o $@ $<
+
 # ── Edge P1 ────────────────────────────────────────────────
 build/edge_time.o: src/edge/edge_time.c src/edge/edge_sensor.h
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -119,3 +117,17 @@ build/tork_analytics.o: src/learning/tork_analytics.c src/learning/tork_analytic
 	$(CC) $(CFLAGS) -lm -c -o $@ $<
 
 ENGINE_OBJS += build/tork_health.o build/tork_http.o build/tork_analytics.o
+
+# ── THEIA 神经网络 ────────────────────────────────────────
+build/theia.o: src/nn/theia.c src/nn/theia.h
+	$(CC) $(CFLAGS) -lm -c -o $@ $<
+
+# ── 黏菌算法 ──────────────────────────────────────────────
+build/slime_mold.o: src/slime/slime_mold.c src/slime/slime_mold.h
+	$(CC) $(CFLAGS) -lm -c -o $@ $<
+
+# ── Windows 兼容层 ──────────────────────────────────────────
+build/win32.o: src/compat/win32.c src/compat/win32.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+ENGINE_OBJS += build/theia.o build/slime_mold.o

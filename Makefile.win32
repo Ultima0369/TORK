@@ -1,0 +1,99 @@
+# ═══════════════════════════════════════════════════════════════
+# TORK Windows 原生交叉编译 (MinGW-w64)
+# 用法: make -f Makefile.win32 [all|clean|run]
+# ═══════════════════════════════════════════════════════════════
+
+CC      = x86_64-w64-mingw32-gcc
+CFLAGS  = -O2 -Wall -Wextra -I. -Isrc -Isrc/engine -Isrc/learning \
+          -Isrc/network -Isrc/crypto -Isrc/nn -Isrc/slime \
+          -Isrc/compat -Isrc/bridge -Isrc/rollback \
+          -D_WIN32 -DWIN32_LEAN_AND_MEAN -lws2_32
+LDFLAGS = -lws2_32 -lm
+
+# ── 目录 ────────────────────────────────────────────────────
+SRC_DIR     = src
+ENGINE_DIR  = $(SRC_DIR)/engine
+LEARN_DIR   = $(SRC_DIR)/learning
+NET_DIR     = $(SRC_DIR)/network
+CRYPTO_DIR  = $(SRC_DIR)/crypto
+NN_DIR      = $(SRC_DIR)/nn
+SLIME_DIR   = $(SRC_DIR)/slime
+COMPAT_DIR  = $(SRC_DIR)/compat
+BRIDGE_DIR  = $(SRC_DIR)/bridge
+ROLL_DIR    = $(SRC_DIR)/rollback
+BUILD_DIR   = build
+
+# ── 源文件 ──────────────────────────────────────────────────
+ENGINE_SRCS = $(wildcard $(ENGINE_DIR)/*.c)
+LEARN_SRCS  = $(wildcard $(LEARN_DIR)/*.c)
+NET_SRCS    = $(wildcard $(NET_DIR)/*.c)
+CRYPTO_SRCS = $(wildcard $(CRYPTO_DIR)/*.c)
+NN_SRCS     = $(wildcard $(NN_DIR)/*.c)
+SLIME_SRCS  = $(wildcard $(SLIME_DIR)/*.c)
+COMPAT_SRCS = $(wildcard $(COMPAT_DIR)/*.c)
+BRIDGE_SRCS = $(wildcard $(BRIDGE_DIR)/*.c)
+ROLL_SRCS   = $(wildcard $(ROLL_DIR)/*.c)
+
+ALL_SRCS    = $(ENGINE_SRCS) $(LEARN_SRCS) $(NET_SRCS) \
+              $(CRYPTO_SRCS) $(NN_SRCS) $(SLIME_SRCS) \
+              $(COMPAT_SRCS) $(BRIDGE_SRCS) $(ROLL_SRCS)
+
+ALL_OBJS    = $(patsubst %.c, $(BUILD_DIR)/%.o, $(notdir $(ALL_SRCS)))
+
+# ── 目标 ────────────────────────────────────────────────────
+TARGET      = $(BUILD_DIR)/tork_win32.exe
+
+.PHONY: all clean run
+
+all: $(BUILD_DIR) $(TARGET)
+
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+# 编译规则: 自动查找所有 .c 文件
+$(BUILD_DIR)/%.o: $(ENGINE_DIR)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: $(LEARN_DIR)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: $(NET_DIR)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: $(CRYPTO_DIR)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: $(NN_DIR)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: $(SLIME_DIR)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: $(COMPAT_DIR)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: $(BRIDGE_DIR)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: $(ROLL_DIR)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# 特殊的汇编核心对象（预编译）
+$(BUILD_DIR)/tork_core.o: $(SRC_DIR)/core/tork_core.asm
+	@echo "WARNING: 汇编核心需要 Linux 交叉编译"
+	@echo "请先在 Linux 上: nasm -f win64 src/core/tork_core.asm -o build/tork_core.o"
+	@echo "然后将 build/tork_core.o 复制到此处"
+	# 如果找不到，创建一个桩
+	if not exist $(BUILD_DIR)/tork_core.o (
+		echo Creating stub tork_core.o > $(BUILD_DIR)/tork_core.o
+	)
+
+$(TARGET): $(ALL_OBJS) $(BUILD_DIR)/tork_core.o
+	$(CC) $^ -o $@ $(LDFLAGS)
+	@echo "✅ TORK Windows 原生构建完成: $@"
+
+clean:
+	rm -rf $(BUILD_DIR)
+
+run: $(TARGET)
+	./$(TARGET)

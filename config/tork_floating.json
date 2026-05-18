@@ -1,9 +1,0 @@
-{
-    "hotkey": "Control+Shift+T",
-    "auto_hide_sec": 0,
-    "font_size": 14,
-    "opacity": 0.93,
-    "model": "deepseek-v4-pro",
-    "base_url": "https://api.deepseek.com",
-    "api_key": "sk-20b042be9f5a410699b3ec9c9e3497e6"
-}

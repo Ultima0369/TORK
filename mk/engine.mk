@@ -107,3 +107,15 @@ test: build/unity.o
 	./build/test_pbft
 	@echo ""
 	@echo "All P2 unit tests completed."
+
+# ── TORK 教育计划：健康 + 联网 + 分析 ─────────────────────
+build/tork_health.o: src/engine/tork_health.c src/engine/tork_health.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+build/tork_http.o: src/network/tork_http.c src/network/tork_http.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+build/tork_analytics.o: src/learning/tork_analytics.c src/learning/tork_analytics.h
+	$(CC) $(CFLAGS) -lm -c -o $@ $<
+
+ENGINE_OBJS += build/tork_health.o build/tork_http.o build/tork_analytics.o

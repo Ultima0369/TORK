@@ -23,6 +23,7 @@
 #include "../learning/mutation_guide.h"
 #include "../learning/distributed.h"
 #include "../learning/pi_seed.h"
+#include "../bridge/tork_bitnet.h"
 #include "../learning/pi_index.h"
 #include "torkd.h"
 #include "task.h"
@@ -43,6 +44,8 @@
 
 static volatile sig_atomic_t core_pid_store = 0;
 static int do_restore = 0;
+static tork_bitnet_bridge_t g_bitnet_bridge;
+static int g_bitnet_enabled = 0;
 static int restored_files = 0;
 static int golden_exists = 0;           /* 不可变：一旦生成，不再自动覆盖 */
 static int crc_fail_count = 0;          /* CRC 连续失败计数 */
@@ -442,7 +445,16 @@ int main(int argc, char **argv) {
            tune_get_params().heartbeat_interval);
 
     /* ── Main soul loop ── */
-    sched_ctx_t sched;
+        /* -- BitNet b1.58 three-value brain -- */
+    tork_bitnet_init(&g_bitnet_bridge, "models/bitnet-2b-q4_0.gguf");
+    if (tork_bitnet_start(&g_bitnet_bridge, 8080) == 0) {
+        g_bitnet_enabled = 1;
+        printf("  BITNET: 3-value brain ready on port 8080\n");
+    } else {
+        printf("  BITNET: not started (non-fatal)\n");
+    }
+
+sched_ctx_t sched;
     scheduler_init(&sched, &soul, quiet);
 
     static int soul_errors = 0;

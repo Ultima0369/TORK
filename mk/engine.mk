@@ -131,3 +131,9 @@ build/win32.o: src/compat/win32.c src/compat/win32.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 ENGINE_OBJS += build/theia.o build/slime_mold.o
+
+# ── BitNet b1.58 三值大脑桥接器 ──────────────────────────
+build/tork_bitnet.o: src/bridge/tork_bitnet.c src/bridge/tork_bitnet.h
+	$(CC) $(CFLAGS) -lm -c -o $@ $<
+
+ENGINE_OBJS += build/tork_bitnet.o

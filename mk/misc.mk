@@ -97,3 +97,14 @@ verify:
 	@bash scripts/verify.sh
 
 
+
+
+# ── Mesh / P2 ─────────────────────────────────────────────────
+build/tork_pbft.o: src/mesh/tork_pbft.c src/mesh/tork_pbft.h
+	$(CC) $(CFLAGS) -Isrc/mesh -c -o $@ $<
+
+build/test_pbft: tests/unity.c tests/unity.h tests/test_pbft.c build/tork_pbft.o
+	$(CC) $(CFLAGS) -Isrc/mesh -Itests -o build/test_pbft tests/unity.c src/mesh/tork_pbft.c tests/test_pbft.c
+
+test-pbft: build/test_pbft
+	./build/test_pbft

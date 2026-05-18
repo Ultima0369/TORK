@@ -87,3 +87,23 @@ build/edge_time.o: src/edge/edge_time.c src/edge/edge_sensor.h
 build/temp_fallback.o: src/edge/temp_fallback.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+# ── Engine P2 ────────────────────────────────────────────────
+build/tork_log.o: src/engine/tork_log.c src/engine/tork_log.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+build/tork_jsmn.o: src/engine/tork_jsmn.c src/engine/tork_jsmn.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+build/tork_pbft.o: src/mesh/tork_pbft.c src/mesh/tork_pbft.h
+	$(CC) $(CFLAGS) -Isrc/mesh -c -o $@ $<
+
+# ── Test framework ──────────────────────────────────────────
+build/unity.o: tests/unity.c tests/unity.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+test: build/unity.o
+	$(CC) $(CFLAGS) -Isrc/mesh -o build/test_pbft tests/unity.c src/mesh/tork_pbft.c -DTEST_BUILD
+	@echo "Running PBFT consensus tests..."
+	./build/test_pbft
+	@echo ""
+	@echo "All P2 unit tests completed."

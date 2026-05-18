@@ -3,6 +3,7 @@
 #include "monitor.h"
 #include "fission.h"
 #include "blackboard.h"
+#include <inttypes.h>
 #include "inductor.h"
 #include "persistor.h"
 #include "dispatch.h"
@@ -13,7 +14,7 @@
 #include "../learning/experience.h"
 #include "../learning/branch.h"
 #include "../learning/pattern.h"
-#include "../learning/self_tune.h"
+#include "self_tune.h"
 #include "../learning/observer.h"
 #include "../learning/snapshot.h"
 #include "../learning/energy.h"
@@ -28,6 +29,9 @@
 #include "auditor.h"
 #include "../learning/self_cal.h"
 #include "../grid/grid_soul_connector.h"
+#include "../install/agreement.h"
+#include "../learning/growth_node.h"
+#include "../rollback/rollback.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -68,6 +72,7 @@ static void cleanup_core(int sig) {
     task_cleanup();
     br_cleanup();
     exp_save();
+    growth_save();
     _exit(0);
 }
 
@@ -87,6 +92,7 @@ static int start_core(void) {
     if ((pid_t)core_pid_store < 0) { close(hb_pipe[0]); close(hb_pipe[1]); return -1; }
     close(hb_pipe[0]);
     hb_confirm_fd = hb_pipe[1];
+    ps_set_core_pid((pid_t)core_pid_store);
     usleep(200000);
     return 0;
 }
@@ -117,6 +123,11 @@ static void init_subsystems(soul_t *soul) {
     mg_load();
     pi_seed_init();
     dispatch_init();
+    agree_init();
+    if (rb_init() != 0)
+        fprintf(stderr, "warning: rb_init failed — rollback unavailable\n");
+    growth_init();
+    growth_load();
     codegen_init();
     task_init();
     if (ind_init() != 0)
@@ -218,9 +229,15 @@ static void init_soul_fields(soul_t *soul) {
         memcpy(node_id, &tsc, 8);
         uint32_t pid_val = (uint32_t)(pid_t)core_pid_store;
         memcpy(node_id + 8, &pid_val, 4);
-        /* 尝试 RDRAND 增加熵 */
-        unsigned int rnd;
-        __asm__ __volatile__("1: rdrand %0; jnc 1b" : "=r"(rnd));
+        /* 尝试 RDRAND 增加熵 (带重试上限，防止VM/旧CPU无限循环) */
+        unsigned int rnd = 0;
+        int rdrand_ok = 0;
+        for (int _retry = 0; _retry < 10; _retry++) {
+            unsigned char cf;
+            __asm__ __volatile__("rdrand %0; setc %1" : "=r"(rnd), "=qm"(cf));
+            if (cf) { rdrand_ok = 1; break; }
+        }
+        if (!rdrand_ok) rnd = (unsigned int)(tsc >> 32) ^ (unsigned int)tsc ^ pid_val;
         memcpy(node_id + 12, &rnd, 4);
         soul_write_buf(soul, S_NODE_ID, node_id, 16);
     }
@@ -249,10 +266,13 @@ static void check_soul_crc(soul_t *soul, int tick) {
                 tick, crc_fail_count, fout.confidence);
         if (crc_fail_count >= 3) {
             fprintf(stderr, "[%4d] SOUL: 3 consecutive CRC failures — restoring golden backup\n", tick);
-            if (soul_restore_golden(soul, (pid_t)core_pid_store) == 0)
+            if (soul_restore_golden(soul, (pid_t)core_pid_store) == 0) {
                 printf("[%4d] SOUL: golden restore succeeded — entering 500-tick observation\n", tick);
-            else
-                fprintf(stderr, "[%4d] SOUL: golden restore FAILED — awaiting external intervention\n", tick);
+            } else {
+                fprintf(stderr, "[%4d] SOUL: golden restore FAILED — triggering ASM fuse via SIGUSR1\n", tick);
+                kill((pid_t)core_pid_store, SIGUSR1);
+                _exit(1);
+            }
         }
     } else {
         crc_fail_count = 0;
@@ -303,6 +323,25 @@ static void query_pattern(soul_t *soul, instinct_input_t *inp, int quiet) {
 
 /* ── Sync heartbeat interval to soul (WCET protected) ── */
 static uint64_t last_tick_tsc = 0;
+static int timing_fault_count = 0;
+
+/* Dynamic TSC frequency detection: measure TSC over a known sleep interval */
+static uint64_t g_tsc_per_ms = 2000000UL; /* default: ~2GHz */
+
+static void detect_tsc_frequency(void) {
+    uint64_t tsc0, tsc1;
+    __asm__ __volatile__("rdtsc" : "=A"(tsc0));
+    usleep(100000); /* 100ms sleep */
+    __asm__ __volatile__("rdtsc" : "=A"(tsc1));
+    uint64_t delta = tsc1 - tsc0;
+    /* tsc_per_ms = delta / 100 (since we slept 100ms) */
+    if (delta > 0) {
+        g_tsc_per_ms = delta / 100;
+        /* Sanity: clamp to reasonable range (100K-100M per ms = 100MHz-100GHz) */
+        if (g_tsc_per_ms < 100000UL) g_tsc_per_ms = 100000UL;
+        if (g_tsc_per_ms > 100000000UL) g_tsc_per_ms = 100000000UL;
+    }
+}
 
 static void sync_heartbeat(soul_t *soul, int tick) {
     uint16_t hb = (uint16_t)tune_get_params().heartbeat_interval;
@@ -312,20 +351,42 @@ static void sync_heartbeat(soul_t *soul, int tick) {
     __asm__ __volatile__("rdtsc" : "=A"(cur_tsc));
     if (last_tick_tsc != 0 && tick > 0) {
         uint64_t dt_tsc = cur_tsc - last_tick_tsc;
-        /* 估算 CPU 频率 (粗略): 假设 ~2GHz，1ms ≈ 2M TSC */
-        uint64_t dt_ms = dt_tsc / 2000000UL;
+        uint64_t dt_ms = dt_tsc / g_tsc_per_ms;
+
+        /* 时序防御: TSC增量低于安全阈值 → 降频攻击 */
+        if (dt_tsc < 100000000UL && tick > 5) {
+            timing_fault_count++;
+            fprintf(stderr, "[%4d] TIMING: TSC delta too low (%" PRIu64 "), fault %d/5\n",
+                    tick, dt_tsc, timing_fault_count);
+            if (timing_fault_count >= 5) {
+                fprintf(stderr, "[%4d] TIMING: 5 consecutive faults — triggering ASM fuse\n", tick);
+                kill((pid_t)core_pid_store, SIGUSR1);
+                _exit(1);
+            }
+        } else {
+            timing_fault_count = 0;
+        }
+
         if (dt_ms > (uint64_t)hb * 2 / 3) {
             uint16_t new_hb = (uint16_t)(dt_ms * 3 / 2);
             if (new_hb > 5000) new_hb = 5000;
             if (new_hb > hb) {
                 hb = new_hb;
                 if (tick < 10)
-                    fprintf(stderr, "[TORK] WCET: tick took %lums, raising hb to %ums\n",
-                            (unsigned long)dt_ms, (unsigned)hb);
+                    fprintf(stderr, "[TORK] WCET: tick took %" PRIu64 "ms, raising hb to %ums\n",
+                            dt_ms, (unsigned)hb);
             }
         }
     }
     last_tick_tsc = cur_tsc;
+
+    /* π混沌抖动: π值(0-9) → ±3% 心跳微抖动 */
+    uint8_t pi_val = soul_pi_last_val(soul);
+    int pi_jitter_pct = ((int)pi_val - 4) * 3;  /* -12..+15 */
+    int jitter_ms = (int)hb * pi_jitter_pct / 1000;
+    hb = (uint16_t)((int)hb + jitter_ms);
+    if (hb < 5) hb = 5;
+    if (hb > 2000) hb = 2000;
 
     int rc = soul_set_heartbeat_ms(soul, hb);
     if (rc != 0 && tick < 3) {
@@ -373,7 +434,9 @@ int main(int argc, char **argv) {
     init_services(&soul);
     init_soul_fields(&soul);
 
-    printf("TORK engine started. core PID=%d\n", (pid_t)core_pid_store);
+    detect_tsc_frequency();
+    printf("TORK engine started. core PID=%d, TSC freq=%" PRIu64 "/ms\n",
+           (pid_t)core_pid_store, g_tsc_per_ms);
     printf("TORK v3.17 | π-heartbeat | generation at 0x54 | learn at 0x4C\n");
     printf("polling %dms | code 200 | modify 10 | optimize 30 | nop 50 | fission 1000 | persist 1000\n\n",
            tune_get_params().heartbeat_interval);
